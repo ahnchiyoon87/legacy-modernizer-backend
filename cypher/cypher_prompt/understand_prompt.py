@@ -2,10 +2,12 @@ import json
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+
 
 # 역할 : 주어진 PLSQL 파일을 분석하여, 필요한 정보를 추출합니다
 # 매개변수: 
@@ -15,7 +17,6 @@ from langchain.schema.runnable import RunnablePassthrough
 # 반환값 : 추후에 분석에 사용되는 필요한 정보(변수, 테이블, 테이블 필드.. 등등)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-
 llm = ChatOpenAI(model_name="gpt-4o")
 
 prompt = PromptTemplate.from_template(
@@ -34,54 +35,31 @@ prompt = PromptTemplate.from_template(
 분석할 Stored Procedure Code의 범위 개수는 {count}개입니다. 정확히 {count}개의 'analysis' 항목을 생성해야 합니다.
 
 
-각 지정된 범위의 코드에 대해 다음 정보를 추출하세요:
-- 'range': 분석할 스토어드 프로시저의 정확한 범위
-- 'summary': 해당 범위 코드의 핵심 기능을 간결하게 요약 (한 문장으로)
-- 'Tables': 사용된 모든 테이블 이름과 그 필드(속성)
-- 'tableReference': 테이블 간의 참조 관계
-- 'variable': 사용된 변수, 데이터 타입, 주요 역할
-- 'primaryKey': 식별된 테이블의 기본키
-** 주의: 식별되지 않는 정보는 빈 배열 [] 또는 빈 문자열 ""로 표시하세요. 추측이나 부가 설명은 피하세요.** 
+지정된 범위의 코드 내용에 대해 다음 정보를 추출하세요:
+1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
+2. 테이블 이름 뒤에 공백이 있을 경우, 그 공백 이후의 텍스트는 테이블의 별칭이므로, 테이블 이름만을 사용하세요.
+3. 코드의 주요 내용을 간단한 한 문장으로 요약합니다.
+4. SQL CRUD 문에서 사용된 모든 테이블의 속성(필드)을 식별하세요.
+5. SQL CRUD 문을 분석하여 여러 테이블 간의 참조(JOIN) 관계를 'source'와 'target' 형태로 표현합니다.
+6. 코드 내에서 변수로 추론될 수 있는 모든 요소를 식별하고, 각 변수의 핵심 역할을 간단히 설명합니다.
+7. 제공된 모든 범위에 대한 'analysis'를 만들어야 하며, 테이블 필드(속성)와 일반 변수에 대한 구분을 확실히 하세요.
 
 
-세부 지침:
-1. 'range'와 'summary' 정보를 추출하기 위한 지침사항:
-   - 모든 제공된 범위에 대해 'analysis' 항목을 생성하세요.
-   - 각 범위의 코드 내용을 정확하고 간결하게 요약하세요.
-
-
-2. 'Tables', 'tableReferense', 'primaryKey' 정보를 추출하기 위한 지침사항:
-   - SQL CRUD 문에서 정확한 테이블 이름을 식별하고 나열하세요. 이때 별칭은 제외하고 실제 테이블 이름만 사용하세요.
-   - SQL CRUD 문에서 사용된 테이블의 모든 속성(필드)을 적절한 데이터 타입으로 식별하세요.
-   - SQL CRUD 문에서 여러 테이블 간의 외래 키 관계를 'source'와 'target' 형태로 표현합니다. (WHERE 절에서 다른 테이블의 필드로 조인하는 경우, 이를 외래 키 관계로 간주하세요.)
-   - SQL CRUD 문에서 테이블의 primaryKey를 식별하세요.
-
-
-3. 'variable' 정보를 추출하기 위한 지침사항:
-   - 코드 내에서 변수로 추론될 수 있는 모든 요소를 식별하고, 각 변수의 데이터 타입과 주요 역할을 간결히 설명하세요.
-   - 테이블 속성(필드)와 일반 변수를 명확히 구분하세요.
-
-
-아래 결과는 예시로, 다음 JSON 형식으로 제공하고, 추가 설명은 포함하지 마세요:
+다음은 결과의 예시로, 존재하는 데이터만 담아서 json 형식으로 나타내고, 부가 설명은 되도록이면 피해주세요:
 {{
+
     "analysis": [
-        {
-            "range": {{"startLine": 1, "endLine": 10}},
-            "summary": "사용자 정보를 조회하고 업데이트하는 프로시저",
-            "Tables": [
-                {{"USER_INFO": ["USER_ID", "USER_NAME", "EMAIL", "CREATED_DATE"]}},
-                {{"ORDER_HISTORY": ["ORDER_ID", "USER_ID", "ORDER_DATE", "TOTAL_AMOUNT"]}}
-            ],
-            "tableReference": [{{"source": "ORDER_HISTORY", "target": "USER_INFO"}}],
+
+        {{
+            "range": {{"startLine": startLine, "endLine": endLine}},
+            "summary": "코드의 한 줄 요약"
+            "Tables": [{{"tableName1": ["field1", "field2", "field3"]}}, {{"tableName2": ["field4", "field5"]}}],
+            "tableReference": [{{"source": "tableName1", "target": "tableName2"}}],
             "variable": [
-                {{"name": "v_user_id", "type": "NUMBER", "role": "사용자 ID 저장"}},
-                {{"name": "v_total_orders", "type": "NUMBER", "role": "사용자의 총 주문 수 계산"}}
-            ],
-            "primaryKey": [
-                {{"name": "v_user_id", "type": "NUMBER", "table": "USER_INFO"}},
-                {{"name": "v_total_orders", "type": "NUMBER", "table": "ORDER_HISTORY"}},
+                {{"name": "var1", "role": "사용자 ID 저장"}},
+                {{"name": "var2", "role": "총액 누적"}}
             ]
-        }
+        }}
     ]
 }}
 """)

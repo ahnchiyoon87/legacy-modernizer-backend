@@ -17,6 +17,7 @@ psycopg2-binary = "*"
 langchain-openai = "*"
 neo4j = "*"
 anthropic = "*"
+langchain-anthropic = "*"
 
 [dev-packages]
 

@@ -11,7 +11,7 @@ class Neo4jConnection:
     #   - user: 데이터베이스 사용자 이름 (기본값: "neo4j")
     #   - password: 데이터베이스 비밀번호 (기본값: "neo4j")
     def __init__(self):
-        uri = os.getenv("NEO4J_URI", "bolt://localhost:1689")
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687/test")
         user = os.getenv("NEO4J_USER", "neo4j")
         password = os.getenv("NEO4J_PASSWORD", "an1021402")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
@@ -29,7 +29,7 @@ class Neo4jConnection:
     async def execute_queries(self, queries):
         try:
             results = [] 
-            async with self.__driver.session() as session:
+            async with self.__driver.session(database="test") as session:
                 for query in queries:
                     query_result = await session.run(query)
                     query_data = await query_result.data()
@@ -46,7 +46,7 @@ class Neo4jConnection:
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
             default_query = custom_query or "MATCH (n)-[r]->(m) RETURN n, r, m"
-            async with self.__driver.session() as session:
+            async with self.__driver.session(database="test") as session:
                 result = await session.run(default_query)
                 graph = await result.graph()
 

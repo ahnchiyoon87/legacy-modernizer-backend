@@ -177,7 +177,12 @@ def process_procedure_node(procedure_code):
         # * 모든 주석 제거
         procedure_code = re.sub(r'/\*.*?\*/', '', procedure_code, flags=re.DOTALL)
         procedure_code = re.sub(r'--.*$', '', procedure_code, flags=re.MULTILINE)
-        return procedure_code
+
+        # * 처리된 코드에서 마지막 라인 번호 추출
+        last_line = procedure_code.strip().split('\n')[-1]
+        last_line_number = int(last_line.split(':')[0].strip())
+
+        return procedure_code, last_line_number
 
     except Exception:
         logging.exception("Error during code placeholder removal(understanding)")
@@ -387,8 +392,8 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             statementType = node['type']
             # * CREATE_PROCEDURE_BODY는 별도로 처리하는 메서드를 호출(그래프를 순차적으로 보여주기 위함)
             if statementType == "CREATE_PROCEDURE_BODY":
-                clean_code = process_procedure_node(summarized_code)
-                context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})
+                clean_code, last_line_number = process_procedure_node(summarized_code)
+                context_range.append({"startLine": node['startLine'], "endLine": last_line_number})
                 cypher_query.append(f"CREATE ({node_alias}:{statementType}{{id: {node['startLine']}, endLine: {node['endLine']}, name: '{statementType}[{node['startLine']}]', source: '{clean_code.replace('\n', '\\n').replace("'", "\\'")}'}})")
                 node_statementType.add(f"{statementType}_{node['startLine']}")
                 signal_task = asyncio.create_task(signal_for_process_analysis(send_queue, node['endLine']))
