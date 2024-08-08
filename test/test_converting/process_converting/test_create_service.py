@@ -16,9 +16,39 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from cypher.neo4j_connection import Neo4jConnection
 
 
-# * 인코더 설정 및 파일 이름 초기화
+# * 인코더 설정 및 파일 이름 및 변수 초기화 
 encoder = tiktoken.get_encoding("cl100k_base")
 fileName = None
+procedure_variables = []
+service_skeleton = None
+
+# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
+# 매개변수 : 
+#   - fileName : 스토어드 프로시저 파일의 이름
+# 반환값 : 전부 소문자로 전환된 프로젝트 이름
+def convert_to_lower_case_no_underscores(fileName):
+    return fileName.replace('_', '').lower()
+
+
+# 역할: 각 노드의 스토어드 프로시저 코드의 첫 라인에서 식별되는 키워드로 타입을 얻어냅니다
+# 매개변수: 
+#      - code : 특정 노드의 스토어드 프로시저 코드
+# 반환값: 식별된 키워드
+def identify_first_line_keyword(code):
+    try:
+        first_line = code.split('\n')[0]   
+        
+        # * '숫자: 숫자:' 형태 이후의 첫 단어를 기준으로 키워드를 식별합니다.
+        pattern = r"\d+:\s*\d+:\s*(DECLARE|SELECT|INSERT|UPDATE|DELETE|EXECUTE IMMEDIATE|CREATE OR REPLACE PROCEDURE|IF|FOR|COMMIT|MERGE|WHILE)\b"
+        match = re.search(pattern, first_line)
+
+        if match:
+            first_keyword = match.group(1)
+            return "OPERATION" if first_keyword == "EXECUTE IMMEDIATE" else first_keyword
+        return "ASSIGN"
+    except Exception:
+        logging.exception("Error occurred while identifying first line keyword(understanding)")
+        raise
 
 
 # 역할: 주어진 스토어드 프로시저 코드의 토큰의 개수를 계산하는 함수입니다.
@@ -27,7 +57,7 @@ fileName = None
 # 반환값: 계산된 토큰의 수
 def count_tokens_in_text(code):
     
-    if code is None: return 0
+    if code == "": return 0
 
     try:
         # * 코드를 토큰화하고 토큰의 개수를 반환합니다.
@@ -40,32 +70,20 @@ def count_tokens_in_text(code):
 
 # 역할: 주어진 범위에서 startLine과 endLine을 추출해서 스토어드 프로시저 코드를 잘라내는 함수입니다.
 # 매개변수: 
-#     - code : 스토어드 프로시저 코드
-#     - context_range : 잘라낼 범위를 나타내는 딕셔너리의 리스트
+#     - file_content : 스토어드 프로시저 파일 전체 내용
+#     - start_line : 시작 라인 번호
+#     - end_line : 끝 라인 번호
 # 반환값: 범위에 맞게 추출된 스토어드 프로시저 코드.
-def extract_code_within_range(code, context_range):
+def extract_node_code(file_content, start_line, end_line):
     try:
-        if not code or not context_range:
-            return ""
-
-        # * context_range에서 가장 작은 시작 라인과 가장 큰 끝 라인을 찾습니다.
-        start_line = min(range_item['startLine'] for range_item in context_range)
-        end_line = max(range_item['endLine'] for range_item in context_range)
-
-
-        # * 코드를 라인별로 분리합니다.
-        code_lines = code.split('\n')
-        
-
         # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
-        extracted_lines = [
-            line for line in code_lines 
-            if ':' in line and start_line <= int(line.split(':')[0].split('~')[0].strip()) <= end_line
-        ]
-        
-        return '\n'.join(extracted_lines)
+        extracted_lines = file_content[start_line-1:end_line]          
+
+
+        # * 추출된 라인들을 하나의 문자열로 연결합니다.
+        return ''.join(extracted_lines)
     except Exception:
-        logging.exception("Error occurred while extracting code within range(converting)")
+        logging.exception("Error occurred while extracting node code")
         raise
 
 
@@ -142,9 +160,10 @@ def create_focused_code(current_schedule, schedule_stack):
 # 매개변수: 
 #      - code : 스토어드 프로시저 코드
 # 반환값: 불필요한 정보가 제거된 스토어드 프로시저 코드.
-def remove_code_placeholders(code):
+def remove_unnecessary_information(code):
     try:
         if code == "": return code 
+
 
         # * 모든 주석을 제거합니다.
         code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
@@ -152,30 +171,6 @@ def remove_code_placeholders(code):
         # code = re.sub(r'^[\d\s:]*$', '', code, flags=re.MULTILINE)
         return code
     
-    except Exception:
-        logging.exception("Error during code placeholder removal(converting)")
-        raise
-
-
-# 역할: 프로시저 노드 코드에서 필요한 코드 부분만 추출하는 메서드입니다.
-# 매개변수: 
-#      - procedure_code : 프로시저 노드 부분의 스토어드 프로시저 코드.
-# 반환값: 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드.
-def process_procedure_node(procedure_code):
-    try:
-        # * ... code ... 가 처음 식별되는 라인을 찾은 뒤, 해당 라인의 이전 라인부터 삭제   
-        index = procedure_code.find('... code ...')
-        if index != -1:
-            newline_before_index = procedure_code.rfind('\n', 0, index)
-            newline_before_that = procedure_code.rfind('\n', 0, newline_before_index)
-            procedure_code = procedure_code[:newline_before_that]
-
-
-        # * 모든 주석을 제거합니다.
-        procedure_code = re.sub(r'/\*.*?\*/', '', procedure_code, flags=re.DOTALL)
-        procedure_code = re.sub(r'--.*$', '', procedure_code, flags=re.MULTILINE)
-        return procedure_code
-
     except Exception:
         logging.exception("Error during code placeholder removal(converting)")
         raise
@@ -202,38 +197,54 @@ async def fetch_variable_nodes(node_id):
         raise
 
 
+# 역할 : Service 클래스 파일 생성하는 함수
+# 매개변수 :
+#   - service_name : 생성된 서비스 클래스 이름
+#   - service_code : 생성된 서비스 클래스 코드
+#   - LLM_count : 호출된 LLM 횟수
+async def create_service_file(service_name, LLM_count, service_code):
+    service_directory = os.path.join('test', 'test_converting', 'converting_result', 'service')
+    os.makedirs(service_directory, exist_ok=True)
+    service_file_path = os.path.join(service_directory, f"service{LLM_count}.txt")
+    
+    async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:
+        await file.write(service_code)
+    
+    logging.info(f"\nSuccess Create {service_name}{LLM_count} Java File\n")
+
+
 # 역할: Service 클래스를 생성하기 위해 분석을 시작하는 함수입니다.
 # 매개변수: 
 #   data - 분석할 데이터 구조(ANTLR)
 #   file_content - 분석할 스토어드 프로시저 파일의 내용.
-#   service_skeleton - 서비스 클래스의 기본 구조.
 #   jpa_method_list - 사용된 JPA 메서드 목록.
 #   procedure_variable - 프로시저 선언부에서 선언된 변수 정보(입력 매개변수).
 # 반환값 : 없음
-async def analysis(data, file_content, service_skeleton, jpa_method_list, procedure_variable):
+async def analysis(data, file_content, jpa_method_list, procedure_variable):
     schedule_stack = []               # 스케줄 스택
-    context_range = []                # LLM이 분석할 코드의 범위
     variable_list = {}                # 특정 노드에서 사용된 변수 목록
     jpa_query_methods = []            # 특정 노드에서 사용된 JPA 쿼리 메서드 목록
-    procedure_variables = []          # 프로시저 선언부에서 선언된 변수 목록 
-    extract_code = None               # 범위 만큼 추출된 코드
     clean_code= None                  # 불필요한 정보(주석)가 제거된 코드
-    focused_code = None               # 전체적인 스토어드 프로시저 코드의 틀
+    focused_code = ""                 # 전체적인 스토어드 프로시저 코드의 틀
     service_code = None               # 서비스 클래스 코드
-    token_count = 0                   # 토큰 수
+    total_token_count = 0             # 토큰 수
     LLM_count = 0                     # LLM 호출 횟수
-
+    node_token_count = 0              # 노드에 대한 토큰 사이즈
+    statement_flag = 0                # 구문을 구분하는 플래그 (0 : 자식이 없는 단일 구문, 1: 자식이 있지만 토큰이 작은 구문, 2: 자식이 있지만 토큰이 매우 큰 구문, 3: converting에 쓸모 없는 구문 )
+    parent_id_flag = 0                # 부모의 시작라인을 저장하는 변수로, 부모 노드에 대한 처리가 끝났는지 판단
+    child_done_flag = 0               # 자식 노드에 대한 처리 여부를 나타내는 플래그 (0 : 자식이 아직 처리되지 않았음, 1: 모든 자식을 처리 했음)
+    start_summarzied_flag = 0         # 요약에 대한 필요성을 나타내는 플래그 (0 : 요약할 필요없음, 1: 요약이 필요함)
     logging.info("\n Start creating a service class \n")
 
 
     # 역할: llm에게 분석할 스토어드 프로시저 코드를 전달한 뒤, 해당 결과를 바탕으로 Service를 생성합니다.
     # 반환값 : Service 클래스 파일
     async def process_analysis_results():
-        nonlocal clean_code, token_count, LLM_count, focused_code, extract_code, service_code
+        nonlocal clean_code, total_token_count, LLM_count, focused_code, service_code
         
         try:
             # * 정리된 코드를 분석합니다(llm에게 전달)
-            analysis_result = convert_code(clean_code, service_code, variable_list, jpa_query_methods, procedure_variables)
+            analysis_result = convert_code(clean_code, service_code, variable_list, jpa_query_methods, procedure_variables, fileName)
             LLM_count += 1
 
 
@@ -241,20 +252,16 @@ async def analysis(data, file_content, service_skeleton, jpa_method_list, proced
             service_code = analysis_result['code']
 
 
-            # * 서비스 클래스를 파일로 생성합니다.
-            service_directory = os.path.join('test', 'test_converting', 'converting_result', 'service')  
-            os.makedirs(service_directory, exist_ok=True) 
-            service_file_path = os.path.join(service_directory, f"{analysis_result['name']}.txt")  
-            async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
-                await file.write(analysis_result['code'])  
-                logging.info(f"\nSuccess Create {analysis_result['name']} Java File\n")  
+            # * 서비스 클래스를 파일로 생성하고 SERVICE 틀을 초기화 합니다.
+            if start_summarzied_flag != 1:
+                await create_service_file(analysis_result['name'], LLM_count, analysis_result['code'])
+                service_code = service_skeleton
 
 
             # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
+            focused_code = ""
             clean_code = None
-            extract_code = None
-            token_count = 0
-            context_range.clear()
+            total_token_count = 0
             variable_list.clear()
 
         except Exception:
@@ -277,18 +284,19 @@ async def analysis(data, file_content, service_skeleton, jpa_method_list, proced
     # 매개변수: 
     #   node - 분석할 노드.
     #   schedule_stack - 스케줄들의 스택.
-    #   service_skeleton - 서비스 클래스의 기본 구조.
     #   parent_id - 현재 노드의 부모 노드 ID.
     #   jpa_method_list - 사용된 JPA 메서드 목록.
     #   procedure_variable - 프로시저 선언부에서 사용된 변수 정보.
     # 반환값: 없음
-    async def traverse(node, schedule_stack, service_skeleton, parent_id, jpa_method_list, procedure_variable):
-        nonlocal focused_code, token_count, clean_code, extract_code, service_code, procedure_variables
-        
+    async def traverse(node, schedule_stack, jpa_method_list, procedure_variable, parent_id):
+        nonlocal focused_code, total_token_count, clean_code, service_code, node_token_count, statement_flag, parent_id_flag, child_done_flag, start_summarzied_flag
+
+
         # * 순회를 시작하기에 앞서 필요한 정보를 초기화하고 준비합니다.
         summarized_code = extract_and_summarize_code(file_content, node)
-        check_node_size = count_tokens_in_text(remove_code_placeholders(summarized_code))
+        statementType = "ROOT" if node['startLine'] == 0 else ("DECLARE" if node['type'] == "DECLARE" else identify_first_line_keyword(summarized_code))
         children = node.get('children', [])
+        is_parent_done = (child_done_flag == 1 or start_summarzied_flag == 1) and parent_id_flag >= parent_id
         current_schedule = {
             "startLine": node['startLine'],
             "endLine": node['endLine'],
@@ -296,87 +304,84 @@ async def analysis(data, file_content, service_skeleton, jpa_method_list, proced
             "child": children,
         }
 
-        # * 서비스 클래스 코드 할당 및 Command 클래스에서 선언된 변수 목록을 할당합니다
-        if service_code is None:
-            service_code = service_skeleton
-            procedure_variables = list(procedure_variable)
+
+        # * 부모 노드에 대한 처리가 끝났을 경우, 플래그 변수들을 다시 초기화 합니다. 
+        if is_parent_done:
+            statement_flag = 0
+            child_done_flag = 0
+            if start_summarzied_flag == 1:
+                start_summarzied_flag = 0
 
 
-        # * 현재 노드에서 쓰인 jpa 쿼리 메서드를 찾아서 추가합니다
-        node_range = f"{node['startLine']}~{node['endLine']}"
-        found = False  
-        for jpa_method_dict in jpa_method_list:
-            if found:  
-                break
-            for key, value in jpa_method_dict.items():
-                formatted_key = key.split('_')[-1]
-                if node_range == formatted_key:
-                    jpa_query_methods.append({key: value})
-                    found = True  
-                    break
+        # * 각 노드의 토큰 수와 전체적인 토큰 수를 계산합니다. 만약 이 노드의 부모 노드가 이미 처리되었다면, 이 노드는 건너뛰고 토큰 수를 계산하지 않습니다.
+        if statementType not in {"OPERATION","CREATE OR REPLACE PROCEDURE", "ROOT", "DECLARE"} and child_done_flag != 1:
+            node_code = remove_unnecessary_information(extract_node_code(file_content, node['startLine'], node['endLine']))
+            clean_code = remove_unnecessary_information(focused_code)
+            node_token_count = count_tokens_in_text(node_code)
+            total_token_count = count_tokens_in_text(clean_code)
+            total_token_count += node_token_count
 
 
-        # * 해당 노드에서 사용된 변수 노드 목록을 가져옵니다
-        if node['type'] == "STATEMENT":
-            variable_nodes = await fetch_variable_nodes(node['startLine'])
-            variable_list[f"startLine_{node['startLine']}"] = variable_nodes
-
-
-        # * focused_code에서 분석할 범위를 기준으로 startLine이 가장 작고, endLine이 가장 큰걸 기준으로 추출합니다
-        extract_code = extract_code_within_range(focused_code, context_range)
-        clean_code = remove_code_placeholders(extract_code)
-
-
-        # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
-        token_count = count_tokens_in_text(clean_code)
-        if (check_node_size >=300 and context_range) or (token_count >= 500 and context_range) or (len(context_range) > 8):
+        # * 토큰 수를 검사하여 분석 여부를 결정합니다.
+        if (node_token_count >=1000 and clean_code) or (total_token_count >= 1200 and clean_code):
             signal_task = asyncio.create_task(signal_for_process_analysis())
             await asyncio.gather(signal_task)
 
 
-        # * focused_code가 없으면 새로 생성하고, 만약 있다면 확장합니다
-        if focused_code is None:
-            focused_code = create_focused_code(current_schedule, schedule_stack) 
+        # * 현재 스토어드 프로시저 노드가 어떤 종류인지 플래그로 구분
+        if statementType not in {"OPERATION", "DECLARE"} and not children:
+            statement_flag = 0
+        elif child_done_flag == 0 and statementType in {"IF", "WHILE", "FOR"} and node_token_count <= 1000:
+            statement_flag = 1
+            child_done_flag = 1
+            parent_id_flag = parent_id
+        elif statementType in {"IF", "WHILE", "FOR"} and node_token_count >= 1000:
+            statement_flag = 2
+            start_summarzied_flag = 1
+            parent_id_flag = parent_id
         else:
-            placeholder = f"{node['startLine']}: ... code ..."
-            focused_code = focused_code.replace(placeholder, summarized_code, 1)
+            statement_flag = 3
 
 
-        # * 자식이 없는 경우, 해당 노드의 범위를 분석할 범위로 저장합니다
-        if not children and node['type'] == "STATEMENT":
-            context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})
+        # * 플래그 변수 상태에 따라서 어떻게 분석할 코드를 선택할지를 결정
+        if statement_flag == 0 and child_done_flag == 0 and start_summarzied_flag != 1:
+            focused_code += "\n" + node_code
+        elif statement_flag == 1 and child_done_flag == 1 and start_summarzied_flag != 1:
+            focused_code += "\n" + node_code
+        elif statement_flag == 2 and start_summarzied_flag == 0:
+            schedule_stack.append(current_schedule)
 
 
-        # * 스케줄 스택에 현재 스케줄을 넣습니다
-        schedule_stack.append(current_schedule)
+        # * 자식을 가지고 있는 부모 노드가 매우 큰 경우, 요약을 진행  
+        if start_summarzied_flag == 1:
+            if focused_code == "":
+                focused_code = schedule_stack[-1]['code']
+            else:
+                placeholder = f"{node['startLine']}: ... code ..."
+                focused_code = focused_code.replace(placeholder, summarized_code, 1)
+ 
+
+        # * 해당 노드에서 사용된 변수 노드 목록을 가져옵니다
+        if statementType not in {"OPERATION","CREATE OR REPLACE PROCEDURE", "ROOT", "DECLARE"}:
+            variable_nodes = await fetch_variable_nodes(node['startLine'])
+            variable_list[f"startLine:{node['startLine']} endLine:{node['endLine']}"] = variable_nodes
 
 
         # * 현재 노드가 자식이 있는 경우, 해당 자식을 순회하면서 traverse함수를 (재귀적으로) 호출하고 처리합니다
         for child in children:
-            node_explore_task = asyncio.create_task(traverse(child, schedule_stack, service_skeleton, node['startLine'], jpa_method_list, procedure_variable))
+            node_explore_task = asyncio.create_task(traverse(child, schedule_stack, jpa_method_list, procedure_variable, node['startLine']))
             await asyncio.gather(node_explore_task)
-        
 
-        # * 조건하에 필요없는 스케줄 스택을 제거합니다 
-        schedule_stack[:] = filter(lambda schedule: schedule['child'] and schedule['endLine'] > current_schedule['startLine'], schedule_stack)
-        
-
-        # * 부모 노드가 가진 자식들이 모두 처리가 끝났다면, 부모 노드도 context_range에 포함합니다
-        if children and node['type'] == "STATEMENT":
-            context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})      
 
     try:
         # * traverse 함수를 호출하여, 노드 순회를 시작합니다
-        start_analysis_task = asyncio.create_task(traverse(data, schedule_stack, service_skeleton , None, jpa_method_list, procedure_variable))
+        start_analysis_task = asyncio.create_task(traverse(data, schedule_stack , jpa_method_list, procedure_variable, 0))
         await asyncio.gather(start_analysis_task)
 
 
-        # * 마지막 노드그룹에 대한 처리를 합니다
-        if context_range and focused_code is not None:
-            extract_code = extract_code_within_range(focused_code, context_range)
-            clean_code = remove_code_placeholders(extract_code)
-            signal_task = asyncio.create_task(signal_for_process_analysis())
-            await asyncio.gather(signal_task)
+        # TODO 마지막 노드그룹에 대한 처리를 합니다
+        if focused_code is not None:
+            pass
         logging.info("\nLLM 호출 횟수 : " + str(LLM_count))
 
     except Exception:
@@ -390,30 +395,24 @@ async def analysis(data, file_content, service_skeleton, jpa_method_list, proced
 # 반환값: 없음 
 async def start_service_processing(sp_fileName):
     
-    service_skeleton = """
+    # * 테스트에 필요한 데이터 준비 
+    service_skeleton_code = """
+package com.example.pbcac120calcsuipstd.service;
+
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import com.example.pbcac120calcsuipstd.command.OgadwCommand;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
-public class PayrollService {
+@Transactional
+public class OgadwService {
 
-    @PostMapping(path="/calculatePayroll")
-    public void calculatePayroll(@RequestBody CalculatePayrollCommand command) {
-        double overtimeHours = 0;
-        double overtimeRate = 1.5;
-        double overtimePay = 0;
-        double unpaidLeaveDays = 0;
-        double unpaidDeduction = 0;
-        double taxRate = 0.1;
-        double contractTaxRate = 0;
-        double taxDeduction = 0;
-        double baseSalary = 0;
-        String employeeType = "";
-
-        // Method logic goes here
-
-        return;
+    @PostMapping(path="/calculate")
+    public void calculate(@RequestBody OgadwCommand command) {
     }
 }
     """
@@ -427,17 +426,28 @@ public class PayrollService {
 
     procedure_variable = {
             "procedureParameters": [
-                "p_employee_id NUMBER",
-                "p_include_overtime BOOLEAN DEFAULT TRUE",
-                "p_include_unpaid_leave BOOLEAN DEFAULT TRUE",
-                "p_include_tax BOOLEAN DEFAULT TRUE"
+                "p_TL_APL_ID IN VARCHAR2",
+                "p_TL_ACC_ID IN VARCHAR2",
+                "p_APPYYMM IN VARCHAR2",
+                "p_WORK_GBN IN VARCHAR2",
+                "p_WORK_DTL_GBN IN VARCHAR2",
+                "p_INSR_CMPN_CD IN VARCHAR2",
+                "p_WORK_EMP_NO IN VARCHAR2",
+                "p_RESULT OUT VARCHAR2",
             ]
     }
+    
+    # * 전역 변수 초기화
+    global fileName, procedure_variables, service_skeleton
+    fileName = convert_to_lower_case_no_underscores(sp_fileName)
+    procedure_variables = list(procedure_variable["procedureParameters"])
+    service_skeleton = service_skeleton_code
 
 
+    # * 분석에 필요한 파일 경로 설정
     base_dir = os.path.dirname(__file__)  
-    analysis_file_path = os.path.abspath(os.path.join(base_dir, '..', '..', '..', 'cypher', 'analysis', '.json'))
-    sql_file_path = os.path.abspath(os.path.join(base_dir, '..', '..', '..', 'cypher', 'sql', '.txt'))
+    analysis_file_path = os.path.abspath(os.path.join(base_dir, '..', '..', '..', 'cypher', 'analysis', f'{sp_fileName}.json'))
+    sql_file_path = os.path.abspath(os.path.join(base_dir, '..', '..', '..', 'cypher', 'sql', f'{sp_fileName}.txt'))
     
 
     # * 분석에 필요한 파일들(스토어드 프로시저, ANTLR 분석)의 내용을 읽습니다
@@ -447,7 +457,7 @@ public class PayrollService {
 
 
     # * 읽어들인 데이터를 바탕으로 분석 메서드를 호출합니다.
-    await analysis(analysis_data, sql_content, service_skeleton, jpa_method_list, procedure_variable)
+    await analysis(analysis_data, sql_content, jpa_method_list, procedure_variable)
 
 
 # 서비스 생성을 위한 테스트 모듈입니다.
