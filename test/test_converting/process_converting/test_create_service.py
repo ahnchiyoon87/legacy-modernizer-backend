@@ -76,12 +76,12 @@ def count_tokens_in_text(code):
 # 반환값: 범위에 맞게 추출된 스토어드 프로시저 코드.
 def extract_node_code(file_content, start_line, end_line):
     try:
-        # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
-        extracted_lines = file_content[start_line-1:end_line]          
+        # 지정된 라인 번호를 기준으로 코드를 추출합니다.
+        extracted_lines = file_content[start_line-1:end_line]
 
-
-        # * 추출된 라인들을 하나의 문자열로 연결합니다.
-        return ''.join(extracted_lines)
+        # 추출된 라인들 앞에 라인 번호를 추가하고 하나의 문자열로 연결합니다.
+        numbered_lines = [f"{i + start_line}: {line}" for i, line in enumerate(extracted_lines)]
+        return ''.join(numbered_lines)
     except Exception:
         logging.exception("Error occurred while extracting node code")
         raise
@@ -181,19 +181,43 @@ def remove_unnecessary_information(code):
 #      - node_id : 노드의 고유 식별자.
 # 반환값: 노드에서 사용된 변수 노드의 목록.
 async def fetch_variable_nodes(node_id):
-    
     try:
-        # * 변수 노드를 가져오는 사이퍼쿼리를 준비한 뒤, 퀴리 실행하여, 가져온 정보를 추출합니다
-        query = [f"MATCH (v:Variable) WHERE v.role_{node_id} IS NOT NULL RETURN v"]
-        connection = Neo4jConnection()  
-        variable_nodes = await connection.execute_queries(query) 
-        variable_node_list = [node['v']['name'] for node in variable_nodes[0]]
-        logging.info("\nSuccess received Variable Nodes from Neo4J\n")
+        query = [f"MATCH (v:Variable) WHERE v.role_{node_id} IS NOT NULL RETURN v.id, v.name, v"]
+        connection = Neo4jConnection()
+        variable_nodes = await connection.execute_queries(query)
+        
+        variable_node_list = []
+        seen_roles = {}
+
+        
+        # * 전달된 변수 정보 데이터를 이용해서 사용하게 쉽게 재구성 
+        for node in variable_nodes[0]:
+            var_name = node['v']['name']
+            role = node['v'][f'role_{node_id}']
+
+
+            # * 역할 설명 정규화 (예: "저장합니다", "저장함", "저장됨" -> "저장")
+            normalized_role = re.sub(r'합니다$|함$|됨$', '', role).strip()
+
+
+            # * 중복된 역할 제거 후 리스트에 추가
+            if var_name not in seen_roles:
+                seen_roles[var_name] = {normalized_role}
+            else:
+                seen_roles[var_name].add(normalized_role)
+
+
+        # * 최종 결과를 리스트에 사전 형태로 추가
+        for name, roles in seen_roles.items():
+            variable_node_list.append({name: list(roles)})
+
+
+        logging.info("\nSuccessfully received variable nodes from Neo4J\n")
         await connection.close()
         return variable_node_list
 
     except Exception:
-        logging.exception("Error during bring variable node from neo4j(converting)")
+        logging.exception("Error during fetching variable nodes from Neo4J (converting)")
         raise
 
 
@@ -222,8 +246,9 @@ async def create_service_file(service_name, LLM_count, service_code):
 # 반환값 : 없음
 async def analysis(data, file_content, jpa_method_list, procedure_variable):
     schedule_stack = []               # 스케줄 스택
-    variable_list = {}                # 특정 노드에서 사용된 변수 목록
+    variable_list = []                # 특정 노드에서 사용된 변수 목록
     jpa_query_methods = []            # 특정 노드에서 사용된 JPA 쿼리 메서드 목록
+    schedule_stack_update = {}        # 스케줄 스택을 업데이트 하기 위한 사전
     clean_code= None                  # 불필요한 정보(주석)가 제거된 코드
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드의 틀
     service_code = None               # 서비스 클래스 코드
@@ -232,7 +257,8 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
     node_token_count = 0              # 노드에 대한 토큰 사이즈
     statement_flag = 0                # 구문을 구분하는 플래그 (0 : 자식이 없는 단일 구문, 1: 자식이 있지만 토큰이 작은 구문, 2: 자식이 있지만 토큰이 매우 큰 구문, 3: converting에 쓸모 없는 구문 )
     parent_id_flag = 0                # 부모의 시작라인을 저장하는 변수로, 부모 노드에 대한 처리가 끝났는지 판단
-    child_done_flag = 0               # 자식 노드에 대한 처리 여부를 나타내는 플래그 (0 : 자식이 아직 처리되지 않았음, 1: 모든 자식을 처리 했음)
+    root_parent_id_flag = 0           # 요약시 최상위 부모의 시작라인을 저장하는 변수로, 부모 노드에 대한 처리가 끝났는지 판단
+    child_done_flag = 0               # 자식 노드에 대한 처리 여부를 나타내는 플래그 (0 : 자식이 아직 처리되지 않았음, 1: 모든 자식을 처리 했음, 2 : 자식 요약중)
     start_summarzied_flag = 0         # 요약에 대한 필요성을 나타내는 플래그 (0 : 요약할 필요없음, 1: 요약이 필요함)
     logging.info("\n Start creating a service class \n")
 
@@ -252,6 +278,16 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
             service_code = analysis_result['code']
 
 
+            # * 스케줄 스택 업데이트
+            for start_line, end_line in schedule_stack_update.items():
+                for schedule in schedule_stack:
+                    pattern = re.compile(rf"^{start_line}: \.\.\. code \.\.\.$", re.MULTILINE)
+                    if pattern.search(schedule["code"]):
+                        replacement_text = f"{start_line}~{end_line}: SERVICE 전환 완료"
+                        schedule["code"] = pattern.sub(replacement_text, schedule["code"])
+                        break
+
+
             # * 서비스 클래스를 파일로 생성하고 SERVICE 틀을 초기화 합니다.
             if start_summarzied_flag != 1:
                 await create_service_file(analysis_result['name'], LLM_count, analysis_result['code'])
@@ -263,6 +299,7 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
             clean_code = None
             total_token_count = 0
             variable_list.clear()
+            schedule_stack_update.clear()
 
         except Exception:
             logging.exception("An error occurred during analysis results processing(converting)")
@@ -289,7 +326,7 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
     #   procedure_variable - 프로시저 선언부에서 사용된 변수 정보.
     # 반환값: 없음
     async def traverse(node, schedule_stack, jpa_method_list, procedure_variable, parent_id):
-        nonlocal focused_code, total_token_count, clean_code, service_code, node_token_count, statement_flag, parent_id_flag, child_done_flag, start_summarzied_flag
+        nonlocal focused_code, total_token_count, clean_code, service_code, node_token_count, statement_flag, parent_id_flag, child_done_flag, start_summarzied_flag, root_parent_id_flag, variable_list
 
 
         # * 순회를 시작하기에 앞서 필요한 정보를 초기화하고 준비합니다.
@@ -297,6 +334,7 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
         statementType = "ROOT" if node['startLine'] == 0 else ("DECLARE" if node['type'] == "DECLARE" else identify_first_line_keyword(summarized_code))
         children = node.get('children', [])
         is_parent_done = (child_done_flag == 1 or start_summarzied_flag == 1) and parent_id_flag >= parent_id
+        is_root_parent_done = (child_done_flag == 1 or start_summarzied_flag == 1) and root_parent_id_flag >= parent_id
         current_schedule = {
             "startLine": node['startLine'],
             "endLine": node['endLine'],
@@ -309,8 +347,10 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
         if is_parent_done:
             statement_flag = 0
             child_done_flag = 0
-            if start_summarzied_flag == 1:
-                start_summarzied_flag = 0
+        elif is_root_parent_done:
+            statement_flag = 0
+            child_done_flag = 0
+            start_summarzied_flag = 0
 
 
         # * 각 노드의 토큰 수와 전체적인 토큰 수를 계산합니다. 만약 이 노드의 부모 노드가 이미 처리되었다면, 이 노드는 건너뛰고 토큰 수를 계산하지 않습니다.
@@ -338,7 +378,7 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
         elif statementType in {"IF", "WHILE", "FOR"} and node_token_count >= 1000:
             statement_flag = 2
             start_summarzied_flag = 1
-            parent_id_flag = parent_id
+            root_parent_id_flag = parent_id
         else:
             statement_flag = 3
 
@@ -348,23 +388,23 @@ async def analysis(data, file_content, jpa_method_list, procedure_variable):
             focused_code += "\n" + node_code
         elif statement_flag == 1 and child_done_flag == 1 and start_summarzied_flag != 1:
             focused_code += "\n" + node_code
-        elif statement_flag == 2 and start_summarzied_flag == 0:
+        elif statement_flag == 2 and start_summarzied_flag == 1 and not schedule_stack:
             schedule_stack.append(current_schedule)
 
 
         # * 자식을 가지고 있는 부모 노드가 매우 큰 경우, 요약을 진행  
         if start_summarzied_flag == 1:
             if focused_code == "":
-                focused_code = schedule_stack[-1]['code']
-            else:
-                placeholder = f"{node['startLine']}: ... code ..."
-                focused_code = focused_code.replace(placeholder, summarized_code, 1)
- 
+                focused_code = schedule_stack[-1]['code'] 
+            schedule_stack_update[node['startLine']] = node['endLine']
+            placeholder = f"{node['startLine']}: ... code ..."
+            replacement_code = node_code if (statement_flag == 1 and child_done_flag == 1) else summarized_code
+            focused_code = focused_code.replace(placeholder, replacement_code, 1)
+
 
         # * 해당 노드에서 사용된 변수 노드 목록을 가져옵니다
         if statementType not in {"OPERATION","CREATE OR REPLACE PROCEDURE", "ROOT", "DECLARE"}:
-            variable_nodes = await fetch_variable_nodes(node['startLine'])
-            variable_list[f"startLine:{node['startLine']} endLine:{node['endLine']}"] = variable_nodes
+            variable_list = await fetch_variable_nodes(node['startLine'])
 
 
         # * 현재 노드가 자식이 있는 경우, 해당 자식을 순회하면서 traverse함수를 (재귀적으로) 호출하고 처리합니다
