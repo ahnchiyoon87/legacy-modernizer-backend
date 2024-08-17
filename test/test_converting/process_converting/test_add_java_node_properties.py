@@ -119,12 +119,12 @@ async def process_over_size_node(start_line, summarized_code):
 async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range):
     
     try:
-        # * 노드 업데이트 쿼리를 저장할 리스트
+        # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
         node_update_query = []
-
+        range_count = len(context_range)
 
         # * 정리된 코드를 분석합니다(llm에게 전달)
-        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, fileName, context_range)
+        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count)
         logging.info(f"\nsuccessfully converted code\n")
 
 
@@ -167,8 +167,9 @@ async def process_service_class(node_data_list):
     start_node_tokens = 0                 # 시작 노드의 토큰 수 
     over_size_parent_startLine = 0        # 토큰이 초과된 부모 노드의 시작 라인
     nomal_size_parent_startLine = 0       # 토큰이 초과되지 않는 부모 노드의 시작 라인
+    next_parent_node_start_line = 0       # 처리 완료된 부모의 다음 노드의 시작라인
     statement_flag = 0                    # 구문 유형을 나타내는 플래그
-    child_done_flag = 0                   # 자식 노드 처리 상태를 저장하는 플래그
+    node_processed = 0                    # 이미 처리된 노드 상태를 저장하는 플래그
     convert_sp_code = ""                  # converting할 프로시저 코드를 저장하는 변수
 
 
@@ -178,76 +179,119 @@ async def process_service_class(node_data_list):
         relationship = result['r']
         node_end = result['m']
         relationship_name = relationship[1]
+        print("-" * 40) 
         print(f"시작 노드: {node_start['startLine']}, ({node_start['name']}), {node_start['endLine']}, tokens: {node_start['token']}")
         print(f"관계: {relationship_name}")
         print(f"종료 노드: {node_end['startLine']}, ({node_end['name']}), {node_end['endLine']}, tokens: {node_end['token']}")
-        print("-" * 40) 
 
 
-        # * 부모 노드에 대한 처리가 끝났는지를 시작라인을 기준으로 판단 
-        # ? (parent_of는 node_start에 부모가 오고, node_end에 자식이 오며, 자식 노드의 순회가 끝났다면 다시 부모로 돌아와서 next로 이어집니다.)
-        is_over_size_parent_done = over_size_parent_startLine == node_start['startLine']
-        is_nomal_size_parent_done = nomal_size_parent_startLine == node_start['startLine']
+        # * 부모 노드에 대한 처리가 끝났는지, 모든 자식들의 처리가 끝났는지, 이미 처리된 부모 노드에서 새로운 부모 노드가 발견되었는지, 이미 처리된 자식노드인지 검토
+        all_child_traversed = next_parent_node_start_line !=0 and next_parent_node_start_line == node_start['startLine']
+        if all_child_traversed: print("모든 자식 노드 순회 완료, 다음 부모 노드 시작라인 초기화\n"); next_parent_node_start_line = 0
+        oversized_parent_processed = over_size_parent_startLine == node_start['startLine'] and relationship_name == "NEXT"
+        normal_size_parent_processed = nomal_size_parent_startLine == node_start['startLine'] and relationship_name == "NEXT"
+        child_node_already_processed = next_parent_node_start_line !=0 and next_parent_node_start_line != node_start['startLine'] and relationship_name == "NEXT"
+        encountered_inner_parent_node = next_parent_node_start_line !=0 and next_parent_node_start_line != node_start['startLine'] and relationship_name == "PARENT_OF"
 
 
-        # * 부모 노드가 중복처리 되는 경우를 방지하기 위해 continue를 쓰고, 부모 노드에 처리 완료시 플래그를 초기화합니다.
-        # ? 토큰을 넘지 않는 부모 노드는 분석이 가능하므로, 해당 부모의 범위를 context_range에 추가합니다.
-        if is_nomal_size_parent_done:
-            child_done_flag = 0
+        # * 이미 처리된 자식 노드에 대한 중복 처리 방지
+        if child_node_already_processed: print(f"이미 처리된 자식 노드 : [{node_start['startLine']}, {node_end['startLine']}] 에 대한 중복 처리\n"); continue
+
+
+        # * (사이즈가 작은)부모 노드가 중복처리 되는 경우를 방지하고, 변수값을 초기화 합니다.
+        if normal_size_parent_processed:
+            print(f"토큰이 작은 부모 노드 : [{node_start['startLine']}] 에 대한 중복 방지\n")
             context_range.append({"startLine": node_start['startLine'], "endLine": node_start['endLine']})
+            next_parent_node_start_line = node_end['startLine']
+            nomal_size_parent_startLine = 0
+            node_processed = 0
             continue
         
-        # * 부모 노드가 중복처리 되는 경우를 방지하기 위해 continue를 씁니다.
-        if is_over_size_parent_done:
-            continue
+
+        # * (사이즈가 큰)부모 노드가 중복처리 되는 경우를 방지하고, 변수값을 초기화합니다.
+        if oversized_parent_processed:
+            print(f"토큰이 큰 부모 노드 : [{node_start['startLine']}] 에 대한 중복 방지\n")
+            next_parent_node_start_line = node_end['startLine']
+            over_size_parent_startLine = 0
+            continue        
 
 
-        # * 총 토큰 수가 초과 되었다면 converting을 진행합니다.
-        if (node_start['token'] + total_tokens >= 1200):
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
+        # * 이미 처리된 노드 상태거나, 부모 노드 안에 다른 부모노드를 만나지 않았다면, 총 토큰 수 검사를 진행합니다.
+        if node_processed == 0 and not encountered_inner_parent_node:
+            if over_size_parent_startLine == 1 or nomal_size_parent_startLine == 1:
+                total_tokens_to_check = total_tokens + node_end['token']
+                print(f"자식 노드의 토큰 검사 : [{total_tokens} + {node_end['token']}] \n")
+            else:
+                total_tokens_to_check = total_tokens + node_start['token']
+                print(f"단일 노드 및 크기가 작은 부모 노드 토큰 검사 : [{total_tokens} + {node_start['token']}]\n")
+
+            if total_tokens_to_check >= 1200:
+                print(f"토큰 수 : [{total_tokens_to_check}], 토큰 초과 converting 진행합니다.\n")
+                (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
+                total_tokens_to_check = 0
+        else:
+            print("모든 자식이 처리가 완료되었으므로, 토큰 검사를 건너뜁니다.\n")
 
 
         # * 각 노드의 타입에 따라서 플래그를 설정합니다.
         if relationship_name == "PARENT_OF":
-            if start_node_tokens <= 1000 and not child_done_flag:            # 토큰을 초과하지 않는 부모 노드의 경우
-                statement_flag = 1                                           # child_done_flag를 1로 하여, 자식 노드들에 대한 처리가 이미 다 끝났다는 것을 알립니다.
-                child_done_flag = 1                                          # 부모 노드에 대한 순회가 끝났다는 것을 알아채기 위해 부모 노드의 시작라인을 기억합니다. 
+            if start_node_tokens > 1000:                                   # 토큰을 초과하는 부모 노드의 경우, 각 종 플래그를 설정합니다
+                statement_flag = 2                                         # 부모 노드에 대한 순회가 끝났다는 것을 알아채기 위해 부모 노드의 시작라인을 기억합니다.
+                over_size_parent_startLine = node_start['startLine']
+            elif encountered_inner_parent_node:                            # 이미 처리된 부모 노드에서 또 다른 부모 노드를 만났을 때, 플래그를 5로 설정합니다
+                statement_flag = 5
+            elif start_node_tokens <= 1000 and not node_processed:         # 토큰을 초과하지 않는 부모 노드의 경우, 각 종 플래그를 초기화합니다.
+                statement_flag = 1                                         # node_processed를 1로 하여, 자식 노드들에 대한 처리가 이미 다 끝났다는 것을 알립니다.
+                node_processed = 1                                         # 부모 노드에 대한 순회가 끝났다는 것을 알아채기 위해 부모 노드의 시작라인을 기억합니다. 
                 nomal_size_parent_startLine = node_start['startLine']
-            elif start_node_tokens > 1000:                                   # 토큰을 초과하는 부모 노드의 경우
-                statement_flag = 2                                           # 부모 노드에 대한 순회가 끝났다는 것을 알아채기 위해 부모 노드의 시작라인을 기억합니다.
-                over_size_parent_startLine = node_start['startLine']         
-        else:                                                                # 단일 노드의 경우
-            statement_flag = 3  
+            else:                                                          # 이미 node_processed가 1인 노드의 경우 플래그를 3으로 설정합니다.
+                statement_flag = 3         
+        else:                                                              # 단일 노드의 경우, 플래그를 4로 설정합니다
+            statement_flag = 4  
+        print(f"구문 타입 설정 : {statement_flag}\n")
 
 
         # * 총 토큰 수를 업데이트합니다.
-        if child_done_flag == 1 and statement_flag == 1:                     # 토큰을 초과하지 않는 부모 노드의 경우, 부모 노드의 토큰 수를 더합니다.
+        if node_processed == 1 and statement_flag == 1:                     # 토큰을 초과하지 않는 부모 노드의 경우, 부모 노드의 토큰 수를 더합니다.
             total_tokens += node_start['token']
-        elif statement_flag == 2:                                            # 토큰을 초과하는 부모 노드의 경우, 자식 노드의 토큰 수를 더합니다.
+            print(f"부모 노드 토큰 : {node_start['token']} 추가됨, 총 토큰: {total_tokens}\n")
+        elif statement_flag == 2:                                           # 토큰을 초과하는 부모 노드의 경우, 자식 노드의 토큰 수를 더합니다.
             total_tokens += node_end['token']
-        else:                                                                # 단일 노드의 경우, 자기 자신 토큰 수를 더합니다.
+            print(f"자식 노드 토큰 : {node_end['token']} 추가됨, 총 토큰: {total_tokens}\n")
+        elif statement_flag == 3 or statement_flag == 5:                    # 이미 처리된 노드이거나, 이미 처리된 부모 노드에서 다른 부모 노드를 만났을 경우, 넘어갑니다. 
+            print("이미 처리된 자식 노드로, 토큰 추가 없습니다.\n")
+        else:                                                               # 단일 노드의 경우, 자기 자신 토큰 수를 더합니다.
             total_tokens += node_start['token']
+            print(f"토큰 추가: 단일 노드 토큰 {node_start['token']} 추가됨, 총 토큰: {total_tokens}\n")
 
 
         # * 플래그 값에 따라서 라인 및 분석할 context_range를 할당합니다.
-        start_line = node_start['startLine'] if statement_flag == 3 else node_end['startLine']
-        end_line = node_start['endLine'] if statement_flag == 3 else node_end['endLine']
+        start_line = node_start['startLine'] if statement_flag == 4 else node_end['startLine']
+        end_line = node_start['endLine'] if statement_flag == 4 else node_end['endLine']
         context_range.append({"startLine": start_line, "endLine": end_line})
+        print(f"분석할 범위를 저장 : [{start_line}, {end_line}]\n")
 
 
         # * 플래그 값에 따라서 converting할 스토어드 프로시저 코드를 추가
-        if statement_flag == 2:                                             # 토큰을 초과한 부모 노드의 경우 요약본을 LLM에게 넘깁니다.                                          
+        if statement_flag == 2:
             await process_over_size_node(start_line, node_end['summarized_code'])
-        else:                                                               # 토큰을 초과하지 않는 부모 노드 및 단일 노드를 분석할 코드로 추가합니다.
-            node_code = node_start['node_code'] if (child_done_flag == 1 or statement_flag == 3) else node_end['node_code']
+            print("부모 노드의 토큰이 초과하여 별도 처리를 진행합니다.\n")
+        elif statement_flag not in [3, 5]:
+            node_code = node_start['node_code'] if statement_flag in [1, 4] else node_end['node_code']
+            node_type = "부모 노드 또는 단일 노드" if statement_flag in [1, 4] else "자식 노드"
+            print(f"{node_type} 코드 추가: {node_code}\n")
             convert_sp_code += f"\n{node_code}"
+        else:
+            print("이미 처리된 자식 노드로 추가 코드 필요 없음.\n")
 
 
         # * 변수 노드를 가져옵니다
         # TODO 수정 필요 한번에 다 들고와서 정리하는게 더 빠름, 부모 노드의 경우 node_end로 기준을 해야하므로 두번 호출해야함.. 어쩔수없음 -> 최적화 필요
-        if child_done_flag == 1:
+        if node_processed == 1:
+            print(f"부모 노드에서 사용된 변수 조회 : {node_start['startLine']}라인")
             variable_dict = await fetch_variable_nodes(node_start['startLine'], variable_dict)
         start_line = node_end['startLine'] if relationship_name == "PARENT_OF" else node_start['startLine']
+        print(f"단일 및 자식 노드에서 사용된 변수 조회 : {start_line}라인\n")
         variable_dict = await fetch_variable_nodes(start_line, variable_dict)
 
 
