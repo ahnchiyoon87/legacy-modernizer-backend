@@ -2,325 +2,114 @@ import logging
 import os
 import re
 import sys
+import textwrap
 import unittest
+import aiofiles
 import tiktoken
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from test_converting.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
-from test_converting.converting_prompt.service_prompt import convert_code
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from cypher.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 및 변수 초기화 
 encoder = tiktoken.get_encoding("cl100k_base")
-fileName = None
-procedure_variables = []
 service_skeleton = None
 
 
-# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
-# 매개변수 : 
-#   - fileName : 스토어드 프로시저 파일의 이름
-# 반환값 : 전부 소문자로 전환된 프로젝트 이름
-def convert_to_lower_case_no_underscores(fileName):
-    return fileName.replace('_', '').lower()
 
-
-# TODO 레이블 대문자 변경 필요!!
-# 역할: 해당 노드에서 사용된 변수노드를 가져오는 메서드입니다.
+# 역할: 크기가 매우 큰 노드의 요약 처리된 자바 코드에 실제 자식 자바 코드로 채워넣기 위한 함수
 # 매개변수: 
-#      - node_id : 노드의 고유 식별자.
-#      - variable_dict : 변수 리스트
-# 반환값: 노드에서 사용된 변수 노드의 목록.
-async def fetch_variable_nodes(node_id, variable_dict, variable_node):
-    try:
-        variable_nodes = [node for node in variable_node if f'role_{node_id}' in node['v'] and node['v'][f'role_{node_id}'] is not None]
-
-        # * 전달된 변수 정보 데이터를 이용해서 사용하게 쉽게 재구성 
-        for node in variable_nodes:
-            var_name = node['v']['name']
-            role_start = node['v'][f'role_{node_id}']
-
-            # * 역할 설명 정규화 (예: "저장합니다", "저장함", "저장됨" -> "저장")
-            normalized_role = re.sub(r'합니다$|함$|됨$', '', role_start).strip()
-
-            # * 중복된 역할 제거 후 리스트에 추가
-            if var_name not in variable_dict:
-                variable_dict[var_name] = [normalized_role]  # set 대신 list 사용
-            else:
-                if normalized_role not in variable_dict[var_name]:  # 중복 제거 조건 추가
-                    variable_dict[var_name].append(normalized_role)
-
-        return variable_dict
-
-    except Exception:
-        logging.exception("Error during fetching variable nodes from Neo4J (converting)")
-        raise
-
-
-# 역할 : 노드를 업데이트할 쿼리를 실행하여 노드에 Java 속성을 추가하는 함수입니다.
-# 매개변수 :
-#   - node_update_query : 노드를 업데이트할 쿼리 리스트
-async def process_node_update_java_properties(node_update_query):
-
-    # * Neo4j 연결 생성 및 쿼리 실행
-    connection = Neo4jConnection()
-    await connection.execute_queries(node_update_query)
-    logging.info(f"\nSuccessfully updated node properties\n")
-    await connection.close()
-
-
-# 역할 : 사이즈가 매우 큰 부모 노드를 처리하는 함수입니다.
-# 매개변수 :
-#   - start_line : 노드의 시작 라인
-#   - summarized_code : 자식 노드의 요약 처리된 코드
-async def process_over_size_node(start_line, summarized_code):
-
-    # * 노드 업데이트 쿼리를 저장할 리스트
-    node_update_query = []
-
-
-    # * 요약된 코드를 분석하여 결과를 가져옵니다
-    analysis_result = convert_parent_skeleton(summarized_code)
-    logging.info(f"\nSuccessfully Converted Parent Node\n")
-    service_code = analysis_result['code']
-
-
-    # * Neo4j 데이터베이스에서 해당 노드의 Java 코드를 업데이트하는 쿼리 생성
-    query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
-    node_update_query.append(query)     
-
-
-    # * 생성된 쿼리를 실행하는 함수를 호출
-    await process_node_update_java_properties(node_update_query)
-
-
-# 역할: llm에게 분석할 스토어드 프로시저 코드를 전달한 뒤, 해당 결과를 바탕으로 Service를 생성합니다.
-# 매개변수:
-#   - convert_sp_code : 스토어드 프로시저 코드
-#   - total_tokens : 총 토큰 수
-#   - variable_dict : 변수 리스트
-#   - context_range : 컨텍스트 범위
-# 반환값: 
-#   - convert_sp_code : 초기화된 스토어드 프로시저 코드
-#   - total_tokens : 초기화된 총 토큰 수
-#   - variable_dict : 초기화된 변수 리스트
-#   - context_range : 컨텍스트 범위
-async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range):
+#   - node_startLine : 부모 노드의 시작라인
+#   - summarized_java_code: 자식 자바 코드들이 모두 요약처리된 부모 자바 코드
+# 반환값 : 
+#   - summarized_java_code : 실제 코드로 대체되어 완성된 부모 자바 코드
+async def process_big_size_node(node_startLine, summarized_java_code, connection):
     
-    try:
-        # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
-        node_update_query = []
-        range_count = len(context_range)
+    # * 부모 노드의 시작 라인을 기준으로 자식 노드를 찾는 쿼리
+    query = [f"""
+    MATCH (n)-[r:PARENT_OF]->(m)
+    WHERE n.startLine = {node_startLine}
+    RETURN m
+    """]
+    
+    # * 자식 노드 리스트를 비동기적으로 그래프 데이터베이스에서 가져옴
+    child_node_list = await connection.execute_queries(query)
+    
 
-        # * 정리된 코드를 분석합니다(llm에게 전달)
-        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count)
-        logging.info(f"\nsuccessfully converted code\n")
-
-
-        # * 분석 결과 각각의 데이터를 추출하고, 필요한 변수를 초기화합니다 
-        for result in analysis_result['analysis']:
-            start_line = result['range']['startLine']
-            service_code = result['code']
-            query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
-            node_update_query.append(query)        
+    # * 자식 노드 리스트를 순회하면서 각 노드 처리
+    for node in child_node_list[0]:
+        child = node['m']
+        token = child['token']
+        print("\n 크기가 매우 큰 노드 처리중")
+        print(f"자식 노드 : [ 시작라인 : {child['startLine']}, 토큰 : {child['token']}, 끝라인 : {child['endLine']}")
         
-
-        # * 노드 업데이트 쿼리를 실행하는 메서드를 호출 
-        await process_node_update_java_properties(node_update_query)
-
-
-        # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
-        convert_sp_code = ""
-        total_tokens = 0
-        context_range.clear()
-        variable_dict.clear()
-
-        return (convert_sp_code, total_tokens, variable_dict, context_range)
+        # * 자식 노드의 토큰 크기에 따라 재귀적으로 처리하거나 기존 코드 사용하여 요약된 부모 코드에서 실제 자식 코드로 교체
+        java_code = await process_big_size_node(child['startLine'], child['java_code'], connection) if token > 1700 else child['java_code']
+        placeholder = f"{child['startLine']}: ...code..."
+        indented_code = textwrap.indent(java_code, '    ')
+        summarized_java_code = summarized_java_code.replace(placeholder, f"\n{indented_code}")
+    
+    return summarized_java_code
 
 
-    except Exception:
-        logging.exception("An error occurred during analysis results processing(converting)")
-        raise
-
-
-
-# 역할: 실제 서비스를 생성하는 함수입니다.
+# 역할: 서비스 클래스의 자바 코드를 생성하는 함수입니다.
 # 매개변수: 
-#   node_data_list - 노드와 관계에 대한 정보가 담긴 리스트
-# 반환값: 없음 
-async def process_service_class(node_list):
+#   - node_list : 노드와 그들의 관계를 포함하는 리스트
+# 반환값: 
+#   - all_java_code : 생성된 전체 자바 코드 문자열
+async def process_service_class(node_list, connection):
 
-    variable_dict = {}                    # 변수 정보를 저장하는 딕셔너리
-    context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
-    total_tokens = 0                      # 총 토큰 수
-    convert_sp_code = ""                  # converting할 프로시저 코드 문자열
-    traverse_node = node_list[0]          # 순회할 노드 리스트
-    variable_node = node_list[1]          # 변수 노드 리스트
-    small_parent_info = {}
-    big_parent_info = {}
-    another_big_parent_startLine = 0
+    previous_node_endLine = 0
+    all_java_code = ""
+    process_started = 0
 
-    # * Converting 하기 위한 노드의 순회 시작
-    for node in traverse_node:
+    # * service class를 생성하기 위한 노드의 순회 시작
+    for node in node_list:
         start_node = node['n']
         relationship = node['r'][1]
         end_node = node['m']
-        node_tokens = 0
+        token = start_node['token']
+        node_name = start_node['name']
         print("\n"+"-" * 40) 
         print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
         print(f"관계: {relationship}")
         print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
+        is_duplicate_or_unnecessary = (previous_node_endLine > start_node['startLine'] and previous_node_endLine) or ("OPERATION" in node_name and not process_started)
 
 
-        # * context_range에서 시작라인이 가능 작은 순서로 정렬 (llm이 혼동하지 않게)
-        context_range = sorted(context_range, key=lambda x: x['startLine'])
-        
-        
-        # * 만약 현재 노드의 시작라인이 최상위 부모 노드와 같다면 초기화합니다. 
-        if start_node['startLine'] == small_parent_info.get("startLine", 0) and relationship == "NEXT":
-            print(f"작은 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
-            small_parent_info["nextLine"] = end_node['startLine']
-            continue
-        elif start_node['startLine'] == big_parent_info.get("startLine", 0) and relationship == "NEXT":
-            print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
-            big_parent_info["nextLine"] = end_node['startLine']
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
+        # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
+        if is_duplicate_or_unnecessary:
+            print("자식노드 및 필요없는 노드로 넘어갑니다")
             continue
 
-
-        # * 최상위 부모의 같은 레벨의 다음 부모 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
-        if big_parent_info.get('nextLine', 0) == start_node['startLine']:
-            print(f"큰 부모 노드({big_parent_info['startLine']})의 모든 자식들 순회 완료")
-            big_parent_info.clear()
         
-        # * 최상위 부모의 같은 레벨의 다음 부모 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
-        if small_parent_info.get('nextLine', 0) == start_node['startLine']:
-            print(f"작은 부모 노드({small_parent_info['startLine']})의 모든 자식들 순회 완료1")
-            small_parent_info.clear()
-        elif small_parent_info.get('endLine') and small_parent_info['endLine'] < start_node['startLine']:
-            print(f"작은 부모 노드({small_parent_info['startLine']})의 모든 자식들 순회 완료2")
-            small_parent_info.clear()
-
-
-        # * 관계가 'PARENT_OF'이고, start_node의 토큰이 1500보다 크며 end_node의 토큰이 1500보다 작은 경우
-        if relationship == "PARENT_OF" and start_node['token'] > 1500 and end_node['token'] < 1500:
-            node_tokens += end_node['token']
-
-        # * 관계가 'PARENT_OF'이고, start_node의 토큰이 1500보다 작으며 small_parent_info가 없는 경우
-        elif relationship == "PARENT_OF" and start_node['token'] < 1500 and not small_parent_info:
-            node_tokens += start_node['token']
-
-        # * 관계가 'NEXT'이고, small_parent_info와 big_parent_info 둘 다 없는 경우
-        elif relationship == "NEXT" and not small_parent_info and not big_parent_info:
-            node_tokens += start_node['token']
-
-
-        # * 총 토큰 수 검사를 진행합니다.
-        if (total_tokens + node_tokens >= 1200 or len(context_range) >= 10) and context_range:
-            print(f"토큰 및 결과 범위 초과로 converting 진행합니다.")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
-        print(f"토큰 합계 : {total_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
-        total_tokens += node_tokens
-
-
-        # * 특정 부모에 대한 자식 처리 도중 결과 개수 초과로 converting이 되었을 때를 위한 할당   
-        if small_parent_info and not convert_sp_code and relationship == "PARENT_OF":
-            print(f"다시 부모 정보를 할당")
-            convert_sp_code = small_parent_info['code']
-            total_tokens = small_parent_info['token']
-
-
-        # * 관계 타입에 따라 노드의 토큰 수를 파악하여 각 변수값을 할당합니다. 
-        if relationship == "PARENT_OF":
-            
-            # * 부모 노드의 크기가 매우 큰 경우 처리 
-            if start_node['token'] >= 1700:
-                if not big_parent_info: 
-                    await process_over_size_node(start_node['startLine'], start_node['summarized_code'])
-                    big_parent_info = {"startLine": start_node['startLine'], "nextLine": 0}
-                if end_node['token'] >= 1700:
-                    await process_over_size_node(end_node['startLine'], end_node['summarized_code'])
-                else:
-                    another_big_parent_startLine = start_node['startLine']
-                    convert_sp_code += f"\n{end_node['node_code']}"
-                    context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                    variable_dict = await fetch_variable_nodes(end_node['startLine'], variable_dict, variable_node)
-            
-            # * 부모의 노드 크기가 작은 경우  
-            else:
-                if not small_parent_info:
-                    convert_sp_code += f"\n{start_node['node_code']}"
-                    small_parent_info = {"startLine": start_node['startLine'], "endLine": start_node['endLine'], "nextLine": 0, "code": start_node['node_code'], "token": start_node['token']}            
-                    if not big_parent_info: 
-                        context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']}) 
-                        variable_dict = await fetch_variable_nodes(start_node['startLine'], variable_dict, variable_node)
-                    context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                    variable_dict = await fetch_variable_nodes(end_node['startLine'], variable_dict, variable_node)
-                else:
-                    context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                    variable_dict = await fetch_variable_nodes(end_node['startLine'], variable_dict, variable_node)
-
-
-        # * 관계가 'NEXT'고, 작은 부모 정보가 설정되지 않은 경우, 시작 노드의 토큰을 할당합니다.
-        elif not small_parent_info and not big_parent_info:
-            convert_sp_code += f"\n{start_node['node_code']}"
-            context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']})
-            variable_dict = await fetch_variable_nodes(start_node['startLine'], variable_dict, variable_node)
-        elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
-            print(f"또 다른 부모 노드의 종료 converting 진행")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
+        # * 노드의 토큰 크기에 따라 처리 방식 결정
+        if token > 1700:
+            java_code = await process_big_size_node(start_node['startLine'], start_node['java_code'], connection)
         else:
-            print("아무것도 처리되지 않습니다.")
-    
-    
-    # * 마지막 그룹에 대한 처리를 합니다.
-    if context_range and convert_sp_code:
-        print("순회가 끝났지만 남은 context_range와 convert_sp_code가 있어 converting을 진행합니다.")
-        (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range)
+            java_code = start_node['java_code']
 
 
-# 역할: 서비스를 생성하기 위한 데이터를 준비하는 함수입니다.
-# 매개변수: 
-#   sp_fileName - 스토어드 프로시저 파일 이름
-# 반환값: 없음 
-async def start_service_processing(sp_fileName):
-    
-    # * 서비스 스켈레톤
-    service_skeleton_code = """
-@RestController
-public class OgadwService {{
-    @PostMapping(path="/calculate")
-    public void calculate(@RequestBody OgadwCommand command) {{
-            //Here is business logic 
-    }}
+        # * 처리 상태 초기화 및 Java 코드 추가
+        process_started = 1
+        all_java_code += java_code + "\n\n"
+        previous_node_endLine = start_node['endLine']
 
-}}
-    """
 
-    # * Command 클래스의 변수
-    procedure_variable = {
-            "procedureParameters": [
-                "p_TL_APL_ID IN VARCHAR2",
-                "p_TL_ACC_ID IN VARCHAR2",
-                "p_APPYYMM IN VARCHAR2",
-                "p_WORK_GBN IN VARCHAR2",
-                "p_WORK_DTL_GBN IN VARCHAR2",
-                "p_INSR_CMPN_CD IN VARCHAR2",
-                "p_WORK_EMP_NO IN VARCHAR2",
-                "p_RESULT OUT VARCHAR2",
-            ]
-    }
+    return all_java_code
+
+
+# 역할: 노드 정보를 사용하여 서비스 클래스를 생성합니다. 
+# 매개변수: 없음
+async def start_create_service_class():
     
 
-    # * 전역 변수 초기화(프로시저 파일, command_class 변수, 서비스 틀)
-    global fileName, procedure_variables, service_skeleton
-    fileName = convert_to_lower_case_no_underscores(sp_fileName)
-    procedure_variables = list(procedure_variable["procedureParameters"])
-    service_skeleton = service_skeleton_code
+    # * 전역 변수
+    global service_skeleton
+
 
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
@@ -329,14 +118,14 @@ public class OgadwService {{
         # * 노드와 관계를 가져오는 쿼리 
         node_query = [
             """
-            MATCH (n)-[r]->(m)
+            MATCH (n)-[r:NEXT]->(m)
             WHERE NOT (
                 n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY OR
-                m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY
+                m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY OR
+                r:PARENT_OF
             )
             RETURN n, r, m
-            """,
-            "MATCH (v:Variable) RETURN v"
+            """
         ]
 
         
@@ -345,7 +134,114 @@ public class OgadwService {{
         
 
         # * 결과를 함수로 전달
-        await process_service_class(results)
+        all_java_code = await process_service_class(results[0], connection)
+        
+
+        # * 서비스 스켈레톤
+        service_skeleton_code = f"""
+package com.example.pbcac120calcsuipstd.service;
+
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import com.example.pbcac120calcsuipstd.command.PBCac120CalcSuipStdCommand;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
+
+@RestController
+@Transactional
+public class PBCac120CalcSuipStdService {{
+
+    @PostMapping(path="/Endpoint")
+    public void process(@RequestBody PBCac120CalcSuipStdCommand command) {{
+        String vResultValue = "";
+        long vDivnCnt = 0;
+        long vCnt = 0;
+        long vIdSeq = 0;
+        String vTopDivnCd = "";
+        String vSql = "";
+        String vSqlInsert = "";
+        String vSqlSelect = "";
+        String vSqlFrom = "";
+        String vSqlGroup = "";
+        String vSqlSet = "";
+        String vSqlWhere = "";
+        String vSqlWhere01 = "";
+        String vSqlWhere02 = "";
+        String vSqlWhere03 = "";
+        String vSqlWhere04 = "";
+        String vSqlWhere05 = "";
+        String vSqlWhere06 = "";
+        String vSqlUpdate = "";
+        String vSqlJoin = "";
+        String vStdDataCol = "";
+        String vStdSuipDataCol = "";
+        String vStdInsertRst = "";
+        String vStdSelectRst = "";
+        String vStdGroupRst = "";
+        String vCarStdDataCol = "";
+        String vCarStdSuipDataCol = "";
+        String vCarStdInsertRst = "";
+        String vCarStdSelectRst = "";
+        String vCarStdGroupRst = "";
+        String vGenStdDataCol = "";
+        String vGenStdSuipDataCol = "";
+        String vGenStdInsertRst = "";
+        String vGenStdSelectRst = "";
+        String vGenStdGroupRst = "";
+        long iIdx = 0;
+        long iMax = 0;
+        String vInsrCmpnCd = "";
+        String vSuipCommGbn = "";
+        String vStdComCd = "";
+        String vDataCd = "";
+        String vSuipDataCd = "";
+        String vAggregateExp = "";
+        String vDtType = "";
+        String vDtStandard = "";
+        long vSortNo = 0;
+        long vCalcOrder = 0;
+        String vCalcSign = "";
+        String vCalcSignVal = "";
+        String vSrcExcelCd = "";
+        String vSrcSuipComCd = "";
+        String vSrcFlt1Cd = "";
+        String vSrcFlt1CompCd = "";
+        String vSrcFlt1Val = "";
+        String vSrcFlt2Cd = "";
+        String vSrcFlt2CompCd = "";
+        String vSrcFlt2Val = "";
+        String vSrcFlt3Cd = "";
+        String vSrcFlt3CompCd = "";
+        String vSrcFlt3Val = "";
+        String vSrcFlt4Cd = "";
+        String vSrcFlt4CompCd = "";
+        String vSrcFlt4Val = "";
+        String vSrcFlt5Cd = "";
+        String vSrcFlt5CompCd = "";
+        String vSrcFlt5Val = "";
+        String vSrcFlt6Cd = "";
+        String vSrcFlt6CompCd = "";
+        String vSrcFlt6Val = "";
+        String vSrcSuipComCdMatch = "";
+        String vSrcSuipComCdOrg = "";
+        String vStndCarCategory = "";
+
+{textwrap.indent(all_java_code, '        ')}
+    }}
+}}
+        """
+        service_skeleton = service_skeleton_code
+        
+        
+        # * 서비스 클래스 파일을 생성합니다.  
+        service_directory = os.path.join('test', 'test_converting', 'converting_result','service')
+        os.makedirs(service_directory, exist_ok=True)
+        service_path = os.path.join(service_directory, "PBCac120CalcSuipStdService.java")
+        async with aiofiles.open(service_path, 'w', encoding='utf-8') as file:
+            await file.write(service_skeleton)
+            logging.info(f"\nSuccess Create PBCac120CalcSuipStdService Java File\n")
 
 
     except Exception as e:
@@ -357,7 +253,7 @@ public class OgadwService {{
 # 서비스 생성을 위한 테스트 모듈입니다.
 class TestAnalysisMethod(unittest.IsolatedAsyncioTestCase):
     async def test_create_service(self):
-        await start_service_processing("P_B_CAC120_CALC_SUIP_STD")
+        await start_create_service_class()
 
 
 if __name__ == "__main__":
