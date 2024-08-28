@@ -181,29 +181,32 @@ def extract_node_code(file_content, start_line, end_line):
         raise
 
 
-# 역할: 프로시저 노드 코드에서 필요한 코드 부분만 추출하는 메서드입니다.
+# 역할: 프로시저, 선언 노드 코드에서 필요한 코드 부분만 추출하는 메서드입니다.
 # 매개변수: 
-#      - procedure_code : 프로시저 노드 부분의 스토어드 프로시저 코드.
-# 반환값: 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드.
-def process_procedure_node(procedure_code):
+#      - sp_code : 프로시저, 선언 노드 부분의 스토어드 프로시저 코드.
+# 반환값: 변수 선언 부분만 필터링된 코드.
+def filter_procedure_declare_code(sp_code):
     try:
 
-        # * AS 키워드를 찾아서 AS 이후 모든 라인을 제거합니다.
-        as_index = procedure_code.find(' AS')
+        # * 프로시저 키워드를 찾아서 해당 이후 라인 부터 시작합니다.
+        create_index = sp_code.find('CREATE OR REPLACE PROCEDURE')
+        if create_index != -1:
+            newline_after_create = sp_code.find('\n', create_index)
+            sp_code = sp_code[newline_after_create + 1:]
+
+
+        # * AS 키워드를 찾아서 AS를 포함한 줄부터 모든 라인을 제거합니다.
+        as_index = sp_code.find('AS')
         if as_index != -1:
-            newline_after_as = procedure_code.find('\n', as_index)
-            procedure_code = procedure_code[:newline_after_as]
+            newline_before_as = sp_code.rfind('\n', 0, as_index)
+            sp_code = sp_code[:newline_before_as]
 
 
         # * 모든 주석 제거
-        procedure_code = re.sub(r'/\*.*?\*/', '', procedure_code, flags=re.DOTALL)
-        procedure_code = re.sub(r'--.*$', '', procedure_code, flags=re.MULTILINE)
+        sp_code = re.sub(r'/\*.*?\*/', '', sp_code, flags=re.DOTALL)
+        sp_code = re.sub(r'--.*$', '', sp_code, flags=re.MULTILINE)
 
-        # * 처리된 코드에서 마지막 라인 번호 추출
-        last_line = procedure_code.strip().split('\n')[-1]
-        last_line_number = int(last_line.split(':')[0].strip())
-
-        return procedure_code, last_line_number
+        return sp_code
 
     except Exception:
         logging.exception("Error during code placeholder removal(understanding)")
@@ -236,21 +239,61 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
     # 역할: llm에게 분석할 코드를 전달한 뒤, 해당 결과를 바탕으로 사이퍼 쿼리를 생성합니다
     # 반환값 : 생성된 사이퍼쿼리
     async def process_analysis_results():
-        nonlocal clean_code, token_count, LLM_count, focused_code, extract_code
-        commands = ["DECLARE", "SELECT", "INSERT", "ASSIGN", "UPDATE", "DELETE", "OPERATION", "CREATE_PROCEDURE_BODY", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
+        nonlocal clean_code, token_count, LLM_count, focused_code, extract_code, context_range
+        commands = ["SELECT", "INSERT", "ASSIGN", "UPDATE", "DELETE", "OPERATION", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
         
         try:
             # * 전달된 코드를 llm에게 보냄으로써, 분석을 시작합니다
             context_range_count = len(context_range)
-            analysis_result = understand_code(clean_code, context_range, context_range_count)
+            context_range = sorted(context_range, key=lambda x: x['startLine'])
+            table_fields = defaultdict(set)
             LLM_count += 1
+
+
+            # * LLM 호출 
+            analysis_result = understand_code(clean_code, context_range, context_range_count)
             
 
             # * llm의 분석 결과에서 변수 및 테이블 정보를 추출하고, 필요한 변수를 초기화합니다 
             table_references = analysis_result.get('tableReference', [])
-            tables = analysis_result.get('Tables', [])
-            variables = analysis_result.get('variable', [])
-            update_variables = True
+            tables = analysis_result.get('Tables', {})
+            variables_list = analysis_result.get('variable', {})
+
+
+            # * 변수 노드의 정보(역할)을 업데이트합니다.
+            for var_startLine, variables in variables_list.items():
+                for variable in variables:
+                    var_name = variable['name']
+                    var_role = variable['role'].replace("'", "\\'")
+                    variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}'"
+                    cypher_query.append(variable_update_query)
+
+            
+            # * 테이블의 필드를 재구성
+            for table, fields in tables.items():
+                table_name = table.split('.')[-1]
+                table_fields[table_name].update(fields)
+                    
+
+            # * 테이블 노드 생성을 위한 사이퍼쿼리를 생성합니다.
+            for table, fields in table_fields.items():
+                if not fields or '*' in fields:
+                    table_query = f"MERGE (t:Table {{name: '{table}'}})"
+                else:  
+                    fields_update_string = ", ".join([f"t.field_{i} = '{field}'" for i, field in enumerate(fields)])
+                    table_query = f"MERGE (t:Table {{name: '{table}'}}) SET {fields_update_string}"
+                cypher_query.append(table_query)
+
+
+            # * 테이블간의 참조 관계를 위한 사이퍼쿼리를 생성합니다.
+            for reference in table_references:
+                source_table = reference['source'].split('.')[-1]
+                target_table = reference['target'].split('.')[-1]
+                
+                # * 자기 자신의 테이블을 참조하는 경우 무시합니다
+                if source_table != target_table:
+                    table_reference_query = f"MERGE (source:Table {{name: '{source_table}'}}) MERGE (target:Table {{name: '{target_table}'}}) MERGE (source)-[:REFERENCES]->(target)"
+                    cypher_query.append(table_reference_query)
 
 
             # * llm의 분석 결과에서 각 데이터를 추출하고, 필요한 변수를 초기화합니다 
@@ -259,10 +302,8 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                 if start_line == 0: continue
                 end_line = result['endLine']
                 summary = result['summary']
-                table_names = result.get('tableName', [])
-
+                tableName = result.get('tableName', [])
                 table_relationship_type = None
-                variable_relationship_type = None
                 statement_type = None
                 first_table_name = None
 
@@ -287,81 +328,17 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                             table_relationship_type = "EXECUTE"
                         statement_type = command
                         break
-
-
-                # * 변수와 노드의 관계를 생성하기 위한 관계를 생성합니다
-                if statement_type in ["CREATE_PROCEDURE_BODY", "DECLARE"]:
-                    variable_relationship_type = "SCOPE"
-
-
-                # * 변수 및 노드를 생성하거나, 변수와 노드간의 관계를 생성합니다
-                for start_line, variables in variables.items():
-                    for variable in variables:
-                        var_name = variable['name']
-                        var_role = variable['role'].replace("'", "\\'")
-                        var_type = variable['type']
-                        var_startLine = start_line
-                    
-                        # * SCOPE일 때만 변수 노드를 생성합니다.
-                        if variable_relationship_type == "SCOPE":
-                            variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}', v.type = '{var_type}'"
-                            cypher_query.append(variable_query)
-                            variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {var_startLine}}}) MERGE (v:Variable {{name: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
-                            cypher_query.append(variable_relationship_query)
-                        
-                        # * 기존 변수 노드의 값을 업데이트합니다.
-                        elif update_variables:
-                            variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}'"
-                            cypher_query.append(variable_update_query)
-                            update_variables = False
                 
 
-
-                # * 테이블별로 필드 타입과 필드명을 저장할 중첩 defaultdict를 생성합니다.
-                table_fields = defaultdict(lambda: defaultdict(set))
-
-
-
-                # * 테이블 노드와 관계를 생성하기 위해 테이블의 정보를 재구성합니다.
-                for name in table_names:
-                    table_name = name.split('.')[-1]
-                    for table_dict in tables:
-                        matching_fields = next((fields for full_name, fields in table_dict.items() if full_name.split('.')[-1] == table_name), None)
-                        if matching_fields:
-                            for field in matching_fields:
-                                field_type, field_name = field.split(':', 1)
-                                table_fields[table_name][field_type].add(field_name)
-                            break  # 테이블 정보를 찾았으므로 루프 종료
-                                
-                    if first_table_name is None:
-                        first_table_name = table_name
+                # * 첫 번째 테이블의 이름을 기억(관계 생성을 위함)
+                if first_table_name is None and tableName:
+                    first_table_name = tableName[0].split('.')[-1]
 
 
-
-                # * 테이블 및 테이블과 노드간의 관계 생성을 위한 사이퍼쿼리를 생성합니다. (필드가 * 이거나 없는 경우 테이블만 생성)
-                for table, type_fields in table_fields.items():
-                    if not type_fields or '*' in type_fields:
-                        table_query = f"MERGE (t:Table {{name: '{table}'}})"
-                    else:  
-                        fields_update_string = ", ".join([f"t.{field_type} = {list(field_names)}" for field_type, field_names in type_fields.items()])
-                        table_query = f"MERGE (t:Table {{name: '{table}'}}) SET {fields_update_string}"
-                    cypher_query.append(table_query)
-
-                    # * 테이블과 노드간의 관계를 생성합니다
-                    if table_relationship_type:
-                        table_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (t:Table {{name: '{first_table_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
-                        cypher_query.append(table_relationship_query)
-
-
-                # * 테이블간의 참조 관계를 위한 사이퍼쿼리를 생성합니다. (.이후에 오는 테이블 이름을 추출합니다)
-                for reference in table_references:
-                    source_table = reference['source'].split('.')[-1]
-                    target_table = reference['target'].split('.')[-1]
-                    
-                    # * 자기 자신의 테이블을 참조하는 경우 무시합니다
-                    if source_table != target_table:
-                        table_reference_query = f"MERGE (source:Table {{name: '{source_table}'}}) MERGE (target:Table {{name: '{target_table}'}}) MERGE (source)-[:REFERENCES]->(target)"
-                        cypher_query.append(table_reference_query)
+                # * 테이블과 노드간의 관계를 생성합니다
+                if table_relationship_type:
+                    table_relationship_query = f"MERGE (n:{statement_type}{{startLine: {start_line}}}) MERGE (t:Table {{name: '{first_table_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
+                    cypher_query.append(table_relationship_query)
 
 
             # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
@@ -369,7 +346,6 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             clean_code = ""
             extract_code = ""
             token_count = 0
-            update_variables = True
             context_range.clear()
             return cypher_query
         except Exception:
@@ -402,6 +378,33 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             raise
 
 
+    # 역할: 변수 노드를 생성하기 위한 함수입니다.
+    # 매개변수 : 
+    #   - filtered_code : Declare 또는 sp_code의 변수 선언 부분만 필터링된 코드
+    #   - startLine : 노드의 시작라인
+    # 반환값 : 없음 
+    def create_variable_node(filtered_code, startLine, statementType):
+        try:
+            # * 전달된 코드에서 공백으로 각 라인의 단어를 추출합니다.
+            for line in filtered_code.split('\n'):
+                parts = line.split()
+                if len(parts) < 3: continue  
+                var_name = parts[2]  
+                var_type = parts[4] if startLine == 1 else parts[3]
+                
+                # * 추출된 변수 이름과 타입을 이용하여, 변수 노드를 생성하는 사이퍼쿼리를 작성합니다.
+                variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.type = '{var_type}'"
+                cypher_query.append(variable_query)
+
+                # * 변수 노드의 관계(어디에 선언되었는지) 사이퍼쿼리를 작성합니다.
+                variable_relationship_query = f"MERGE (n:{statementType} {{startLine: {startLine}}}) MERGE (v:Variable {{name: '{var_name}'}}) MERGE (n)-[:SCOPE]->(v)"
+                cypher_query.append(variable_relationship_query)
+        
+        except Exception:
+            logging.exception(f"An error occurred during create variable node(understanding)")
+            raise
+
+
     # 스토어드 프로시저와 ANTLR의 분석결과를 이용하여, 재귀적으로 노드를 순회하면서 구조를 탐색합니다.
     # 매개변수: 
     #   node - 분석할 노드.
@@ -427,17 +430,13 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             "endLine": node['endLine'],
             "code": summarized_code,
             "child": children,
-        }
+        } 
 
 
-        # * CREATE_PROCEDURE_BODY는 별도로 처리하는 메서드를 호출(그래프를 순차적으로 보여주기 위함)
-        if statementType == "CREATE_PROCEDURE_BODY":
-            clean_code, last_line_number = process_procedure_node(summarized_code)
-            context_range.append({"startLine": node['startLine'], "endLine": last_line_number})
-            cypher_query.append(f"CREATE ({node_alias}:{statementType}{{startLine: {node['startLine']}, endLine: {node['endLine']}, name: '{statementType}[{node['startLine']}]', summarzied_code: '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', node_code: '{node_code.replace('\n', '\\n').replace("'", "\\'")}', clean_code: '{clean_code.replace('\n', '\\n').replace("'", "\\'")}', token: {node_size}}})")
-            node_statementType.add(f"{statementType}_{node['startLine']}")
-            signal_task = asyncio.create_task(signal_for_process_analysis(node['endLine']))
-            await asyncio.gather(signal_task)
+        # * 변수 노드를 생성하기 위한 작업
+        if statementType in ["CREATE_PROCEDURE_BODY", "DECLARE"]:
+            filtered_code = filter_procedure_declare_code(summarized_code)
+            create_variable_node(filtered_code, node['startLine'], statementType)
 
 
         # * focused_code에서 분석할 범위를 기준으로 잘라내고, 불필요한 정보를 제거합니다
@@ -461,11 +460,11 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
         # * 노드의 사이퍼쿼리를 생성 및 해당 노드의 범위를 분석할 범위를 저장
-        if not children:
+        if not children and node['type'] == "STATEMENT":
             context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})
-            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) ON CREATE SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
+            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
         else:
-            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) ON CREATE SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
+            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
 
 
         # * 스케줄 스택에 현재 스케줄을 넣고, 노드의 타입을 세트에 저장합니다
@@ -484,7 +483,8 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
         for child in children:
             node_explore_task = asyncio.create_task(traverse(child, schedule_stack, send_queue, receive_queue, node_alias, node['startLine'], statementType))
             await asyncio.gather(node_explore_task)
-
+            
+            # * 현재 노드와 이전의 같은 레벨의 노드간의 NEXT 관계를 위한 사이퍼쿼리를 생성합니다.
             if prev_alias:
                 cypher_query.append(f"MATCH ({prev_alias} {{startLine: {prev_id}}}) WITH {prev_alias} MATCH (n{child['startLine']} {{startLine: {child['startLine']}}}) MERGE ({prev_alias})-[:NEXT]->(n{child['startLine']})")
             prev_alias = f"n{child['startLine']}"
