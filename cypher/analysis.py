@@ -336,7 +336,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
                 # * 테이블과 노드간의 관계를 생성합니다
-                if table_relationship_type:
+                if table_relationship_type and first_table_name:
                     table_relationship_query = f"MERGE (n:{statement_type}{{startLine: {start_line}}}) MERGE (t:Table {{name: '{first_table_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
                     cypher_query.append(table_relationship_query)
 

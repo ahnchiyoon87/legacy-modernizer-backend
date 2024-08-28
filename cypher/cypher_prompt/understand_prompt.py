@@ -36,8 +36,8 @@ prompt = PromptTemplate.from_template(
 1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
 2. 프로시저 입력 파라미터들도 일반 변수들과 같이 'variable'에 포함하도록 하세요. (예 : p_employee_id)
 3. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
-4. 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 각각의 결과를 제대로 생성하세요.
-5. 변수의 역할의 경우, 어떤 테이블에 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용) 
+4. 테이블의 컬럼이 'variable'에 포함되어선 안되며, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
+5. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용) 
 
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
@@ -48,7 +48,7 @@ prompt = PromptTemplate.from_template(
 
 전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
-2. SQL CRUD 문에서 사용된 모든 테이블의 컬럼과 적절한 속성 타입을 식별하세요.
+2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들을 식별하세요.
 3. SQL CRUD 문을 분석하여 여러 테이블 JOIN 관계를 'source'와 'target' 형태로 표현합니다.
 
 
@@ -63,7 +63,7 @@ prompt = PromptTemplate.from_template(
         }}
     ],
     "Tables": {{
-        "tableName1": ["type:field1", "type:field2"], 
+        "tableName1": ["field1", "field2"], 
         "tableName2": [],
     }},
     "tableReference": [{{"source": "tableName1", "target": "tableName2"}}],
@@ -79,9 +79,8 @@ prompt = PromptTemplate.from_template(
 }}
 """)
 
-def understand_code(code, context_ranges, context_range_count, used_table_list):
+def understand_code(code, context_ranges, context_range_count):
     ranges_json = json.dumps(context_ranges)
-    used_table_json = json.dumps(used_table_list)
 
     chain = (
         RunnablePassthrough()
@@ -89,5 +88,5 @@ def understand_code(code, context_ranges, context_range_count, used_table_list):
         | llm
         | JsonOutputParser()
     )
-    result = chain.invoke({"code": code, "ranges": ranges_json, "count": context_range_count, "predefined_tables": used_table_json})
+    result = chain.invoke({"code": code, "ranges": ranges_json, "count": context_range_count})
     return result
