@@ -28,6 +28,26 @@ def convert_to_lower_case_no_underscores(fileName):
     return fileName.replace('_', '').lower()
 
 
+# 역할: 프로시저 노드 코드에서 입력 매개변수 부분만 추출하는 메서드입니다.
+# 매개변수: 
+#      - procedure_code : 프로시저 노드 부분의 스토어드 프로시저 코드.
+# 반환값: 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드.
+def extract_procedure_variable_code(procedure_code):
+    try:
+
+        # * AS 키워드를 찾아서 AS 이후 모든 라인을 제거합니다.
+        as_index = procedure_code.find(' AS')
+        if as_index != -1:
+            newline_after_as = procedure_code.find('\n', as_index)
+            procedure_code = procedure_code[:newline_after_as]
+
+        return procedure_code
+
+    except Exception:
+        logging.exception("Error during code placeholder removal(understanding)")
+        raise
+
+
 # 역할: 프로시저 노드와 Declare 노드를 처리하는 함수입니다.
 # 매개변수: 
 #      - procedure_data : 프로시저 노드 데이터
@@ -101,20 +121,20 @@ async def start_service_skeleton_processing(sp_fileName):
         transformed_node_data = [] 
         
 
-        # * Neo4j로 부터 전달받은 Declare 노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
+        # * Neo4j로 부터 전달받은 프로시저 노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
         for item in procedure_declare_nodes[0]:
             transformed_node = {
                 'type': 'procedure',
-                'code': item['n']['clean_code']
+                'code': extract_procedure_variable_code(item['n']['summarized_code'])
             }
             transformed_node_data.append(transformed_node)  
 
 
-        # * Neo4j로 부터 전달받은 프로시저 노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
+        # * Neo4j로 부터 전달받은 Declare 노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
         for item in procedure_declare_nodes[1]:
             transformed_node = {
                 'type': 'declare',
-                'code': item['n']['node_code']
+                'code': item['n']['summarized_code']
             }
             transformed_node_data.append(transformed_node)   
                 

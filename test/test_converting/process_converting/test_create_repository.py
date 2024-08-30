@@ -29,25 +29,6 @@ def convert_to_lower_case_no_underscores(fileName):
     return fileName.replace('_', '').lower()
 
 
-# 역할: 주어진 노드 id를 기반으로 현재 노드에서 사용된 변수 노드를 가져옵니다.
-# 매개변수: 
-#      - node_id : 노드 id.
-# 반환값: 현재 노드에서 사용된 변수 노드 리스트
-async def fetch_variable_nodes(node_id):
-
-    try:
-        # * 변수 노드를 가지고 오는 사이퍼쿼리를 준비하고, Neo4j 데이터베이스에 쿼리를 실행하여 변수 노드를 가져옵니다.
-        query = [f"MATCH (v:VARIABLE) WHERE COALESCE(v.role_{node_id}, NULL) IS NOT NULL RETURN v"]
-        connection = Neo4jConnection()  
-        variable_nodes = await connection.execute_queries(query) 
-        logging.info("\nSuccess received Variable Nodes from Neo4J\n")
-        await connection.close()  
-        return variable_nodes
-
-    except Exception:
-        logging.exception(f"Error occurred while bring variable node from neo4j")
-        raise
-
 
 # 역할: 여러 JPA 쿼리 메서드를 하나의 리포지토리 인터페이스로 통합합니다.
 # 매개변수:
@@ -58,6 +39,7 @@ async def fetch_variable_nodes(node_id):
 #   entity_name - 사용된 엔티티 이름
 #   spFile_name - 스토어드 프로시저 파일 이름
 # 반환값: 없음
+# TODO 수정 필요 
 async def merge_jpa_query_method(repository_code_list, repository_pascal_name, repository_camel_name, primary_key_type):
     
     try:        
@@ -127,11 +109,17 @@ def calculate_spCode_length(spCode):
 # 반환값: 
 #   - variable_names_list : 변수 이름으로 구성된 리스트.
 #   - variable_tokens : 변수 이름 리스트의 토큰 길이.
-async def process_variable_nodes(node_id):
+async def process_variable_nodes(node_id, connection):
     
     try:
         # * Neo4j 데이터베이스에서 node_id에 해당하는 변수 노드를 가져와서 필요한 정보를 추출합니다
-        variable_nodes = await fetch_variable_nodes(node_id)
+        query = ["MATCH (v:Variable) RETURN v"]
+        all_variable_nodes = await connection.execute_queries(query) 
+        logging.info("\nSuccess received all Variable Nodes from Neo4J\n")
+        filtered_variable_nodes = [
+            node for node in all_variable_nodes[0] 
+            if node['v']['startLine'] <= node_id <= node['v']['endLine']
+        ]
         variable_names_list = [node['v']['name'] for node in variable_nodes[0]]
         variable_tokens = calculate_spCode_length(variable_names_list)
         return variable_names_list, variable_tokens
@@ -145,10 +133,10 @@ async def process_variable_nodes(node_id):
 # 매개변수: 
 #      - table_link_node : 테이블과 직접적으로 연결된 노드 리스트
 # 반환값: JPA 메서드 리스트.
-async def check_tokens_and_process(table_link_node):
+async def check_tokens_and_process(table_link_node, connection):
     total_tokens = 0                # 전체 데이터의 토큰 수
     variable_tokens = 0             # llm에게 전달할 변수 정보의 토큰 수
-    table_link_node_chunk = []            # llm에게 전달할 노드 데이터 모음
+    table_link_node_chunk = []      # llm에게 전달할 노드 데이터 모음
     variable_nodes_context = {}     # llm에게 전달할 변수 데이터 모음
     repository_code_list = []       # 리포지토리 코드를 모아두는 리스트 
     jpa_method_list = []            # JPA 메서드 리스트
@@ -197,7 +185,7 @@ async def check_tokens_and_process(table_link_node):
                 # * table_link_node_chunk가 비어있으면서, 첫 시작 노드의 크기가 클 경우, 처리합니다
                 if not table_link_node_chunk:     
                     table_link_node_chunk.append(item)
-                    variable_names_list, variable_tokens = await process_variable_nodes(item['startLine']) # 사용된 변수 노드 정보를 가져옵니다
+                    variable_names_list, variable_tokens = await process_variable_nodes(item['startLine'], connection) # 사용된 변수 노드 정보를 가져옵니다
                     variable_nodes_context[f'variables_{item["startLine"]}'] = variable_names_list
                     process_append_flag = False  # 추가 데이터 처리 방지
                 repository_code, pascal_name, camel_name, primary_key_type, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
@@ -215,7 +203,7 @@ async def check_tokens_and_process(table_link_node):
             # * 데이터 추가 플래그가 True인 경우, 현재 노드를 데이터 청크에 추가합니다
             if process_append_flag:    
                 table_link_node_chunk.append(item)
-                variable_names_list, variable_tokens = await process_variable_nodes(item['startLine'])  # 사용된 변수 노드 정보를 가져옵니다
+                variable_names_list, variable_tokens = await process_variable_nodes(item['startLine'], connection)  # 사용된 변수 노드 정보를 가져옵니다
                 variable_nodes_context[f'variables_{item["startLine"]}'] = variable_names_list
                 total_tokens += item_tokens
 
@@ -305,7 +293,7 @@ async def start_repository_processing(sp_fileName):
 
 
         # * 재구성된 노드 정보들을 담아서 처리 및 토큰 계산하는 함수를 호출합니다
-        jpa_method_list = await check_tokens_and_process(node_sources)
+        jpa_method_list = await check_tokens_and_process(node_sources, connection)
         logging.info("\nSuccess processed All Nodes\n")
         return jpa_method_list
     

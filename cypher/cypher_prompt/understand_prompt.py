@@ -34,21 +34,20 @@ prompt = PromptTemplate.from_template(
 
 반드시 지켜야할 주의사항:
 1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
-2. 프로시저 입력 파라미터들도 일반 변수들과 같이 'variable'에 포함하도록 하세요. (예 : p_employee_id)
-3. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
-4. 테이블의 컬럼이 'variable'에 포함되어선 안되며, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
-5. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용) 
+2. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
+3. 테이블의 컬럼이 'variable'에 포함되지 않도록, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
+4. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용) 
+5. 테이블에 대한 정보가 식별되지 않을 경우, 'Tables'는 빈 사전 {{}}으로 반환하고, 테이블의 컬럼 타입이 식별되지 않을 경우, 적절한 타입을 넣으세요.
 
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. 코드의 주요 내용을 한 문장으로 요약하세요.
-2. 각 범위에서만 사용된 변수들을 모두 식별하고, 역할을 상세히 설명하세요. 
-3. 'variable'에서 'startLine'은 'analysis'의 'startLine'과 동일합니다. 즉, 변수가 실제로 사용된 라인이 아닌, 변수가 어떤 구문에 속해있는지를 나타냅니다. 
+2. 각 범위에서 사용된 모든 변수들을 식별하고, 역할을 상세히 설명하세요. 일반적으로 변수는 이름 앞에 'V_' 또는 'p_' 접두사가 붙습니다.
 
 
 전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
-2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들을 식별하세요.
+2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들과 컬럼의 타입을 식별하세요.
 3. SQL CRUD 문을 분석하여 여러 테이블 JOIN 관계를 'source'와 'target' 형태로 표현합니다.
 
 
@@ -63,17 +62,17 @@ prompt = PromptTemplate.from_template(
         }}
     ],
     "Tables": {{
-        "tableName1": ["field1", "field2"], 
-        "tableName2": [],
+        "tableName1": ["type:field1", "type:field2"], 
+        "tableName2": []
     }},
     "tableReference": [{{"source": "tableName1", "target": "tableName2"}}],
     "variable": {{
-        "startLine": [
+        "startLine~endLine": [
             {{"name": "var1", "role": "역할"}}, 
-            {{"name": "var2", "role": "역할"}},
+            {{"name": "var2", "role": "역할"}}
         ],
-        "startLine": [
-            {{"name": "var1", "role": "역할"}}, 
+        "startLine~endLine": [
+            {{"name": "var1", "role": "역할"}}
         ],
     }}
 }}

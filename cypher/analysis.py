@@ -243,14 +243,14 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
         commands = ["SELECT", "INSERT", "ASSIGN", "UPDATE", "DELETE", "OPERATION", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
         
         try:
-            # * 전달된 코드를 llm에게 보냄으로써, 분석을 시작합니다
+            # * context range 중복 제거및 정렬을 진행하고, 각 종 변수들을 초기화합니다.
             context_range_count = len(context_range)
             context_range = sorted(context_range, key=lambda x: x['startLine'])
             table_fields = defaultdict(set)
             LLM_count += 1
 
 
-            # * LLM 호출 
+            # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작합니다
             analysis_result = understand_code(clean_code, context_range, context_range_count)
             
 
@@ -265,7 +265,8 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                 for variable in variables:
                     var_name = variable['name']
                     var_role = variable['role'].replace("'", "\\'")
-                    variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}'"
+                    sanitized_var_startLine = var_startLine.replace('~', '_')
+                    variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.`{sanitized_var_startLine}` = '{var_role}'"
                     cypher_query.append(variable_update_query)
 
             
@@ -280,7 +281,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                 if not fields or '*' in fields:
                     table_query = f"MERGE (t:Table {{name: '{table}'}})"
                 else:  
-                    fields_update_string = ", ".join([f"t.field_{i} = '{field}'" for i, field in enumerate(fields)])
+                    fields_update_string = ", ".join([f"t.{field.split(':')[1]} = '{field.split(':')[0]}'" for field in fields])
                     table_query = f"MERGE (t:Table {{name: '{table}'}}) SET {fields_update_string}"
                 cypher_query.append(table_query)
 
@@ -412,16 +413,17 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
     #   send_queue - 이벤트 송신큐.
     #   receive_queue - 이벤트 수신큐
     #   parent_alias - 부모 노드의 별칭 (기본값 None)
-    #   parent_id - 현재 노드의 부모 노드 ID.
+    #   parent_startLine - 현재 노드의 부모 노드 ID.
     #   parent_statementType - 현잰 노드의 부모 노드 타입
     # 반환값: 없음
-    async def traverse(node, schedule_stack, send_queue, receive_queue, parent_alias=None, parent_id=None, parent_statementType=None):
+    async def traverse(node, schedule_stack, send_queue, receive_queue, parent_alias=None, parent_startLine=None, parent_statementType=None):
         nonlocal focused_code, token_count, clean_code, extract_code
         
+
         # * 분석에 필요한 필요한 정보를 준비하거나 할당합니다
         summarized_code = remove_unnecessary_information(extract_and_summarize_code(file_content, node))
         node_code = remove_unnecessary_information(extract_node_code(file_content, node['startLine'], node['endLine']))
-        statementType = "ROOT" if node['startLine'] == 0 else node['type'] if node['type'] in ["DECLARE", "CREATE_PROCEDURE_BODY"] else identify_first_line_keyword(summarized_code)
+        statementType = "ROOT" if node['startLine'] == 0 else node['type'] if node['type'] in ["DECLARE", "CREATE_PROCEDURE_BODY"] else identify_first_line_keyword(node_code)
         node_size = count_tokens_in_text(node_code)
         children = node.get('children', [])
         node_alias = f"n{node['startLine']}"
@@ -430,7 +432,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             "endLine": node['endLine'],
             "code": summarized_code,
             "child": children,
-        } 
+        }
 
 
         # * 변수 노드를 생성하기 위한 작업
@@ -474,7 +476,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
         # * 부모 변수가 있을 경우(부모가 존재할 경우), 부모 노드와 현재 노드의 parent_of 라는 관계를 생성합니다
         if parent_alias:
-            cypher_query.append(f"MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_id}}}) WITH {parent_alias} MATCH ({node_alias}:{statementType} {{startLine: {node['startLine']}}}) MERGE ({parent_alias})-[:PARENT_OF]->({node_alias})")
+            cypher_query.append(f"MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_startLine}}}) WITH {parent_alias} MATCH ({node_alias}:{statementType} {{startLine: {node['startLine']}}}) MERGE ({parent_alias})-[:PARENT_OF]->({node_alias})")
         prev_alias = None
         prev_id = None
 
