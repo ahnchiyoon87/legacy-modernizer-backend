@@ -11,7 +11,6 @@ from util.exception import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatOpenAI(model_name="gpt-4o")
-
 prompt = PromptTemplate.from_template(
 """
 You are an expert in object-oriented programming and domain-driven design

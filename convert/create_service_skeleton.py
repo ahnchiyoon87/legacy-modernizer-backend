@@ -6,16 +6,16 @@ import tiktoken
 from prompt.service_skeleton_prompt import convert_service_skeleton_code
 from prompt.command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
+from util.exception import ConvertingError, ExtractCodeError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, SkeletonCreationError, TraverseCodeError
 
-
-# * 인코더 설정 및 파일 이름 초기화
 encoder = tiktoken.get_encoding("cl100k_base")
 
-
-# 역할: 프로시저 노드 코드에서 입력 매개변수 부분만 추출하는 메서드입니다.
+# TODO 수정 필요 JPA쿼리 메서드를 리스트로 받아야함
+# 역할: 프로시저 노드 코드에서 입력 매개변수 부분만 추출하는 함수
 # 매개변수: 
-#      - procedure_code : 프로시저 노드 부분의 스토어드 프로시저 코드.
-# 반환값: 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드.
+#   - procedure_code : 프로시저 노드 부분의 코드
+# 반환값: 
+#   - procedure_code : 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드
 def extract_procedure_variable_code(procedure_code):
     try:
 
@@ -28,75 +28,74 @@ def extract_procedure_variable_code(procedure_code):
         return procedure_code
 
     except Exception:
-        logging.exception("Error during code placeholder removal(understanding)")
-        raise
+        err_msg = "서비스 골격을 생성하는 과정에서 코드를 추출하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise ExtractCodeError(err_msg)
 
 
 # 역할: 프로시저 노드의 토큰 개수를 체크하여, 처리하는 함수입니다.
 # 매개변수: 
-#      - procedure_data : 프로시저 노드 데이터
-#      - lower_name : 소문자 프로젝트 이름
-#      - entity_name_list : 엔티티 이름 리스트
-#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
+#   - procedure_data : 프로시저 노드 데이터
+#   - declare_data: 선언 노드 데이터
+#   - lower_name : 소문자로 구성된 프로젝트 이름
+#   - entity_name_list : 엔티티 이름 리스트
+#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
-#      - service_skeleton_code : 서비스 스켈레톤 클래스 코드 
-#      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
+#   - service_skeleton_code : 서비스 스켈레톤 클래스 코드 
+#   - command_class_variable : Command 클래스에 선언된 변수 목록
+#   - service_skeleton_name: 서비스 클래스의 이름
+#   - summarzied_service_skeleton : 요약된 서비스 골격 클래스
 async def calculate_tokens_and_process(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
 
     try:
-        service_skeleton_code, command_class_variable, service_class_name, service_skeleton_summarzied = await create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names)
-        return service_skeleton_code, command_class_variable, service_class_name, service_skeleton_summarzied 
-     
-    except Exception:
-        logging.exception(f"Error occurred while procedure node token check")
+        service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names)
+        return service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton 
+    
+    except (LLMCallError, HandleResultError, ProcessResultError):
         raise
+    except Exception:
+        err_msg = "서비스 골격 클래스를 생성하는 과정에서 노드를 순회하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise TraverseCodeError(err_msg)
 
 
-# 역할: LLM을 사용하여 주어진 프로시저 데이터 그룹을 분석하고, 결과를 서비스 및 커맨드 파일로 저장합니다.
+# 역할: LLM의 분석 결과를 이용하여, 서비스 골격 클래스에 import문을 추가합니다.
 # 매개변수: 
-#      - procedure_data : 분석할 프로시저 데이터 그룹
-#      - lower_name : 소문자 프로젝트 이름
-#      - entity_name_list : 엔티티 이름 리스트
-#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
+#   - service_skeleton_code : 서비스 골격 클래스 코드
+#   - lower_name : 소문자 프로젝트 이름
+#   - entity_name_list : 엔티티 이름 리스트
+#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
+#   - service_skeleton_name :
+#   - command_class_name : 
 # 반환값: 
-#      - service : 서비스 스켈레톤 클래스 코드
-#      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
-async def create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
+#   - service : 서비스 스켈레톤 클래스 코드
+#   - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
+async def modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name):
+    
+    repository_injection_code = ""
     
     try:
-        # * LLM을 사용하여 주어진 데이터를 분석하고 받은 결과에서 정보를 추출합니다
-        analysis_command = convert_command_code(procedure_data, lower_name)  
-        command_class_name = analysis_command['commandName']
-        command_class_code = analysis_command['command']
-        command_class_variable = analysis_command['command_class_variable']
-
-        analysis_service_skeleton = convert_service_skeleton_code(declare_data, lower_name, command_class_name)  
-        service_class_name = analysis_service_skeleton['serviceName']
-        service_class_code = analysis_service_skeleton['service']
-        repository_injection_code = ""
-        
-
         # * package 선언 다음에 줄바꿈을 추가하고 entity import 문을 삽입합니다.
-        package_line_end = service_class_code.index(';') + 1
-        modified_service_code = service_class_code[:package_line_end] + '\n\n'
-
-
+        package_line_end = service_skeleton_code.index(';') + 1
+        modified_service_skeleton = service_skeleton_code[:package_line_end] + '\n\n'
+        
+        
         # * entity_name_list의 각 항목에 대해 import 문을 추가합니다.
         for entity_name in entity_name_list:
-            modified_service_code += f"import com.example.{lower_name}.entity.{entity_name};\n"
+            modified_service_skeleton += f"import com.example.{lower_name}.entity.{entity_name};\n"
 
 
         # * repository_interface_names의 각 항목에 대해 import 문을 추가합니다.
         for repo_interface in repository_interface_names.keys():
-            modified_service_code += f"import com.example.{lower_name}.repository.{repo_interface}Repository;\n"
+            modified_service_skeleton += f"import com.example.{lower_name}.repository.{repo_interface}Repository;\n"
 
 
         # * import 문과 클래스 선언 사이에 빈 줄 추가
-        modified_service_code += '\n'  
+        modified_service_skeleton += '\n'  
 
 
         # * 나머지 코드를 추가합니다.
-        modified_service_code += service_class_code[package_line_end:]
+        modified_service_skeleton += service_skeleton_code[package_line_end:]
 
 
         # * 리포지토리 주입 코드를 생성합니다.
@@ -106,17 +105,16 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
 
 
         # * 생성된 리포지토리 주입 코드를 서비스 클래스에 삽입합니다.
-        if "CodePlaceHolder1" in modified_service_code:
-            modified_service_code = modified_service_code.replace("CodePlaceHolder1", repository_injection_code.rstrip())
+        if "CodePlaceHolder1" in modified_service_skeleton:
+            modified_service_skeleton = modified_service_skeleton.replace("CodePlaceHolder1", repository_injection_code.rstrip())
+        service_skeleton_code = modified_service_skeleton
 
 
-        service_class_code = modified_service_code
-
-
-        service_skeleton_summarzied = f"""
+        # * 서비스 클래스의 기본 틀
+        summarzied_service_skeleton = f"""
 @RestController
 @Transactional
-public class {service_class_name} {{
+public class {service_skeleton_name} {{
 
     @PostMapping(path="/Endpoint")
     public ResponseEntity<String> methodName(@RequestBody {command_class_name} {command_class_name}Dto) {{
@@ -125,7 +123,45 @@ public class {service_class_name} {{
         return ResponseEntity.ok("Operation completed successfully");
     }}
 }}
-"""
+"""    
+        return summarzied_service_skeleton
+    
+    except Exception:
+        err_msg = "서비스 골격 클래스를 생성하는 과정에서 결과를 이용하여, 추가적인 정보를 설정하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise HandleResultError(err_msg)
+    
+
+
+# 역할: 서비스 및 커맨드 파일로 저장합니다.
+# 매개변수: 
+#   - procedure_data : 프로시저 노드 데이터
+#   - declare_data : 선언 노드 데이터
+#   - lower_name : 소문자로 구성된 프로젝트 이름
+#   - entity_name_list : 엔티티 이름 리스트
+#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
+# 반환값: 
+#   - command_class_variable : Command 클래스에 선언된 변수 목록
+#   - service_skeleton_code: 서비스 골격 클래스 완성본
+#   - service_skeleton_name: 서비스 클래스 이름
+#   - summarzied_service_skeleton: 요약된 서비스 골격 클래스
+async def create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
+    
+    try:
+        # * LLM을 사용하여 Command 클래스 생성에 필요한 정보를 받습니다.
+        analysis_command = convert_command_code(procedure_data, lower_name)  
+        command_class_name = analysis_command['commandName']
+        command_class_code = analysis_command['command']
+        command_class_variable = analysis_command['command_class_variable']
+
+        # * LLM을 사용하여 서비스 골격 클래스 생성에 필요한 정보를 받습니다.
+        analysis_service_skeleton = convert_service_skeleton_code(declare_data, lower_name, command_class_name)  
+        service_skeleton_name = analysis_service_skeleton['serviceName']
+        service_skeleton_code = analysis_service_skeleton['service']
+        
+
+        # * 서비스 골격 클래스에 추가적인 정보를 추가하는 작업을 진행합니다.
+        summarzied_service_skeleton = await modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name)
 
 
         # * command 클래스 파일을 저장할 디렉토리를 설정하고, 없으면 생성합니다.
@@ -135,27 +171,32 @@ public class {service_class_name} {{
         os.makedirs(command_class_directory, exist_ok=True) 
 
 
-        # * 커맨드 코드를 파일로 저장합니다.
+        # * 커맨드 클래스를 파일로 저장합니다.
         command_class_path = os.path.join(command_class_directory, f"{command_class_name}.java")  
         async with aiofiles.open(command_class_path, 'w', encoding='utf-8') as file:  
             await file.write(command_class_code)  
             logging.info(f"\nSuccess Create {command_class_name} Java File\n") 
 
-        return service_class_code, command_class_variable, service_class_name, service_skeleton_summarzied
+        return service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton
 
-    except Exception:
-        logging.exception(f"Error occurred while create service skeleton and command")
+    except (LLMCallError, HandleResultError):
         raise
+    except Exception:
+        err_msg = "서비스 골격 클래스를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise ProcessResultError(err_msg)
 
 
-# 역할: Neo4j 데이터베이스에서 프로시저, Declare 노드를 가져와서 JSON의 구조를 단순하게 변경하는 함수입니다.
+# 역할: Neo4j 데이터베이스에서 프로시저, Declare 노드를 가져와서, 서비스 골격 클래스 생성을 준비하는 함수
 # 매개변수: 
-#      - lower_name : 소문자 프로젝트 이름
+#      - lower_name : 소문자로 구성된 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트
 #      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
-#      - service : 서비스 스켈레톤 클래스 코드
-#      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
+#   - command_class_variable : Command 클래스에 선언된 변수 목록
+#   - service_skeleton_code: 서비스 골격 클래스 완성본
+#   - service_skeleton_name: 서비스 클래스 이름
+#   - summarzied_service_skeleton: 요약된 서비스 골격 클래스
 async def start_service_skeleton_processing(lower_name, entity_name_list, repository_interface_names):
     
     try:
@@ -189,11 +230,12 @@ async def start_service_skeleton_processing(lower_name, entity_name_list, reposi
 
         # * 변환된 데이터를 사용하여 토큰 계산 및 서비스 스켈레톤 생성을 수행합니다.
         logging.info("\nSuccess Transformed Procedure, Declare Nodes Data\n")  
-        service_skeleton, command_class_variable, service_class_name, service_skeleton_summarzied = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list, repository_interface_names)  
-        return service_skeleton, command_class_variable, service_class_name, service_skeleton_summarzied
+        service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list, repository_interface_names)  
+        return service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
     
-    except Exception:
-        logging.exception(f"Error occurred while bring procedure node from neo4j")
+    except (ConvertingError, Neo4jError):
         raise
-    finally:
-        await connection.close()  
+    except Exception:
+        err_msg = "서비스 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise SkeletonCreationError(err_msg)

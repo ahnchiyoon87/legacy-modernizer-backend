@@ -1,14 +1,14 @@
 import os
 import logging
 import aiofiles
-
+from util.exception import PomXmlCreationError
 
 
 # 역할: Maven 프로젝트 설정 파일인 pom.xml을 생성하는 함수입니다.
 # 매개변수: 
-#   - lower_case : 소문자 프로젝트 이름
+#   - lower_file_name : 소문자로 구성된된 프로젝트 이름
 # 반환값: 없음
-async def start_pomxml_processing(lower_case):
+async def start_pomxml_processing(lower_file_name):
     
     try:        
         # * pom.xml 파일의 내용을 문자열로 생성합니다.
@@ -23,10 +23,10 @@ async def start_pomxml_processing(lower_case):
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>{lower_case}</artifactId>
+	<artifactId>{lower_file_name}</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>{lower_case}</name>
-	<description>{lower_case} project for Spring Boot</description>
+	<name>{lower_file_name}</name>
+	<description>{lower_file_name} project for Spring Boot</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -96,7 +96,7 @@ async def start_pomxml_processing(lower_case):
     
         # * pom.xml 파일을 저장할 디렉토리를 생성합니다.
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        pom_xml_directory = os.path.join(base_directory, 'converting_result', f'{lower_case}')
+        pom_xml_directory = os.path.join(base_directory, 'converting_result', f'{lower_file_name}')
         os.makedirs(pom_xml_directory, exist_ok=True)  
 
 
@@ -107,5 +107,6 @@ async def start_pomxml_processing(lower_case):
             logging.info(f"\nSuccess Create Pom.xml\n")
 
     except Exception:
-        logging.exception(f"Error occurred while create pom.xml")
-        raise
+        err_msg = "스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise PomXmlCreationError(err_msg)

@@ -14,7 +14,6 @@ from util.exception  import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatOpenAI(model="gpt-4o")
-
 prompt = PromptTemplate.from_template(
 """
 당신은 Oracle PLSQL 전문가입니다. 주어진 Stored Procedure Code를 철저히 분석하세요.
@@ -95,7 +94,7 @@ def understand_code(sp_code, context_ranges, context_range_count):
         )
         result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
         return result, prompt.template
-    except Exception as e:
+    except Exception:
         err_msg = "Understanding 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
         logging.exception(err_msg)
         raise LLMCallError(err_msg)

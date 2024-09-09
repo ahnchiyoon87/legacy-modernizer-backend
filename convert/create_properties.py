@@ -1,6 +1,7 @@
 import os
 import logging
 import aiofiles
+from util.exception import AplPropertiesCreationError
 
 
 # 역할: 스프링 부트의 application.properties 파일을 생성하는 함수입니다.
@@ -24,5 +25,6 @@ async def start_APLproperties_processing(lower_case):
             logging.info(f"\nSuccess Create Application Properties\n")  
 
     except Exception:
-        logging.exception(f"Error occurred while create application.properties")
-        raise
+        err_msg = "스프링부트의 application.properties 파일을 생성하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise AplPropertiesCreationError(err_msg)

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
@@ -6,18 +7,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
+from util.exception import LLMCallError
 
 
-# 역할 : 테이블 정보를 기반으로 스프링부트 기반의 자바 엔티티 클래스를 생성합니다
-# 매개변수: 
-#   - table_data : 테이블 정보
-#   - spFile_name : 스토어드 프로시저 파일 이름
-# 반환값 : 엔티티 클래스
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-
 llm = ChatOpenAI(model_name="gpt-4o")
-
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 테이블 데이터를 기반으로 자바 Entity 클래스를 생성하는 작업을 맡았습니다.
@@ -68,14 +63,27 @@ public class EntityName {{
 """
 )
 
-def convert_entity_class(table_data, lower_file_name):
-    table_json_data = json.dumps(table_data)
 
-    chain = (
-        RunnablePassthrough()
-        | prompt
-        | llm
-        | JsonOutputParser()
-    )
-    result = chain.invoke({"table_json_data": table_json_data, "project_name": lower_file_name})
-    return result
+# 역할 : 테이블 정보를 기반으로 스프링 부트 기반의 엔티티 클래스를 생성합니다
+# 매개변수: 
+#   - table_data : 테이블 노드 정보
+#   - spFile_name : 소문자로 구성된 프로젝트 이름
+# 반환값 : 
+#   - result : 엔티티 클래스
+def convert_entity_code(table_data, lower_file_name):
+    
+    try:
+        table_json_data = json.dumps(table_data)
+
+        chain = (
+            RunnablePassthrough()
+            | prompt
+            | llm
+            | JsonOutputParser()
+        )
+        result = chain.invoke({"table_json_data": table_json_data, "project_name": lower_file_name})
+        return result
+    except Exception:
+        err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise LLMCallError(err_msg)

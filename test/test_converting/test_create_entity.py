@@ -23,8 +23,7 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
         # * 엔티티 클래스 생성 테스트 시작
         try:
-            isSuccess = await start_entity_processing(lower_file_name)
-            if isinstance(isSuccess, Exception): raise isSuccess
+            await start_entity_processing(lower_file_name)
 
             self.assertTrue(True, "엔티티 생성 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

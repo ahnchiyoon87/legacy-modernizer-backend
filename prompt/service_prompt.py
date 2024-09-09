@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
@@ -7,22 +8,12 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
+from util.exception import LLMCallError
 
 
-# 역할 : 주어진 프로시저 코드를 기반으로 Service 클래스를 생성합니다.
-# 매개변수: 
-#   - clean_code : 프로시저 코드 
-#   - service_code : (이전)서비스 코드
-#   - variable_list : 사용된 변수 목록
-#   - jpa_query_methods : 사용된 JPA 쿼리 메서드
-#   - procedure_variables : command 클래스에 선언된 변수 목록
-#   - spFile_Name : 스토어드 프로시저 파일 내용
-# 반환값 : 서비스 클래스
-# TODO statementType 부분 인지를 잘 못함 수정 필요 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
-
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
@@ -86,15 +77,34 @@ jpa_method_list:
 }}
 """)
 
-def convert_code(convert_sp_code, service_code, variable_list, procedure_variables, context_range, count, jpa_method_list):
-    context_range_json = json.dumps(context_range)
-    procedure_variables_json = json.dumps(procedure_variables)
 
-    chain = (
-        RunnablePassthrough()
-        | prompt
-        | llm
-        | JsonOutputParser()
-    )
-    result = chain.invoke({"code": convert_sp_code, "service": service_code, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
-    return result, prompt.template
+# 역할 : 주어진 프로시저 코드를 기반으로 Service 클래스 코드를 생성합니다.
+# 매개변수: 
+#  - clean_code : 스토어드 프로시저 코드 
+#  - service_skeleton : 서비스 스켈레톤
+#  - variable_list : 사용된 변수 목록
+#  - jpa_query_methods : 사용된 JPA 쿼리 메서드
+#  - procedure_variables : command 클래스에 선언된 변수 목록
+#  - context_range: 분석할 범위
+#  - count : 분석할 범위 개수
+# 반환값 : 
+#  - result : 서비스 클래스 코드
+def convert_service_code(convert_sp_code, service_skeleton, variable_list, procedure_variables, context_range, count, jpa_method_list):
+   
+   try:  
+      context_range_json = json.dumps(context_range)
+      procedure_variables_json = json.dumps(procedure_variables)
+
+      chain = (
+         RunnablePassthrough()
+         | prompt
+         | llm
+         | JsonOutputParser()
+      )
+      result = chain.invoke({"code": convert_sp_code, "service": service_skeleton, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
+      return result, prompt.template
+    
+   except Exception:
+      err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+      logging.exception(err_msg)
+      raise LLMCallError(err_msg)

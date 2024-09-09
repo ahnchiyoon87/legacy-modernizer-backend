@@ -48,7 +48,7 @@ class Neo4jConnection:
     # 매개변수: 
     #   - custom_query - 사용자 정의 쿼리 (기본값: "MATCH (n)-[r]->(m) RETURN n, r, m")
     # 반환값: 
-    #   - 객체 : 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
+    #   - 그래프 객체 : 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
             default_query = custom_query or "MATCH (n)-[r]->(m) RETURN n, r, m"

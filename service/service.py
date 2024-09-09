@@ -15,7 +15,7 @@ from convert.create_service_skeleton import start_service_skeleton_processing
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import Java2dethsError, LLMCallError, UnderstandingError
+from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
@@ -43,7 +43,6 @@ async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
 
         # * 전달된 PLSQL에 줄 번호 추가
         contents, last_line = add_line_numbers(plsql_data.decode('utf-8'))
-        if isinstance(contents, Exception): return contents, last_line
 
 
         # * PLSQL 파일과 분석 결과 파일을 비동기적으로 저장
@@ -52,11 +51,13 @@ async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
 
         logging.info("\nSuccessed File Saved\n")
         return base_sp_file_name, last_line
-
+    
+    except AddLineNumError:
+        raise
     except Exception:
-        error_msg = "Antlr에서 전달된 스토어드 프로시저 파일과 분석 결과 파일을 저장하는 도중 문제가 발생"
-        logging.exception(error_msg)
-        return Exception(error_msg)
+        err_msg = "Antlr에서 전달된 스토어드 프로시저 파일과 분석 결과 파일을 저장하는 도중 문제가 발생"
+        logging.exception(err_msg)
+        raise OSError(err_msg)
 
 
 # 역할: 스토어드 프로시저의 각 라인에 줄 번호를 추가합니다.
@@ -67,15 +68,16 @@ async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
 #   - last_line: 스토어드 프로시저 파일 내용의 마지막 라인번호
 def add_line_numbers(contents):
     try: 
+        # * 각 라인에 번호를 추가합니다.
         lines = contents.splitlines()
         numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(lines)]
         last_line = len(lines) 
         numbered_contents = "\n".join(numbered_lines)
         return numbered_contents, last_line
     except Exception:
-        error_msg = "전달된 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생"
-        logging.exception(error_msg)
-        return Exception(error_msg), 0
+        err_msg = "전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise AddLineNumError(err_msg)
 
 
 # 역할: 사이퍼 쿼리를 생성 및 실행하고, 그 결과를 스트림 형식으로 반환
@@ -83,7 +85,7 @@ def add_line_numbers(contents):
 #    - sp_file_name: 스토어드 프로시저 파일 이름(확장자 제거)
 #    - last_line: 스토어드 프로시저 파일의 내용의 마지막 라인 번호
 # 반환값: 
-#   - ? : 사이퍼 쿼리 실행 결과를 스트림 형식으로 반환
+#   - 스트림 : 그래프를 그리기 위한 데이터들
 async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
     connection = Neo4jConnection()
     plsql_file_path = os.path.join(SAVE_PLSQL_DIR, f"{base_sp_file_name}.txt")
@@ -108,7 +110,9 @@ async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
                     break
                 
                 elif analysis_result.get('type') == 'error':
+                    logging.info("Understanding Failed")
                     break
+
 
                 # * 사이퍼쿼리 분석 과정에서 전달된 이벤트에서 각종 정보를 추출합니다 
                 cypher_queries = analysis_result.get('query_data', [])
@@ -144,10 +148,11 @@ async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
         await connection.close()
 
 
-# 역할: 주어진 노드 ID를 기반으로 두 단계 깊이의 관계를 가진 노드와 관계를 조회하여 그래프 객체로 반환합니다.
+# 역할: 노드 ID를 기반으로 두 단계 깊이의 노드를 조회하여 그래프 객체로 반환합니다.
 # 매개변수: 
-#      - node_info : 노드 정보를 담고 있는 객체, 반드시 'id' 키를 포함해야 합니다.
-# 반환값: 두 단계 깊이의 사이퍼 쿼리 실행 결과로 얻은 그래프 객체
+#   - node_info : 노드 정보
+# 반환값: 
+#   - graph_object_result : 그래프 객체
 async def generate_two_depth_match(node_info):
     try:
         connection = Neo4jConnection()
@@ -159,25 +164,30 @@ async def generate_two_depth_match(node_info):
         RETURN n, relationships(path), related
         """
 
-        # * 사이퍼 쿼리 실행하여, 결과를 가져옵니다
+        # * 사이퍼 쿼리 실행하여, 결과를 그래프 객체로 가져옵니다
         graph_object_result = await connection.execute_query_and_return_graph(query)
         return graph_object_result
     
+    except Neo4jError:
+        raise
     except Exception:
-        logging.exception("Error prepare execute 2 depth cypher queries")
+        err_msg = "2단계 깊이 기준 노드를 조회하는 사이퍼쿼리를 준비 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise Java2dethsError(err_msg)
     finally:
         await connection.close()
 
 
-# 역할: 사이퍼 쿼리 결과를 바탕으로 자바 코드를 생성하고, 이를 스트림 형태로 반환합니다.
+# 역할: 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드를 생성하여, 스트림 형태로 반환
 # 매개변수:
-#   cypher_query: 사이퍼 쿼리 문자열
-#   previous_history: 이전에 처리된 자바 코드의 히스토리
-#   requirements_chat: 요구사항을 담은 채팅 데이터
-# 반환값: 생성된 자바 코드를 스트림 형태로 반환
-async def generate_java_from_content(cypher_query=None, previous_history=None, requirements_chat=None):
+#   - cypher_query: 사이퍼쿼리
+#   - previous_history: 이전 히스토리
+#   - requirements_chat: 요구사항
+# 반환값: 
+#   - 스트림 : 자바 코드
+async def generate_simple_java(cypher_query=None, previous_history=None, requirements_chat=None):
     try:
-        # * 사이퍼 쿼리와 관련 데이터를 바탕으로 자바 코드 생성 프로세스를 실행합니다
+        # * 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드 생성 프로세스를 실행합니다
         async for java_code in convert_2deths_java(cypher_query, previous_history, requirements_chat):
             yield java_code
         yield "END_OF_STREAM"
@@ -190,79 +200,93 @@ async def generate_java_from_content(cypher_query=None, previous_history=None, r
         yield "stream-error" 
 
 
-# 역할 : 전달받은 이름을 각각의 표기법에 맞게 변환하는 함수
+# 역할 : 전달받은 스토어드 프로시저 파일 이름을 각각의 표기법에 맞게 변환하는 함수
 # 매개변수 : 
 #   - sp_fileName : 스토어드 프로시저 파일의 이름
-# 반환값 : 표기법에 따른 이름들
-async def convert_fileName_for_java(sp_fileName):
-    components = sp_fileName.split('_')
-    pascal_case = ''.join(x.title() for x in components)
-    lower_case = sp_fileName.replace('_', '').lower()
-    return pascal_case, lower_case
+# 반환값 : 
+#   - pascal_file_name : 파스칼 표기법으로 변환된 파일 이름
+#   - lower_file_name : 소문자로 변환된 파일
+async def transform_fileName(sp_fileName):
+    try:
+        # * 파일 이름에서 _를 제거하고, 각각의 표기법으로 전환합니다.
+        words = sp_fileName.split('_')
+        pascal_file_name = ''.join(x.title() for x in words)
+        lower_file_name = sp_fileName.replace('_', '').lower()
+        return pascal_file_name, lower_file_name
+    except Exception:
+        err_msg = "스토어드 프로시저 파일 이름을 파스칼, 소문자로 구성된 이름으로 변환 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise OSError(err_msg)
 
 
-# 역할: 스프링 부트 프로젝트 생성을 위한 단계별 변환 과정을 수행하는 비동기 제너레이터 함수입니다.
+# 역할: 스프링 부트 프로젝트 생성을 위한 단계별 변환 과정을 수행하는 비동기 제너레이터 함수
 # 매개변수: 
-#      - fileName : 스프링 부트 프로젝트로 전환될 스토어드 프로시저의 파일 이름.
-# 반환값: 각 변환 단계의 완료 메시지를 스트리밍 형태로 반환합니다.
-async def create_spring_boot_project(fileName):
+#   - fileName : 스프링 부트 프로젝트로 전환될 스토어드 프로시저의 파일 이름.
+# 반환값: 
+#   - 스트림 : 각 변환 단계의 완료 메시지
+async def generate_spring_boot_project(fileName):
     
     try:
         # * 프로젝트 이름을 각 표기법에 맞게 변환합니다.
-        pascal_case, lower_case = await convert_fileName_for_java(fileName)
+        pascal_file_name, lower_file_name = await transform_fileName(fileName)
 
         # * 1 단계 : 엔티티 클래스 생성
-        table_node_data, entity_name_list = await start_entity_processing(lower_case) 
+        table_node_data, entity_name_list = await start_entity_processing(lower_file_name) 
         yield f"Step1 completed"
         
         # * 2 단계 : 리포지토리 인터페이스 생성
-        jpa_method_list, repository_interface_names = await start_repository_processing(table_node_data, lower_case) 
+        jpa_method_list, repository_interface_names = await start_repository_processing(table_node_data, lower_file_name) 
         yield f"Step2 completed\n"
         
         # * 3 단계 : 서비스 스켈레톤 생성
-        service_skeleton_code, procedure_variable_list, service_class_name, service_skeleton_summarzied = await start_service_skeleton_processing(lower_case, entity_name_list, repository_interface_names)
+        service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(lower_file_name, entity_name_list, repository_interface_names)
         yield f"Step3 completed\n"
         
         # * 4 단계 : 서비스 생성
-        await start_service_processing(service_skeleton_summarzied, jpa_method_list, procedure_variable_list)
-        await merge_service_code(lower_case, service_skeleton_code, service_class_name)
+        await start_service_processing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list)
+        await merge_service_code(lower_file_name, service_skeleton_code, service_class_name)
         yield f"Step4 completed\n"
         
         # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(lower_case)
+        await start_pomxml_processing(lower_file_name)
         yield f"Step5 completed\n"
         
         # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(lower_case)
+        await start_APLproperties_processing(lower_file_name)
         yield f"Step6 completed\n"
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(lower_case, pascal_case)
+        await start_main_processing(lower_file_name, pascal_file_name)
         yield f"Step7 completed\n"
         yield "Completed Converting.\n"
 
-    except Exception as e:
-        logging.exception("Error During Create Spring Boot Project")
-        yield {"error": str(e)}
+    except (ConvertingError, Neo4jError):
+        yield "convert-error"
+    except Exception:
+        err_msg = "스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        yield "convert-error" 
 
 
-# 역할: 전환된 스프링 기반의 자바 프로젝트를 zip으로 압축합니다.
+# 역할: 전환된 스프링 기반의 자바 프로젝트를 zip으로 압축하는 함수
 # 매개변수: 
-#      - source_dir : zip으로 압축할 파일 경로
-#      - output_zip : 결과인 zip 파일이 저장되는 경로
+#   - source_directory : zip으로 압축할 대상이 있는 파일 경로
+#   - output_zip_path : 압축된 zip 파일이 저장되는 경로
 # 반환값: 없음
-async def zip_directory(source_dir, output_zip):
+async def process_zip_file(source_directory, output_zip_path):
     try:
         # * zipfile 모듈을 사용하여 ZIP 파일 생성
-        os.makedirs(os.path.dirname(output_zip), exist_ok=True)
-        logging.info(f"Zipping contents of {source_dir} to {output_zip}")
-        with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(source_dir):
+        os.makedirs(os.path.dirname(output_zip_path), exist_ok=True)
+        logging.info(f"Zipping contents of {source_directory} to {output_zip_path}")
+        with zipfile.ZipFile(output_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for current_path, _, files in os.walk(source_directory):
                 for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, start=source_dir)
+                    file_path = os.path.join(current_path, file)
+                    arcname = os.path.relpath(file_path, start=source_directory)
                     zipf.write(file_path, arcname)
         logging.info("Zipping completed successfully.")
-    except Exception as e:
-        logging.error(f"Failed to zip directory {source_dir} to {output_zip}: {str(e)}")
-        raise
+
+    except Exception:
+        err_msg = "스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다."
+        logging.exception(err_msg)
+        raise OSError(err_msg)
