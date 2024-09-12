@@ -25,7 +25,9 @@ prompt = PromptTemplate.from_template(
 프로시저 선언부 데이터를 Service 클래스로 전환할 때, 다음 지침을 따르세요:
 1. 전달된 JSON 객체 중에서 'type' 필드의 값이 'procedure'인 항목들의 'code' 필드에서 사용된 모든 변수들을 포함한 Command Class의 기본 구조를 작성하세요.
 2. 모든 변수는 적절한 자바 데이터 타입을 사용하고, private 접근 제한자와 카멜 표기법을 적용하세요. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
-5. Command 클래스의 이름은 로직에 알맞게 작성해주세요.
+3. Command 클래스의 이름은 로직에 알맞게 작성해주세요.
+4. 날짜나 시간을 다루는 필드의 경우 LocalDate를 사용하도록 하세요.
+5. 필요에 따라 추가적인 import문을 선언하세요.
 
 
 아래는 Command의 기본 구조입니다:

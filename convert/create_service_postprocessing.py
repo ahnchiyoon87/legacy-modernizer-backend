@@ -35,7 +35,6 @@ async def process_big_size_node(node_startLine, summarized_java_code, connection
             child = node['m']
             token = child['token']
             logging.info("크기가 매우 큰 노드 처리중")
-            logging.info(f"자식 노드 : [ 시작라인 : {child['startLine']}, 토큰 : {child['token']}, 끝라인 : {child['endLine']}")
             
             # * 자식 노드의 토큰 크기에 따라 재귀적으로 처리하거나 기존 코드 사용하여 요약된 부모 코드에서 실제 자식 코드로 교체
             java_code = await process_big_size_node(child['startLine'], child['java_code'], connection) if token > 1700 else child['java_code']
@@ -116,6 +115,7 @@ async def process_service_class(node_list, connection):
 async def start_service_Postprocessing(lower_file_name, service_skeleton, service_class_name):
     
     connection = Neo4jConnection() 
+    logging.info("(후처리) 서비스 생성을 시작합니다.")
     
     try:
         # * 노드와 관계를 가져오는 쿼리 

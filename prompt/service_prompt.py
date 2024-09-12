@@ -1,10 +1,10 @@
 import json
 import logging
 import os
+import re
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_openai import ChatOpenAI
-from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
@@ -20,9 +20,9 @@ prompt = PromptTemplate.from_template(
 주어진 Stored Procedure Code를 기반으로 자바 서비스의 비즈니스 로직을 생성하는 작업을 맡았습니다.
 
 
-** 결과 생성시 필수로 지켜야할 사항 ** : 
-- + 연산자를 사용한 문자열 연결은 JSON 형식을 깨뜨릴 수 있기 때문에 + 연산자를 사용하지 않고, 문자열을 하나의 큰 문자열로 반환하세요
-- 생성된 코드 내의 모든 큰따옴표(")는 이스케이프 처리하여 \\"로 변경하세요.
+**결과를 생성시 반드시 지켜야할 사항** : 
+- JSON에서는 특수 문자(예: 줄바꿈)도 이스케이프 처리가 필요합니다. 예를 들어, 줄바꿈은 `\\n`으로 표현됩니다.
+- JSON 문자열을 생성할 때, 문자열 내의 따옴표는 `\\"`로 이스케이프 처리해야 합니다.
 
 
 Stored Procedure Code:
@@ -54,7 +54,7 @@ jpa_method_list:
 - 'Context Range'에서 주어진 범위내 Stored Procedure Code만 자바로 전환하고, 범위를 벗어나지 않도록 주의하세요. (예 : startLine": 212, "endLine": 212이면 해당하는 라인만 자바로 전환하세요.)
 - 'Serivce Class Code'에, //Here is business logic 위치에 들어갈 비즈니스 로직만을 생성하고, 들여쓰기를 적용하여 소스 코드 형태로 주세요.
 - 'Context Range' 범위는 {count}개로 총 {count}개의 'analysis'를 생성하세요.
-- 모든 변수는 이미 선언되어 있기 때문에 'Used Variable'만 참고하여, 변수 선언 없이, 값 초기화하는 로직만 추가하세요.
+- 모든 변수는 이미 선언되어 있기 때문에 'Used Variable'만 참고하여, 변수 선언 없이, 값 초기화하는 로직만 추가하고, Camel 표기법으로 표현하세요.
 
 
 'Stored Procedure Code'를 'Serivce Class Code'로 전환할 때, 아래를 참고하여 작업하세요:
@@ -70,12 +70,30 @@ jpa_method_list:
 {{
    "analysis": [
       {{
-         "range": {{"startLine": startLine, "endLine": endLine}},
-         "code": "Service Code"
+         "startLine~endLine": "Service Code",
+         "startLine~endLine": "Service Code"
       }}
    ]
 }}
 """)
+
+
+def preprocess_json(json_str):
+   def escape_code(code):
+      return json.dumps(code)[1:-1]  # JSON 인코딩 후 따옴표 제거
+
+   pattern = r'"(\d+~\d+)"\s*:\s*"((?:\\.|[^"\\])*)"'
+
+   matches = re.findall(pattern, json_str)
+
+   # 결과 출력
+   for match in matches:
+      print(f"키: {match[0]}")
+      print(f"값: {match[1]}")
+      print("-" * 50)
+
+   processed = re.sub(pattern, lambda m: f'"{m.group(1)}": "{escape_code(m.group(2))}"', json_str)
+   return processed
 
 
 # 역할 : 주어진 프로시저 코드를 기반으로 Service 클래스 코드를 생성합니다.
@@ -99,10 +117,17 @@ def convert_service_code(convert_sp_code, service_skeleton, variable_list, proce
          RunnablePassthrough()
          | prompt
          | llm
-         | JsonOutputParser()
       )
       result = chain.invoke({"code": convert_sp_code, "service": service_skeleton, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
-      return result, prompt.template
+      
+      content = result.content
+      # processed_json = preprocess_json(content)
+
+      transform_result = {
+         "content": content,
+         "usage_metadata": result.usage_metadata
+      }      
+      return transform_result
     
    except Exception:
       err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."

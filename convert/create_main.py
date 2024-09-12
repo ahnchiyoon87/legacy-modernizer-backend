@@ -11,6 +11,8 @@ from util.exception import MainCreationError
 # 반환값: 없음.
 async def start_main_processing(lower_file_name, pascal_file_name):
     
+    logging.info("메인 클래스 생성을 시작합니다.")
+
     try:
 
         # * 메인 클래스 파일의 내용을 설정합니다.

@@ -97,7 +97,7 @@ async def create_entity_class(table_data_group, lower_file_name):
 #   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
 async def start_entity_processing(lower_file_name):
     connection = Neo4jConnection()
-    
+    logging.info("엔티티 생성을 시작합니다.")
     try:
         # * 테이블 노드를 가져오기 위한 사이퍼쿼리 생성 및 실행합니다
         query = ['MATCH (n:Table) RETURN n']

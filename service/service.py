@@ -20,7 +20,7 @@ from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LL
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
 SAVE_PLSQL_DIR = os.path.join(BASE_DIR, "data", "plsql")
-SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "data", "analysis")
+SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "data", "antlr")
 os.makedirs(SAVE_PLSQL_DIR, exist_ok=True)
 os.makedirs(SAVE_ANTLR_DIR, exist_ok=True)
 
@@ -232,7 +232,7 @@ async def generate_spring_boot_project(fileName):
 
         # * 1 단계 : 엔티티 클래스 생성
         table_node_data, entity_name_list = await start_entity_processing(lower_file_name) 
-        yield f"Step1 completed"
+        yield f"Step1 completed\n"
         
         # * 2 단계 : 리포지토리 인터페이스 생성
         jpa_method_list, repository_interface_names = await start_repository_processing(table_node_data, lower_file_name) 

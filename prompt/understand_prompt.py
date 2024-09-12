@@ -3,7 +3,6 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
@@ -90,10 +89,14 @@ def understand_code(sp_code, context_ranges, context_range_count):
             RunnablePassthrough()
             | prompt
             | llm
-            | JsonOutputParser()
+
         )
         result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
-        return result, prompt.template
+        transform_result = {
+            "content": result.content,
+            "usage_metadata": result.usage_metadata
+        }    
+        return transform_result
     except Exception:
         err_msg = "Understanding 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
         logging.exception(err_msg)

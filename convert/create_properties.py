@@ -9,6 +9,8 @@ from util.exception import AplPropertiesCreationError
 #   - lower_case : 소문자 프로젝트 이름
 # 반환값: 없음
 async def start_APLproperties_processing(lower_case):
+    
+    logging.info("application.properties 생성을 시작합니다.")
 
     try:
         # * properties 파일의 내용과 저장될 경로를 설정합니다.

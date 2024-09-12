@@ -22,8 +22,6 @@ summarized_stored_procedure_code:
 {summarized_code}
 
 
-
-
 summarized_stored_procedure_code를 자바 코드로 전환할 때, 다음 지침을 따르세요:
 1. ...code...가 식별되는 시작라인만 자바 코드에 포함하세요.
 

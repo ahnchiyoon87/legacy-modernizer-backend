@@ -10,6 +10,8 @@ from util.exception import PomXmlCreationError
 # 반환값: 없음
 async def start_pomxml_processing(lower_file_name):
     
+    logging.info("pom.xml 생성을 시작합니다.")
+    
     try:        
         # * pom.xml 파일의 내용을 문자열로 생성합니다.
         pom_xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>

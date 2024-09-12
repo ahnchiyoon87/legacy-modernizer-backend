@@ -37,9 +37,17 @@ def calculate_code_token(spCode):
 # 반환값: 없음
 async def merge_jpa_query_method(repository_code_list, repository_pascal_name, repository_camel_name, lower_file_name):
     
+    adjusted_methods = []
+    
     try:        
         # * 전달된 JPA 쿼리 메서드들의 들여쓰기 조정하여 하나의 문자열로 생성
-        adjusted_methods = ['    ' + method.strip() for method in repository_code_list]
+        for method in repository_code_list:
+            lines = method.strip().split('\n')
+            indented_lines = ['    ' + line.strip() for line in lines]
+            adjusted_methods.append('\n'.join(indented_lines))
+
+
+        # * 메서드들 사이에 빈 줄을 추가하여 합칩니다.
         merged_methods = '\n\n'.join(adjusted_methods)
 
 
@@ -69,7 +77,6 @@ public interface {repository_pascal_name}Repository extends JpaRepository<{repos
         file_path = os.path.join(entity_directory, f"{repository_pascal_name}Repository.java")
         async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
             await file.write(repository_interface)
-            logging.info("Success Create Java Repository Interface")
 
     except Exception:
         err_msg = "리포지토리 인터페이스 파일 쓰기 및 생성 도중 오류가 발생"
@@ -157,7 +164,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_file_name)
 
                 # * 현재까지 쌓아둔 데이터 그룹을 llm에게 전달해서 처리하기 위한 함수를 호출합니다
                 repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
-                repository_code_list.append(repository_code)
+                repository_code_list.extend(repository_code)
                 jpa_method_list.append(method_list)
                 repository_interface_names[pascal_name] = camel_name
 
@@ -185,7 +192,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_file_name)
                     variable_nodes_context[f'variables_{node["startLine"]}'] = variable_node_list
                     process_append_flag = False  # 추가 데이터 처리 방지
                 repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
-                repository_code_list.append(repository_code)
+                repository_code_list.extend(repository_code)
                 jpa_method_list.append(method_list)
                 repository_interface_names[pascal_name] = camel_name
 
@@ -208,7 +215,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_file_name)
         # * 마지막 데이터 그룹을 처리합니다
         if table_link_node_chunk:
             repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
-            repository_code_list.append(repository_code)
+            repository_code_list.extend(repository_code)
             jpa_method_list.append(method_list)
             repository_interface_names[pascal_name] = camel_name
             await merge_jpa_query_method(repository_code_list, pascal_name, camel_name, lower_file_name)
@@ -238,10 +245,12 @@ async def create_repository_interface(node_data, variable_nodes_context):
         # * LLM을 사용하여 주어진 노드 데이터를 분석하고, 나온 결과에서 필요한 정보를 추출합니다
         analysis_data = convert_repository_code(node_data, variable_nodes_context)    
         repository_code = analysis_data['jpaQueryMethod']
-        repository_pascal_name = analysis_data['pascalName']
-        repository_camel_name = analysis_data['camelName']
         method_list = analysis_data['methodList']
-        return repository_code, repository_pascal_name, repository_camel_name, method_list
+        first_key = next(iter(method_list))
+        pascal_name = first_key.split('_')[0].capitalize()
+        camel_name = pascal_name[0].lower() + pascal_name[1:] if pascal_name else ''
+
+        return repository_code, pascal_name, camel_name, method_list
     
     except LLMCallError:
         raise
@@ -260,6 +269,8 @@ async def create_repository_interface(node_data, variable_nodes_context):
 #   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 async def start_repository_processing(table_node_list, lower_file_name):
     
+    logging.info("repository interface 생성을 시작합니다.")
+
     try:
         connection = Neo4jConnection()
         filtered_table_list = []

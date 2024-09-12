@@ -1,5 +1,5 @@
-import asyncio
 from collections import defaultdict
+import json
 import logging
 import re
 import tiktoken
@@ -256,38 +256,29 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작합니다
-            analysis_result, prompt_template = understand_code(clean_code, context_range, context_range_count)
-            combined_context = f"{prompt_template}\n{context_range}\n{analysis_result}"
-            combined_context_tokens = count_tokens_in_text(combined_context)
-            logging.info(f"토큰 수 : {combined_context_tokens + sp_token_count}")
+            analysis_result = understand_code(clean_code, context_range, context_range_count)
+            total_tokens = analysis_result['usage_metadata']['total_tokens']
+            logging.info(f"토큰 수: {total_tokens}")            
             
-            
+
             # * 토큰 수가 초과하였는지 검사합니다.
-            if combined_context_tokens + sp_token_count <= 4096:
-                return await handle_analysis_result(analysis_result)
+            if total_tokens <= 4096 and context_range_count > 0:
+                return await handle_analysis_result(analysis_result['content'])
 
 
             # * 토큰 수가 초과된 경우 처리로 부모 범위를 찾고, 분석 범위를 절반으로 나눕니다.
             cypher_queries = []
-            largest_range_index = max(range(context_range_count), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
+            largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
             parent_range = context_range.pop(largest_range_index)
-            half_point = context_range_count // 2
-            
+            child_ranges = [context_range[:len(context_range)//2], context_range[len(context_range)//2:]]
 
-            # * 절반으로 나뉘어진 context_range를 처리합니다
-            for sub_range in [context_range[:half_point], context_range[half_point:]]:
-                if sub_range:
-                    sub_clean_code, _ = extract_code_within_range(clean_code, sub_range)
-                    sub_analysis_result, _ = understand_code(sub_clean_code, sub_range, len(sub_range))
-                    cypher_queries.extend(await handle_analysis_result(sub_analysis_result))
-            
 
-            # * 마지막으로 부모 범위를 처리합니다.
-            parent_schedule = next((schedule for schedule in schedule_stack if schedule['startLine'] == parent_range['startLine']), None)
-            if parent_schedule:
-                parent_clean_code = parent_schedule['code']
-                parent_analysis_result, _ = understand_code(parent_clean_code, [parent_range], 1)
-                cypher_queries.extend(await handle_analysis_result(parent_analysis_result))
+            # * 분할된 context_range를 처리합니다
+            for current_range in [parent_range] + child_ranges:
+                if current_range:
+                    current_code, _ = extract_code_within_range(clean_code, [current_range])
+                    current_analysis = understand_code(current_code, [current_range], len([current_range]))
+                    cypher_queries.extend(await handle_analysis_result(current_analysis['content']))
 
             return cypher_queries
         
@@ -304,12 +295,17 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - analysis_result : llm의 분석 결과
     # 반환값 : 
     #   - cypher_queries: 생성된 사이퍼쿼리 목록
-    async def handle_analysis_result(analysis_result):
+    async def handle_analysis_result(content):
         nonlocal clean_code, sp_token_count, focused_code, extract_code, context_range
         commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
         table_fields = defaultdict(set)
                 
         try:
+            # * 백틱과 'json' 표시 제거후 json 파싱
+            content = re.sub(r'^```json\n|\n```$', '', content.strip())
+            analysis_result = json.loads(content)
+            
+
             # * llm의 분석 결과에서 변수 및 테이블 정보를 추출하고, 필요한 변수를 초기화합니다 
             table_references = analysis_result.get('tableReference', [])
             tables = analysis_result.get('Tables', {})
@@ -409,7 +405,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             while True:
                 response = await receive_queue.get()
                 if response['type'] == 'process_completed':
-                    logging.info("Processed Event Received")
+                    logging.info("Processed Event Received\n")
                     cypher_query.clear();
                     break;
         
@@ -495,7 +491,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
         sp_token_count = count_tokens_in_text(clean_code)
-        if (node_size >= 100 and context_range) or (sp_token_count >= 100 and context_range) or (len(context_range) > 12):
+        if (node_size >= 1200 and context_range) or (sp_token_count >= 900 and context_range) or (len(context_range) > 12):
             await signal_for_process_analysis(line_number)
 
 

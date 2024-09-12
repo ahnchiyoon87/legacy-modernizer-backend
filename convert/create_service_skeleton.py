@@ -165,7 +165,6 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
 
 
         # * command 클래스 파일을 저장할 디렉토리를 설정하고, 없으면 생성합니다.
-        logging.info("\nSuccess RqRs LLM\n")  
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
         command_class_directory = os.path.join(base_directory, 'java', f'{lower_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_name}','command')
         os.makedirs(command_class_directory, exist_ok=True) 
@@ -175,7 +174,6 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
         command_class_path = os.path.join(command_class_directory, f"{command_class_name}.java")  
         async with aiofiles.open(command_class_path, 'w', encoding='utf-8') as file:  
             await file.write(command_class_code)  
-            logging.info(f"\nSuccess Create {command_class_name} Java File\n") 
 
         return modified_service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
 
@@ -199,13 +197,14 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
 #   - summarzied_service_skeleton: 요약된 서비스 골격 클래스
 async def start_service_skeleton_processing(lower_name, entity_name_list, repository_interface_names):
     
+    connection = Neo4jConnection()  
+    logging.info("서비스 틀 생성을 시작합니다.")
+
     try:
-        connection = Neo4jConnection()  
 
         # * Neo4j 데이터베이스에서 프로시저, Declare 노드를 검색하는 쿼리를 실행합니다.
         query = ['MATCH (n:CREATE_PROCEDURE_BODY) RETURN n', 'MATCH (n:DECLARE) RETURN n']  
         procedure_declare_nodes = await connection.execute_queries(query)  
-        logging.info("\nSuccess Received Procedure, Declare Nodes from Neo4J\n")  
         transformed_declare_data = [] 
         transformed_procedure_data = [] 
         
@@ -229,8 +228,8 @@ async def start_service_skeleton_processing(lower_name, entity_name_list, reposi
                 
 
         # * 변환된 데이터를 사용하여 토큰 계산 및 서비스 스켈레톤 생성을 수행합니다.
-        logging.info("\nSuccess Transformed Procedure, Declare Nodes Data\n")  
         service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list, repository_interface_names)  
+        logging.info("Success Create Service Skeleton, Command Class\n") 
         return service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
     
     except (ConvertingError, Neo4jError):

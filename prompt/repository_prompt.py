@@ -32,9 +32,8 @@ Used Variable:
 1. Stored Procedure Code에서 각 JSON 객체들은 JPA Query Methods로 전환되어야 합니다.
 2. Used Variable는 현재 구문에서 사용된 변수 목록으로, JPA Query Methods의 매개변수 식별에 사용하세요. 
 3. 쿼리에 필요한 모든 매개변수가 포함되었는지 확인하세요. 누락된 매개변수가 없어야 합니다.
-4. 모든 Entity의 이름은 복수형이 아닌 단수형으로 표현됩니다. (예: Employees -> Employee)
-5. 존재하지 않는 정보에 대해서는 빈 배열 [] 또는 빈 문자열 "" 로 제공하세요.
-6. 'methodList'에는 @Qeury를 제외한, JPA Query Methods의 타입, 이름, 매개변수만 넣으세요.
+4. 모든 Entity의 이름은 복수형이 아닌 단수형인 파스칼 표기법으로 표현됩니다. (예: Employees -> Employee)
+5. 'methodList'에는 @Qeury를 제외한, JPA Query Methods의 타입, 이름, 매개변수만 넣으세요.
 
 
 JPA Query Methods 생성시 반드시 숙지해야할 요구사항:
@@ -55,12 +54,10 @@ Type exampleJPAQueryMethod(@Param("Type TableColumn") Type exampleField, ...)
 
 아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
-    "pascalName": "(예: B_CONTRACT_CAR_STND_CONFS -> BContractCarStndcConf)",  
-    "camelName": "(예: B_CONTRACT_CAR_STND_CONFS -> bContractCarStndcConf)",
-    "jpaQueryMethod": "@Query(\"SELECT e FROM Entity e WHERE e.column = :param\")\nType methodName(@Param(\"param\") Type param);",
+    "jpaQueryMethod": ["@Query(\"SELECT e FROM Entity e WHERE e.column = :param\")\nType methodName(@Param(\"param\") Type param);"],
     "methodList" : {{
         "entityName_startLine~endLine": "Type methodName(@Param("param") Type param, ...)",
-        "entityName_startLine~endLine": "Type methodName(@Param("param") Type param, ...)",
+        "entityName_startLine~endLine": "Type methodName(@Param("param") Type param, ...)"
     }}
 }}
 """

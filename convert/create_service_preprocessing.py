@@ -1,13 +1,11 @@
+import ast
+import json
 import logging
-import anthropic
-import tiktoken
+import re
 from prompt.service_prompt import convert_service_code
 from prompt.parent_service_skeleton_prompt import convert_parent_skeleton
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractCodeError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TokenCountError, TraverseCodeError, VariableNodeError
-
-# * 인코더 설정 및 파일 이름 초기화
-client = anthropic.Anthropic()
 
 
 # 역할: 주어진 범위에서 startLine과 endLine을 추출하여, 스토어드 프로시저 코드를 잘라내는 함수
@@ -42,23 +40,6 @@ def extract_code_within_range(sp_code, context_range):
         err_msg = "(전처리) 서비스 코드 생성 과정에서 범위내에 코드 추출 도중 문제가 발생했습니다."
         logging.exception(err_msg)
         raise ExtractCodeError(err_msg)
-
-
-# 역할: 주어진 스토어드 프로시저 코드의 토큰의 개수를 계산하는 함수
-# 매개변수: 
-#   - sp_code : 토큰을 계산할 스토어드 프로시저
-# 반환값: 
-#   - reponse : 계산된 토큰의 수
-# TODO 수정 필요 
-def count_tokens_anthropic(sp_code):
-    try:
-        response = client.count_tokens(sp_code)
-        print(response)
-        return response
-    except Exception:
-        err_msg = "(전처리) 서비스 코드 생성 과정에서 토큰 계산 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
-        raise TokenCountError(err_msg)
 
 
 # 역할: 변수 노드에서 실제로 사용된 변수 노드만 추려서 제공하는 함수
@@ -105,7 +86,6 @@ async def process_over_size_node(start_line, summarized_code, connection):
 
         # * 요약된 코드를 분석하여 결과를 가져옵니다
         analysis_result = convert_parent_skeleton(summarized_code)
-        logging.info(f"Successfully Converted Parent Node")
         service_code = analysis_result['code']
 
 
@@ -128,7 +108,7 @@ async def process_over_size_node(start_line, summarized_code, connection):
 # 역할: llm에게 분석할 스토어드 프로시저 코드를 전달하고 받은 결과의 토큰 수에 따라 처리를 결정하는 함수
 # 매개변수:
 #   - convert_sp_code : 스토어드 프로시저 코드
-#   - total_tokens : 총 토큰 수
+#   - current_tokens : 총 토큰 수
 #   - variable_dict : 사용된 변수 딕셔너리
 #   - context_range : 컨텍스트 범위
 #   - connection : Neo4j 연결 객체
@@ -137,66 +117,62 @@ async def process_over_size_node(start_line, summarized_code, connection):
 #   - used_jpa_method_list: 사용된 Jpa 쿼리 메서드 리스트
 # 반환값: 
 #   - convert_sp_code : 초기화된 스토어드 프로시저 코드
-#   - total_tokens : 초기화된 총 토큰 수
+#   - current_tokens : 초기화된 총 토큰 수
 #   - variable_dict : 초기화된 변수 딕셔너리
 #   - context_range : 초기화된 컨텍스트 범위
 #   - used_jpa_method_list : 초기화된 Jpa 쿼리 메서드 리스트
 # TODO 수정 필요
-async def process_convert_result(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list):
+async def process_convert_result(convert_sp_code, current_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list):
 
     try:
         # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
-        parent_context_range = []
         range_count = len(context_range)
 
 
         # * 전달된 정보를 llm에게 전달하여 결과를 받습니다.
-        analysis_result, prompt_template = convert_service_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count, used_jpa_method_list)
-        combined_context = f"{convert_sp_code}\n{prompt_template}\n{context_range}\n{service_skeleton}\n{variable_dict}\n{procedure_variables}\n{analysis_result}\n{used_jpa_method_list}"
-        combined_context_tokens = count_tokens_anthropic(combined_context)
-        
-        # * 토큰 수가 최대를 넘었다면, 분할 처리를 진행합니다.
-        if combined_context_tokens > 3400 and range_count > 1:
-            print(f"분할 시작")
-            largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
-            parent_context_range.append(context_range.pop(largest_range_index))
-            half_point = len(context_range) // 2
+        analysis_result = convert_service_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count, used_jpa_method_list)
+        total_tokens = analysis_result['usage_metadata']['total_tokens']
+        logging.info(f"토큰 수: {total_tokens}")
 
-            # * context range에서 부모를 추출하고 자식들을 반으로 나눕니다.    
-            for sub_range in [context_range[:half_point], context_range[half_point:]]:
-                sub_jpa_method_list = []
-                if sub_range:
-                    
-                    # * 분할된 context_range를 기준으로 다시 사용된 Jpa 쿼리 메서드를 생성합니다. 
-                    for method_dict in used_jpa_method_list:
-                        for key, value in method_dict.items():
-                            start_line = int(key.split('_')[-1].split('~')[0])
-                            for range_item in sub_range:
-                                if range_item['startLine'] == start_line:
-                                    sub_jpa_method_list.append(f"{key}: {value}")
-                    
-                    # * 분할된 자식들을 LLM에게 보냅니다.
-                    extract_sub_code = extract_code_within_range(convert_sp_code, sub_range)
-                    sub_analysis_result, _ = convert_service_code(extract_sub_code, service_skeleton, variable_dict, procedure_variables, sub_range, len(sub_range), used_jpa_method_list)
-                    await handle_convert_result(sub_analysis_result, connection)
+
+        # * 토큰 수가 최대를 넘었다면, 분할 처리를 진행합니다.
+        if total_tokens > 4096 and range_count > 0:
+            logging.info(" 토큰 초과 분할 시작")
             
-            # * 마지막으로 부모를 처리합니다.
-            if parent_context_range:
-                    parent_analysis_result, _ = convert_service_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, parent_context_range, len(parent_context_range), used_jpa_method_list)
-                    await handle_convert_result(parent_analysis_result, connection)
+            # * 분석할 범위에서 부모 범위를 추출하고 자식 범위들을 반으로 나눕니다.  
+            largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
+            parent_range = [context_range.pop(largest_range_index)]
+            child_ranges = [context_range[:len(context_range)//2], context_range[len(context_range)//2:]]
+
+
+            # * 분할된 범위를 순회합니다.   
+            for current_range in [parent_range] + child_ranges:
+                if current_range:
+                    
+                    # * 현재 범위를 기준으로 사용된 Jpa 쿼리 메서드를 다시 생성합니다. 
+                    current_jpa_methods = [
+                        f"{key}: {value}" for method_dict in used_jpa_method_list
+                        for key, value in method_dict.items()
+                        if any(int(key.split('_')[-1].split('~')[0]) == range_item['startLine'] for range_item in current_range)
+                    ]
+                    
+                    # * 현재 범위의 코드 추출 및 변환을 진행합니다.
+                    current_code = extract_code_within_range(convert_sp_code, current_range)
+                    current_analysis = convert_service_code(current_code, service_skeleton, variable_dict, procedure_variables, current_range, len(current_range), current_jpa_methods)                    
+                    await handle_convert_result(current_analysis['content'], connection)
+
         else:
-            await handle_convert_result(analysis_result, connection)
+            await handle_convert_result(analysis_result['content'], connection)
 
 
         # * 다음 사이클을 위해 각 종 변수를 초기화합니다.
-        logging.info(f"\nsuccessfully converted code\n")
         convert_sp_code = ""
-        total_tokens = 0
+        current_tokens = 0
         context_range.clear()
         variable_dict.clear()
         used_jpa_method_list.clear()
 
-        return (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list)
+        return (convert_sp_code, current_tokens, variable_dict, context_range, used_jpa_method_list)
     
     except (ConvertingError, Neo4jError): 
         raise
@@ -211,17 +187,22 @@ async def process_convert_result(convert_sp_code, total_tokens, variable_dict, c
 #   - analysis_result : LLM의 분석 결과
 #   - connection : Neo4J의 연결 객체 
 # 반환값 : 없음
-async def handle_convert_result(analysis_result, connection):
+async def handle_convert_result(content, connection):
+    
+    node_update_query = []
     
     try:
-        node_update_query = []
+        # * 백틱과 'json' 표시 제거후 json 파싱
+        # analysis_result = json.loads(content)
+        analysis_result = ast.literal_eval(content)
+
 
         # * 분석 결과 각각의 데이터를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
         for result in analysis_result['analysis']:
-            start_line = result['range']['startLine']
-            service_code = result['code']
-            query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
-            node_update_query.append(query)        
+            for key, service_code in result.items():
+                start_line, end_line = map(int, key.split('~'))
+                query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
+                node_update_query.append(query)        
         
 
         # * 노드 업데이트 쿼리를 실행
@@ -247,7 +228,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
 
     variable_dict = {}                    # 변수 정보를 저장하는 딕셔너리
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
-    total_tokens = 0                      # 총 토큰 수
+    current_tokens = 0                      # 총 토큰 수
     convert_sp_code = ""                  # converting할 프로시저 코드 문자열
     traverse_node = node_list[0]          # 순회할 모든 노드 리스트
     variable_node = node_list[1]          # 변수 노드 리스트
@@ -287,7 +268,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
             elif is_big_parent_traverse_1deth:
                 print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
                 big_parent_info["nextLine"] = end_node['startLine']
-                (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
+                (convert_sp_code, current_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, current_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
                 continue
 
 
@@ -326,15 +307,15 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
 
 
             # * 가독성을 위해 조건을 변수로 분리
-            is_token_limit_exceeded = (total_tokens + node_tokens >= 1200 or len(context_range) >= 10) and context_range 
+            is_token_limit_exceeded = (current_tokens + node_tokens >= 1200 or len(context_range) >= 10) and context_range 
         
 
             # * 총 토큰 수 검사를 진행합니다.
             if is_token_limit_exceeded:
                 print(f"토큰 및 결과 범위 초과로 converting 진행합니다.")
-                (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
-            print(f"토큰 합계 : {total_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
-            total_tokens += node_tokens
+                (convert_sp_code, current_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, current_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
+            print(f"토큰 합계 : {current_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
+            current_tokens += node_tokens
 
 
             # * 현재 노드에서 사용된 JPA 쿼리 메서드를 추출합니다. 
@@ -346,15 +327,15 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
 
 
             # * 가독성을 위해 조건을 변수로 분리
-            is_small_parent_reassignment = small_parent_info and not convert_sp_code and relationship == "PARENT_OF"
+            # is_small_parent_reassignment = small_parent_info and not convert_sp_code and relationship == "PARENT_OF"
 
 
             # * 크기가 작은 부모에 대한 자식들 처리 도중에 context range 개수 초과로 converting이 되었을 때를 위한 할당   
-            # TODO 수정 필요
-            if is_small_parent_reassignment:
-                print(f"다시 부모 정보를 할당")
-                convert_sp_code = small_parent_info['code']
-                total_tokens = small_parent_info['token']
+            # # TODO 수정 필요
+            # if is_small_parent_reassignment:
+            #     print(f"다시 부모 정보를 할당")
+            #     convert_sp_code = small_parent_info['code']
+            #     current_tokens = small_parent_info['token']
 
 
             # * 관계 타입에 따라 노드의 토큰 수를 파악하여 각 변수값을 할당합니다.  
@@ -396,7 +377,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
                 variable_dict = await process_variable_nodes(start_node['startLine'], variable_dict, variable_node)
             elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
                 print(f"부모 노드안에 또 다른 부모 노드의 순회 끝 converting 진행 -> 흐름이 섞이지 않게")
-                (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
+                (convert_sp_code, current_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, current_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
             else:
                 print("아무것도 처리되지 않습니다.")
         
@@ -404,7 +385,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         # * 마지막 그룹에 대한 처리를 합니다.
         if context_range and convert_sp_code:
             print("순회가 끝났지만 남은 context_range와 convert_sp_code가 있어 converting을 진행합니다.")
-            (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
+            (convert_sp_code, current_tokens, variable_dict, context_range, used_jpa_method_list) = await process_convert_result(convert_sp_code, current_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
     
     except (ConvertingError, Neo4jError): 
         raise
@@ -423,9 +404,9 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
 # 반환값: 없음 
 async def start_service_Preprocessing(service_skeleton, jpa_method_list, procedure_variable):
     
-
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
+    logging.info("(전처리) 서비스 생성을 시작합니다\n")
     
     try:
         # * 노드와 관계를 가져오는 쿼리 
@@ -444,7 +425,7 @@ async def start_service_Preprocessing(service_skeleton, jpa_method_list, procedu
         # * 쿼리 실행하여, 노드를 (전처리) 서비스 생성 함수로 전달합니다
         results = await connection.execute_queries(node_query)        
         await traverse_node_for_service(results, connection, procedure_variable, service_skeleton, jpa_method_list)
-        logging.info("노드에 자바 속성을 추가 완료\n")
+        logging.info("(전처리) 서비스 생성 과정, 노드에 자바 속성을 추가 완료\n")
 
 
     except (ConvertingError, Neo4jError): 
