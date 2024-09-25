@@ -96,22 +96,22 @@ public interface {enttiy_pascal_name}Repository extends JpaRepository<{enttiy_pa
 #   - startLine : 현재 노드 시작라인
 #   - variable_nodes : 모든 변순 노드 리스트
 # 반환값: 
-#   - variable_node_list : 변수에 대한 정보가 담긴 리스트
+#   - filtered_variable_info : 사용된 변수에 대한 정보가 담긴 사전
 #   - variable_tokens : 변수 정보 리스트의 토큰 길이.
 # TODO 검토 디버깅 필요 (제대로 필터링 되는지?)
 async def process_variable_nodes(startLine, variable_nodes):
     try:
 
         # * 현재 노드에서 사용된 변수를 구합니다.
-        filtered_variable_info = []
+        filtered_variable_info = defaultdict(list)
         for node in variable_nodes:
             for key in node['v']:
                 if '_' in key:
                     var_start, var_end = map(int, key.split('_'))
                     if var_start == startLine:
-                        filtered_variable_info.append({
-                            f'{var_start}~{var_end}': f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
-                        })                        
+                        range_key = f'{var_start}~{var_end}'
+                        variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
+                        filtered_variable_info[range_key].append(variable_info)
                         break
 
 
@@ -138,7 +138,7 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
     total_tokens = 0                        # 전체 토큰 수
     variable_tokens = 0                     # llm에게 전달할 변수 정보의 토큰 수
     table_link_node_chunk = []              # llm에게 전달할 노드 데이터 모음
-    variable_nodes_context = []             # llm에게 전달할 변수 데이터 모음
+    used_variable_nodes = defaultdict(list) # llm에게 전달할 변수 데이터 모음
     repository_codes = defaultdict(list)    # JPA 쿼리 메서드 리스트(현재 단계에서 리포지토리 인터페이스 생성에 사용) 
     used_jpa_methods_list = []              # 사용된 JPA 쿼리 메서드 리스트(반환값 다음 단계에 사용)
     process_append_flag = True              # 데이터 추가를 제어하는 플래그
@@ -158,21 +158,21 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
                 # * table_link_node_chunk가 비어있으면서, 첫 시작 노드의 크기가 클 경우, 처리합니다
                 if not table_link_node_chunk:     
                     table_link_node_chunk.append(node_sp_code)
-                    variable_node_list, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes) 
-                    variable_nodes_context.extend(variable_node_list)
+                    variable_node_dict, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes) 
+                    [used_variable_nodes[k].extend(v) for k, v in variable_node_dict.items()]
                     process_append_flag = False  # 추가 데이터 처리 방지
                 
 
                 # * 리포지토리 인터페이스 생성을 위해 데이터를 LLM에게 전달합니다.
                 convert_data_count = len(table_link_node_chunk)
-                grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, variable_nodes_context, convert_data_count)
-                {repository_codes[key].extend(value) for key, value in grouped_query_methods.items()}
+                grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, used_variable_nodes, convert_data_count)
+                [repository_codes[key].extend(value) for key, value in grouped_query_methods.items()]
                 used_jpa_methods_list.extend([{key: value} for key, value in used_jpa_methods.items()])
 
 
                 # * 다음 사이클을 위해 각 변수를 초기화합니다
                 table_link_node_chunk = []
-                variable_nodes_context.clear()  
+                used_variable_nodes.clear()  
                 total_tokens = 0  
                 variable_tokens = 0
                 
@@ -180,15 +180,15 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
             # * 데이터 추가 플래그가 True인 경우, 현재 노드를 데이터 청크에 추가합니다
             if process_append_flag:    
                 table_link_node_chunk.append(node_sp_code)
-                variable_node_list, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes)
-                variable_nodes_context.extend(variable_node_list)
+                variable_node_dict, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes)
+                [used_variable_nodes[k].extend(v) for k, v in variable_node_dict.items()]
                 total_tokens += node_tokens + variable_tokens
 
 
         # * 마지막 데이터 그룹을 처리합니다
         if table_link_node_chunk:
             convert_data_count = len(table_link_node_chunk)
-            grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, variable_nodes_context, convert_data_count)
+            grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, used_variable_nodes, convert_data_count)
             {repository_codes[key].extend(value) for key, value in grouped_query_methods.items()}
             used_jpa_methods_list.extend([{key: value} for key, value in used_jpa_methods.items()])
         
@@ -209,20 +209,20 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
 # 역할: LLM의 분석 결과를 바탕으로 리포지토리 인터페이스 정보를 얻는 함수
 # 매개변수:
 #   - node_data: 분석할 노드 데이터의 리스트
-#   - variable_nodes_context: 변수 노드의 컨텍스트 정보를 포함하는 딕셔너리
+#   - used_variable_nodes: 변수 노드의 컨텍스트 정보를 포함하는 딕셔너리
 #   - convert_data_count : 분석할 데이터의 개수
 # 반환값: 
 #   - grouped_query_methods: 각 테이블의 JPA 쿼리 메서드 리스트.
 #   - used_jpa_method : 사용된 JPA 쿼리 메서드 목록으로 다음 단계(서비스 생성)에서 사용됨
 # TODO 테스트 필요
-async def process_llm_repository_interface(node_data, variable_nodes_context, convert_data_count):
+async def process_llm_repository_interface(node_data, used_variable_nodes, convert_data_count):
     
     grouped_query_methods = {}
     used_jpa_method = {}
 
     try:
         # * LLM을 사용하여 주어진 노드 데이터를 분석하고, 나온 결과에서 필요한 정보를 추출합니다
-        analysis_data = convert_repository_code(node_data, variable_nodes_context, convert_data_count)            
+        analysis_data = convert_repository_code(node_data, used_variable_nodes, convert_data_count)            
         for method_info in analysis_data['analysis']:
             table_name = method_info['tableName'].split('.')[-1]
             if table_name not in grouped_query_methods:
@@ -238,7 +238,7 @@ async def process_llm_repository_interface(node_data, variable_nodes_context, co
             method_body = method_info['method'].split('\n')[1].strip()
             # method_lines = method_info['method'].split('\n')
             # method_body = next((line.strip() for line in method_lines if not line.strip().startswith('@')), '')
-            used_jpa_method[f"{table_name}:{method_info['startLine']}~{method_info['endLine']}"] = method_body
+            used_jpa_method[f"{method_info['startLine']}~{method_info['endLine']}"] = method_body
 
         return grouped_query_methods, used_jpa_method
     
