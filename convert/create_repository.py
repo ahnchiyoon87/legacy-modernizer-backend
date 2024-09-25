@@ -11,20 +11,20 @@ from util.exception import ConvertingError, LLMCallError, Neo4jError, ProcessRes
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
-# 역할: 전달된 스토어드 프로시저 코드의 토큰 길이를 계산합니다.
+# 역할: 전달된 문자열의 토큰 길이를 계산합니다.
 # 매개변수: 
-#   - spCode : 스토어드 프로시저 코드
+#   - text : 전달된 문자열
 # 반환값: 
-#   - len(spCode) : 스토어드 프로시저 코드의 토큰 수
-def calculate_code_token(spCode):
+#   - len(text_json) : 전달된 문자열의 토큰 수
+def calculate_code_token(text):
     
     try:
         # * 데이터를 JSON 형식으로 인코딩하고, 인코딩된 데이터의 길이를 반환합니다.
-        spCode_json = json.dumps(spCode, ensure_ascii=False)
-        return len(encoder.encode(spCode_json))
+        text_json = json.dumps(text, ensure_ascii=False)
+        return len(encoder.encode(text_json))
 
     except Exception:
-        err_msg = "리포지토리 인터페이스 생성 과정에서 노드 토큰 계산 도중 문제가 발생"
+        err_msg = "리포지토리 인터페이스 생성 과정에서 토큰 계산 도중 문제가 발생"
         logging.exception(err_msg)
         raise TokenCountError(err_msg)
 
@@ -35,7 +35,6 @@ def calculate_code_token(spCode):
 #   - repository_codes : 리포지토리 인터페이스 생성을 위한 모든 JPA 쿼리 메서드 코드들
 #   - lower_file_name : 소문자로 구성된 프로젝트 이름
 # 반환값: 없음
-# TODO 검토 디버깅 필요 (제대로 필터링 되는지?)
 async def create_repository_interface(repository_codes, lower_file_name):
     
     
@@ -98,7 +97,6 @@ public interface {enttiy_pascal_name}Repository extends JpaRepository<{enttiy_pa
 # 반환값: 
 #   - filtered_variable_info : 사용된 변수에 대한 정보가 담긴 사전
 #   - variable_tokens : 변수 정보 리스트의 토큰 길이.
-# TODO 검토 디버깅 필요 (제대로 필터링 되는지?)
 async def process_variable_nodes(startLine, variable_nodes):
     try:
 
@@ -133,7 +131,7 @@ async def process_variable_nodes(startLine, variable_nodes):
 #   - variable_nodes : 모든 변수 노드 리스트
 #   - lower_file_name : 소문자로 구성된 프로젝트 이름
 # 반환값: 
-#   - jpa_method_list : JPA 쿼리 메서드 리스트
+#   - used_jpa_methods_list : JPA 쿼리 메서드 리스트
 async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_name):
     total_tokens = 0                        # 전체 토큰 수
     variable_tokens = 0                     # llm에게 전달할 변수 정보의 토큰 수
@@ -214,7 +212,6 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
 # 반환값: 
 #   - grouped_query_methods: 각 테이블의 JPA 쿼리 메서드 리스트.
 #   - used_jpa_method : 사용된 JPA 쿼리 메서드 목록으로 다음 단계(서비스 생성)에서 사용됨
-# TODO 테스트 필요
 async def process_llm_repository_interface(node_data, used_variable_nodes, convert_data_count):
     
     grouped_query_methods = {}

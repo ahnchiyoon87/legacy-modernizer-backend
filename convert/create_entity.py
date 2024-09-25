@@ -12,7 +12,7 @@ encoder = tiktoken.get_encoding("cl100k_base")
 
 # 역할: 테이블 데이터의 토큰 수에 따라, LLM으로 분석을 결정하는 함수
 # 매개변수: 
-#   - table_data_list : 테이블 노드 정보
+#   - table_data_list : 테이블 노드 정보 모음
 #   - lower_file_name : 소문자로 구성된 스토어드 프로시저 파일 이름
 # 반환값:
 #   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
