@@ -4,6 +4,7 @@ import logging
 import re
 import tiktoken
 from prompt.understand_prompt import understand_code
+# from prompt.understand_pro_c_prompt import understand_code
 from util.exception import (TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
                             RemoveInfoCodeError, ProcessResultError, HandleResultError, LLMCallError, EventRsRqError, CreateNodeError)
 
