@@ -52,7 +52,8 @@ prompt = PromptTemplate.from_template(
             "startLine": startLine,
             "endLine": endLine,
             "summary": "summary of the code",
-            "tableName": ["tableName1", "tableName2"]
+            "tableName": ["tableName1", "tableName2"],
+            "calledProcedures": ["procedure1", "procedure2"] // 코드 내용중 procedure 를 호출이라고 판단되는 코드를 프로시저명칭으로 "calledProcedures"에 세팅, e.g. 코드 내용중 "procedure1;" 인 경우 "calledProcedures": ["procedure1"]
         }}
     ],
     "Tables": {{

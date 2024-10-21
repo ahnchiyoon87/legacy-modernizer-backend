@@ -22,3 +22,7 @@ Pipfile.lock
 langchain.db
 .env
 /neo4j
+
+# Ignore src and target folders
+/src/
+/target/

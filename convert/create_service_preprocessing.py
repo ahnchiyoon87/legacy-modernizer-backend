@@ -55,20 +55,24 @@ async def process_variable_nodes(node_id, used_variables, variable_nodes, tracki
         for node in variable_nodes:
             for key in node['v']:
                 if '_' in key:
-                    start, end = map(int, key.split('_'))
-                    if start <= node_id <= end:
-                        var_name = node['v']['name']
-                        new_key = f"{start}~{end}"
-                        var_type = node['v'].get('type', 'Unknown')
-                        var_role = tracking_variables.get(var_name, '초기값(0 또는 "")')
-                        var_info = f"{var_type} : {var_name}, {var_role}"
-                        
-                        # * 순서를 유지하면서 중복 제거
-                        if new_key not in used_variables:
-                            used_variables[new_key] = []
-                        if var_info not in used_variables[new_key]:
-                            used_variables[new_key].append(var_info)
-                        break
+                    try:
+                        start, end = map(int, key.split('_'))
+                        if start <= node_id <= end:
+                            var_name = node['v']['name']
+                            new_key = f"{start}~{end}"
+                            var_type = node['v'].get('type', 'Unknown')
+                            var_role = tracking_variables.get(var_name, '초기값(0 또는 "")')
+                            var_info = f"{var_type} : {var_name}, {var_role}"
+                            
+                            # * 순서를 유지하면서 중복 제거
+                            if new_key not in used_variables:
+                                used_variables[new_key] = []
+                            if var_info not in used_variables[new_key]:
+                                used_variables[new_key].append(var_info)
+                            break
+                    except ValueError:
+                        # logging.warning(f"Invalid key format: {key}")
+                        continue
 
         return used_variables
 

@@ -105,12 +105,16 @@ async def process_variable_nodes(startLine, variable_nodes):
         for node in variable_nodes:
             for key in node['v']:
                 if '_' in key:
-                    var_start, var_end = map(int, key.split('_'))
-                    if var_start == startLine:
-                        range_key = f'{var_start}~{var_end}'
-                        variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
-                        filtered_variable_info[range_key].append(variable_info)
-                        break
+                    try:
+                        var_start, var_end = map(int, key.split('_'))
+                        if var_start == startLine:
+                            range_key = f'{var_start}~{var_end}'
+                            variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
+                            filtered_variable_info[range_key].append(variable_info)
+                            break
+                    except ValueError:
+                        # logging.warning(f"Invalid key format: {key}")
+                        continue
 
 
         # * 필터링된 변수 정보의 토큰을 계산합니다.
@@ -269,7 +273,7 @@ async def start_repository_processing(lower_file_name):
         variable_nodes = results[1]
 
 
-        # * 토큰 수에 따라서 리포지토리 인터페이스 관련 작업을 처리하는 함수를 호출합니다.
+        # * 토큰 수에 따라서 리포지토리 인��페이스 관련 작업을 처리하는 함수를 호출합니다.
         jpa_method_list = await check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_name)
         logging.info("리포지토리 인터페이스를 생성했습니다.\n")
         return jpa_method_list
@@ -282,3 +286,4 @@ async def start_repository_processing(lower_file_name):
         raise RepositoryCreationError(err_msg)
     finally:
         await connection.close() 
+
