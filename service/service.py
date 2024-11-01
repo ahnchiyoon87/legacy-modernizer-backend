@@ -18,9 +18,9 @@ from prompt.java2deths_prompt import convert_2deths_java
 from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-SAVE_PLSQL_DIR = os.path.join(BASE_DIR, "data", "plsql")
-SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "data", "antlr")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SAVE_PLSQL_DIR = os.path.join(BASE_DIR, "src")
+SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "analysis")
 os.makedirs(SAVE_PLSQL_DIR, exist_ok=True)
 os.makedirs(SAVE_ANTLR_DIR, exist_ok=True)
 
@@ -46,10 +46,10 @@ async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
 
 
         # * PLSQL 파일과 분석 결과 파일을 비동기적으로 저장
-        async with aiofiles.open(plplsql_file_path, "wb") as plsql_file, aiofiles.open(antlr_file_path, "w") as antlr_file:
-            await asyncio.gather(plsql_file.write(contents.encode()), antlr_file.write(antlr_data.decode('utf-8')))
+        # async with aiofiles.open(plplsql_file_path, "wb") as plsql_file, aiofiles.open(antlr_file_path, "w") as antlr_file:
+        #     await asyncio.gather(plsql_file.write(contents.encode()), antlr_file.write(antlr_data.decode('utf-8')))
 
-        logging.info("\nSuccessed File Saved\n")
+        # logging.info("\nSuccessed File Saved\n")
         return base_sp_file_name, last_line
     
     except AddLineNumError:
@@ -148,7 +148,7 @@ async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
         await connection.close()
 
 
-# 역할: 노드 ID를 기반으로 두 단계 깊이의 노드를 조회하여 그래프 객체로 반환합니다.
+# 역할: 노드 ID를 기반으로 두 단계 깊이의 노드를 조회하여 그래프 객체로 반환합��다.
 # 매개변수: 
 #   - node_info : 노드 정보
 # 반환값: 
@@ -184,7 +184,7 @@ async def generate_two_depth_match(node_info):
 #   - previous_history: 이전 히스토리
 #   - requirements_chat: 요구사항
 # 반환값: 
-#   - 스트림 : 자바 코드
+#   - ��트림 : 자바 코드
 async def generate_simple_java(cypher_query=None, previous_history=None, requirements_chat=None):
     try:
         # * 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드 생성 프로세스를 실행합니다
@@ -269,7 +269,7 @@ async def generate_spring_boot_project(fileName):
 
 
 # 역할: 전환된 스프링 기반의 자바 프로젝트를 zip으로 압축하는 함수
-# 매개변수: 
+# 매��변수: 
 #   - source_directory : zip으로 압축할 대상이 있는 파일 경로
 #   - output_zip_path : 압축된 zip 파일이 저장되는 경로
 # 반환값: 없음
