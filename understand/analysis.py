@@ -337,15 +337,16 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                     cypher_query.append(variable_query)
 
 
-                # * statement_type이 CALL인 경우 호출 관계를 생성합니다
+                # * CALL 호출 관계를 생성합니다
                 if statement_type in ["CALL", "ASSIGNMENT", "EXCEPTION"]:
                     for name in called_nodes:
-                        call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MATCH (p {{package_name: '{object_name}', procedure_name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
+                        if '.' in name:  # 다른 패키지 호출인 경우
+                            package_name, proc_name = name.split('.')
+                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MERGE (p {{package_name: '{package_name}', procedure_name: '{proc_name}'}}) MERGE (c)-[:CALLS]->(p)"
+                        else:            # 자신 패키지 내부 호출인 경우
+                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MATCH (p {{package_name: '{object_name}', procedure_name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
                         cypher_query.append(call_relation_query)
                     
-                    # TODO 다른 프로시저 및 패키지에서 사용된 함수를 호출할 경우 추가 작업 필요
-                    # 다른 프로시저 및 패키지에서 사용된 함수의 형태는 TPX_PROJECT.SET_KEY 처럼 패키지이름.함수이름으로 구성
-
 
                 # * 테이블과 노드간의 관계를 생성합니다
                 if table_relationship_type and tableName:
