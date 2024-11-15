@@ -51,7 +51,7 @@ class Neo4jConnection:
     #   - 그래프 객체 : 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
-            default_query = custom_query or "MATCH (n)-[r]->(m) RETURN n, r, m"
+            default_query = custom_query or "MATCH (n)-[r]->(m) WHERE NOT 'Variable' IN labels(n) AND NOT 'Variable' IN labels(m) RETURN n, r, m"
             async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(default_query)
                 graph = await result.graph()
