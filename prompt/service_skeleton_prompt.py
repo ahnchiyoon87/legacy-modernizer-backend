@@ -105,5 +105,5 @@ def convert_service_skeleton_code(variable_data, command_class_name):
         return result
     except Exception:
         err_msg = "서비스 골격 클래스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

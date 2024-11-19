@@ -29,7 +29,7 @@ def extract_procedure_variable_code(procedure_code):
 
     except Exception:
         err_msg = "서비스 골격을 생성하는 과정에서 코드를 추출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ExtractCodeError(err_msg)
 
 
@@ -54,7 +54,7 @@ async def calculate_tokens_and_process(input_data, variable_data, entity_name_li
         raise
     except Exception:
         err_msg = "서비스 골격 클래스를 생성하는 과정에서 노드를 순회하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise TraverseCodeError(err_msg)
 
 
@@ -123,7 +123,7 @@ public class {service_skeleton_name} {{
     
     except Exception:
         err_msg = "서비스 골격 클래스를 생성하는 과정에서 결과를 이용하여, 추가적인 정보를 설정하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise HandleResultError(err_msg)
     
 
@@ -179,7 +179,7 @@ async def create_service_skeleton(input_data, variable_data, entity_name_list, o
         raise
     except Exception:
         err_msg = "서비스 골격 클래스를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ProcessResultError(err_msg)
 
 
@@ -238,7 +238,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
         raise
     except Exception:
         err_msg = "서비스 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise SkeletonCreationError(err_msg)
     finally:
         await connection.close()

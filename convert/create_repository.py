@@ -25,7 +25,7 @@ def calculate_code_token(text):
 
     except Exception:
         err_msg = "리포지토리 인터페이스 생성 과정에서 토큰 계산 도중 문제가 발생"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise TokenCountError(err_msg)
 
 
@@ -89,7 +89,7 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 
     except Exception:
         err_msg = "리포지토리 인터페이스 파일 쓰기 및 생성 도중 오류가 발생"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise OSError(err_msg)
 
 
@@ -107,7 +107,7 @@ async def process_variable_nodes(startLine, variable_nodes):
         filtered_variable_info = defaultdict(list)
         for node in variable_nodes:
             for key in node['v']:
-                if '_' in key:
+                if '_' in key and all(part.isdigit() for part in key.split('_')):
                     var_start, var_end = map(int, key.split('_'))
                     if var_start == startLine:
                         range_key = f'{var_start}~{var_end}'
@@ -124,7 +124,7 @@ async def process_variable_nodes(startLine, variable_nodes):
         raise
     except Exception:
         err_msg = "사용된 변수 노드를 추출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise VariableNodeError(err_msg)
 
 
@@ -202,7 +202,7 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes):
         raise
     except Exception:
         err_msg = "Converting 과정에서 리포지토리 인터페이스 관련 정보를 순회하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise TraverseCodeError(err_msg)
 
 
@@ -243,7 +243,7 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
         raise
     except Exception:
         err_msg = "리포지토리 인터페이스 생성을 위한 LLM 결과 처리 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ProcessResultError(err_msg)
 
 
@@ -254,7 +254,7 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
 #   - jpa_method_list : JPA 쿼리 메서드 리스트
 async def start_repository_processing(object_name):
     
-    logging.info("repository interface 생성을 시작합니다.")
+    logging.info(f"[{object_name}] Repository Interface 생성을 시작합니다.")
 
     try:
         connection = Neo4jConnection()
@@ -262,7 +262,7 @@ async def start_repository_processing(object_name):
 
         # * 테이블 노드와 직접적으로 연결된 노드와 모든 변수 노드들을 가지고오는 사이퍼쿼리를 준비하고 실행합니다.
         queries = [
-            f"MATCH (n:Table {{package_name: '{object_name}'}})--(m {{package_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT (m:INSERT AND m.summarized_code IS NOT NULL) RETURN m ORDER BY m.startLine",
+            f"MATCH (n:Table {{package_name: '{object_name}'}})--(m {{package_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
             f"MATCH (v:Variable {{package_name: '{object_name}'}}) RETURN v"
         ]
 
@@ -273,14 +273,14 @@ async def start_repository_processing(object_name):
 
         # * 토큰 수에 따라서 리포지토리 인터페이스 관련 작업을 처리하는 함수를 호출합니다.
         jpa_method_list = await check_tokens_and_process(one_depth_nodes, variable_nodes)
-        logging.info("리포지토리 인터페이스를 생성했습니다.\n")
+        logging.info(f"[{object_name}] Repository Interface를 생성했습니다.\n")
         return jpa_method_list
     
     except (ConvertingError, OSError, Neo4jError):
         raise
     except Exception:
-        err_msg = "리포지토리 인터페이스를 생성하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        err_msg = f"[{object_name}] Repository Interface를 생성하는 도중 오류가 발생했습니다."
+        logging.error(err_msg, exc_info=False)
         raise RepositoryCreationError(err_msg)
     finally:
         await connection.close() 

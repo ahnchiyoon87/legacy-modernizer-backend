@@ -49,13 +49,22 @@ prompt = PromptTemplate.from_template(
    - JSON의 'fields' 배열의 각 항목을 클래스 속성으로 변환
    예시) B_PLCY_MONTH -> bPlcyMonth
 
-4. 데이터 타입 매핑
+4. 기본키(Primary Key) 선정 규칙
+   - 다음 우선순위로 기본키를 선정:
+     1) 'id', 'ID', '_id', '_ID'로 끝나는 필드
+     2) 'key', 'KEY', '_key', '_KEY'로 끝나는 필드
+     3) 'no', 'NO', '_no', '_NO'로 끝나는 필드
+     4) 테이블명 + 'id', 'ID' 패턴의 필드
+   - 위 규칙으로 찾지 못한 경우, 'id'라는 새로운 필드를 생성하여 기본키로 지정
+   - @Id와 @GeneratedValue 어노테이션을 기본키에 적용   
+
+5. 데이터 타입 매핑
    - 정수: long (기본 데이터 타입 사용)
    - 실수: double (기본 데이터 타입 사용)
    - 날짜/시간: LocalDate
    - 문자/문자열: String (char 사용 금지)
 
-5. Import 선언
+6. Import 선언
    - 기본 제공되는 import문 유지
    - 추가로 필요한 import문 선언
 
@@ -74,7 +83,7 @@ import java.time.LocalDate
 public class EntityName {{
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
-    private long id;
+    private long primary_key_name;
     private DataType fieldName1;
     private DataType fieldName2;
     ...
@@ -116,5 +125,5 @@ def convert_entity_code(table_data):
         return result
     except Exception:
         err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise LLMCallError(err_msg)

@@ -31,5 +31,5 @@ async def start_APLproperties_processing():
 
     except Exception:
         err_msg = "스프링부트의 application.properties 파일을 생성하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg)
         raise AplPropertiesCreationError(err_msg)

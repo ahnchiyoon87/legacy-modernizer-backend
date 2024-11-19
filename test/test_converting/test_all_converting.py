@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from service.service import generate_spring_boot_project
 
 # 로그 레벨을 INFO로 설정
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logging.getLogger('asyncio').setLevel(logging.ERROR)
 
 
@@ -16,11 +16,18 @@ class TestGenerateSpringBootProject(unittest.IsolatedAsyncioTestCase):
     async def test_generate_spring_boot_project(self):
         
         # * 테스트할 파일 이름 설정
-        test_filename = "P_B_CAC120_CALC_SUIP_STD"
+        file_names = [
+            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
+            ("TPX_ALARM.sql", "TPX_ALARM"),
+            ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
+            ("TPX_TMF_SYNC_JOB.sql", "TPX_TMF_SYNC_JOB"),
+            ("TPX_ALARM_FILE.sql", "TPX_ALARM_FILE"),
+            ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
+        ]
 
         try:
             # * generate_spring_boot_project 메서드 호출 및 결과 확인
-            async for step_result in generate_spring_boot_project(test_filename):
+            async for step_result in generate_spring_boot_project(file_names):
                 
                 # * 각 단계의 결과를 로깅
                 logging.info(f"Step result: {step_result}")

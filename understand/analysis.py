@@ -26,7 +26,7 @@ def count_tokens_in_text(code):
         return len(tokens)
     except Exception:
         err_msg = "Understanding 과정에서 토큰 계산 중 오류가 발생했습니다"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise TokenCountError(err_msg)
 
 
@@ -62,7 +62,7 @@ def extract_code_within_range(code, context_range):
     
     except Exception:
         err_msg = "Understanding 과정에서 범위내에 코드 추출 도중에 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ExtractCodeError(err_msg)
 
 
@@ -127,7 +127,7 @@ def extract_and_summarize_code(file_content, node):
     
     except Exception:
         err_msg = "Understanding 과정에서 코드를 요약하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise SummarizeCodeError(err_msg)
 
 
@@ -156,7 +156,7 @@ def create_focused_code(current_schedule, schedule_stack):
 
     except Exception:
         err_msg = "Understanding 과정에서 분석할 코드 생성 도중에 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise FocusedCodeError(err_msg)
 
 
@@ -185,7 +185,7 @@ def extract_node_code(file_content, start_line, end_line):
     
     except Exception:
         err_msg = "Understanding 과정에서 노드에 맞게 코드를 추출 도중에 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ExtractCodeError(err_msg)
 
 
@@ -242,7 +242,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             raise
         except Exception:
             err_msg = "Understanding 과정에서 LLM의 결과 처리를 준비 및 시작하는 도중 문제가 발생했습니다."
-            logging.exception(err_msg)
+            logging.error(err_msg, exc_info=False)
             raise ProcessResultError(err_msg)
 
 
@@ -342,7 +342,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                         ])
                     else:
                         cypher_query.append(
-                            f"MATCH (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
+                            f"MATCH (v:Variable {{name: '{var_name}', package_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
                         )
 
 
@@ -367,7 +367,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         
         except Exception:
             err_msg = "Understanding 과정에서 LLM의 결과를 이용해 사이퍼쿼리를 생성하는 도중 오류가 발생했습니다."
-            logging.exception(err_msg)
+            logging.error(err_msg, exc_info=False)
             raise HandleResultError(err_msg)
 
     
@@ -396,7 +396,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             raise
         except Exception:
             err_msg = "Understanding 과정에서 이벤트를 송신하고 수신하는 도중 오류가 발생했습니다."
-            logging.exception(err_msg)
+            logging.error(err_msg, exc_info=False)
             raise EventRsRqError(err_msg)
 
 
@@ -520,6 +520,6 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         raise
     except Exception:
         err_msg = "Understanding 과정에서 Traverse로 스토어드 프로시저 코드를 순회하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         await send_queue.put({'type': 'error', 'message': err_msg})
         raise TraverseCodeError(err_msg)

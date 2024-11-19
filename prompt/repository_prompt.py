@@ -46,6 +46,7 @@ Used Variable:
 3. 매개변수 처리
    - 'Used Variable' 목록의 모든 변수는 매개변수로 포함
    - 누락된 매개변수 없이 완전한 매핑 필요
+   - 'Used Variable'에 명시되지 않은 변수라도 SP 코드에서 식별되면 적절한 타입으로 매개변수화
 
 
 [SECTION 2] JPA Query Methods 필수 구현 규칙
@@ -84,9 +85,9 @@ Used Variable:
 예시 출력:
 ❌ 잘못된 형식:
 @Repository
-public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {{
     Person findByEmployeeId(Long employeeId);
-}
+}}
 
 ✅ 올바른 형식:
 @Query("적절한 쿼리문, value= 를 쓰지마세요")
@@ -132,5 +133,5 @@ def convert_repository_code(node_data, variable_nodes_context, data_count):
     
     except Exception:
         err_msg = "리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

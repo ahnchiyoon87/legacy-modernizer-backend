@@ -94,5 +94,5 @@ def convert_command_code(input_data, object_name):
         return result
     except Exception:
         err_msg = "Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

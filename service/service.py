@@ -39,7 +39,7 @@ def add_line_numbers(contents):
         return numbered_contents
     except Exception:
         err_msg = "전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise AddLineNumError(err_msg)
 
 
@@ -106,7 +106,7 @@ async def generate_and_execute_cypherQuery(file_names):
             async for stream_data_chunk in process_analysis_code():
                 yield stream_data_chunk
             await analysis_task
-            yield "end_of_stream" # * 스트림 종료 신호
+        yield "end_of_stream" # * 스트림 종료 신호
 
 
     except Exception:
@@ -141,7 +141,7 @@ async def generate_two_depth_match(node_info):
         raise
     except Exception:
         err_msg = "2단계 깊이 기준 노드를 조회하는 사이퍼쿼리를 준비 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise Java2dethsError(err_msg)
     finally:
         await connection.close()
@@ -165,7 +165,7 @@ async def generate_simple_java(cypher_query=None, previous_history=None, require
         yield "stream-error"
     except Exception:
         err_msg = "2단계 깊이 기준으로 전환된 자바 코드를 스트림으로 전달하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         yield "stream-error" 
 
 
@@ -184,7 +184,7 @@ async def transform_fileName(sp_fileName):
         return pascal_file_name, lower_file_name
     except Exception:
         err_msg = "스토어드 프로시저 파일 이름을 파스칼, 소문자로 구성된 이름으로 변환 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise OSError(err_msg)
 
 
@@ -235,7 +235,7 @@ async def generate_spring_boot_project(file_names):
         yield "convert-error"
     except Exception:
         err_msg = "스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         yield "convert-error"
 
 
@@ -259,7 +259,7 @@ async def process_zip_file(source_directory, output_zip_path):
 
     except Exception:
         err_msg = "스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise OSError(err_msg)
     
 

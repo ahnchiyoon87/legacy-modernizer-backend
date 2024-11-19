@@ -16,11 +16,16 @@ logging.getLogger('asyncio').setLevel(logging.ERROR)
 # 스프링부트 기반의 자바 서비스 틀을 생성하는 테스트
 class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_Skeleton(self):
-
-        # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
-        sp_file_name = "P_B_CAC120_CALC_SUIP_STD"
-        lower_file_name = sp_file_name.replace('_', '').lower()
-
+        
+        # * 테스트할 객체 이름들을 설정
+        object_names = [
+            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_ALARM",
+            "TPX_ALARM_CONTENT",
+            "TPX_TMF_SYNC_JOB",
+            "TPX_ALARM_FILE",
+            "TPX_ALARM_RECIPIENT"
+        ]
 
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
@@ -31,21 +36,33 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
-
-            # * 결과 파일에서 테스트에 필요한 데이터를 가지고 옵니다.
-            entity_name_list = test_data.get('entity_name_list', [])
-
-
             # * Service Skeleton 생성 테스트 시작
-            (service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(
-                lower_file_name, entity_name_list)
-            
+            skeleton_results = {}
+            for object_name in object_names:
+                # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
+                entity_name_list = test_data.get('entity_name_list', {}).get(object_name, [])
+
+                # * Service Skeleton 생성
+                (service_skeleton, command_class_variable, 
+                 service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(
+                    object_name, entity_name_list)
+                
+                # * 객체별 결과 저장
+                skeleton_results[object_name] = {
+                    "service_skeleton": service_skeleton,
+                    "command_class_variable": command_class_variable,
+                    "service_skeleton_name": service_skeleton_name,
+                    "summarzied_service_skeleton": summarzied_service_skeleton
+                }
             
             # * 결과를 결과 파일에 저장합니다.
-            test_data["service_skeleton"] = service_skeleton
-            test_data["command_class_variable"] = command_class_variable
-            test_data["service_skeleton_name"] = service_skeleton_name
-            test_data["summarzied_service_skeleton"] = summarzied_service_skeleton
+            test_data.update({
+                "service_skeleton": {name: results["service_skeleton"] for name, results in skeleton_results.items()},
+                "command_class_variable": {name: results["command_class_variable"] for name, results in skeleton_results.items()},
+                "service_skeleton_name": {name: results["service_skeleton_name"] for name, results in skeleton_results.items()},
+                "summarzied_service_skeleton": {name: results["summarzied_service_skeleton"] for name, results in skeleton_results.items()}
+            })
+            
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 

@@ -7,23 +7,37 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from convert.create_pomxml import start_pomxml_processing
 
 
-# * 로그 레벨을 INFO로 설정
-logging.basicConfig(level=logging.INFO) 
+# * 로그 레벨 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True
+)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
+noisy_loggers = [
+    'asyncio', 
+    'anthropic', 
+    'langchain', 
+    'urllib3',
+    'anthropic._base_client', 
+    'anthropic._client',
+    'langchain_core', 
+    'langchain_anthropic',
+    'uvicorn',
+    'fastapi'
+]
+
+for logger_name in noisy_loggers:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
 # 스프링부트 기반의 자바 pom.xml를 생성하는 테스트
 class TestPomGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_PomXml(self):
 
-        # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
-        sp_file_name = "P_B_CAC120_CALC_SUIP_STD"
-        lower_file_name = sp_file_name.replace('_', '').lower()
-
-
         try:
             # * pom.xml 생성 테스트 시작
-            await start_pomxml_processing(lower_file_name)
+            await start_pomxml_processing()
             self.assertTrue(True, "pom.xml 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"pom.xml 생성 테스트 중 예외 발생")

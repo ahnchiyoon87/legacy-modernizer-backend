@@ -36,7 +36,7 @@ def extract_code_within_range(sp_code, context_range):
     
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 범위내에 코드 추출 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ExtractCodeError(err_msg)
 
 
@@ -78,7 +78,7 @@ async def process_variable_nodes(node_id, used_variables, variable_nodes, tracki
 
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 사용된 변수 노드 추출 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise VariableNodeError(err_msg)
 
 
@@ -112,7 +112,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
         raise
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 사이즈가 큰 노드를 처리 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ProcessResultError(err_msg)
 
 
@@ -160,7 +160,7 @@ async def process_convert_result(convert_sp_code, current_tokens, used_variables
         raise
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 결정하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ProcessResultError(err_msg)
 
 
@@ -211,7 +211,7 @@ async def handle_convert_result(analysis_result, connection, tracking_variables,
         raise
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise HandleResultError(err_msg)
 
 
@@ -403,7 +403,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         raise
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정에서 노드를 순회하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise TraverseCodeError(err_msg)
 
 
@@ -449,7 +449,7 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
         raise
     except Exception:
         err_msg = "(전처리) 서비스 코드 생성 과정하기 위해 준비하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ServiceCreationError(err_msg)
     finally:
         await connection.close()

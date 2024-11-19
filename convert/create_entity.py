@@ -48,7 +48,7 @@ async def calculate_tokens_and_process(table_data_list):
         raise
     except Exception:
         err_msg = "엔티티 생성 과정에서 테이블 노드 토큰 계산 도중 문제가 발생"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise TokenCountError(err_msg)
 
 
@@ -89,7 +89,7 @@ async def create_entity_class(table_data_group):
         raise
     except Exception:
         err_msg = "엔티티 클래스 파일 쓰기 및 생성 도중 오류가 발생"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise OSError(err_msg)
 
 
@@ -100,7 +100,7 @@ async def create_entity_class(table_data_group):
 #   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
 async def start_entity_processing(object_name):
     connection = Neo4jConnection()
-    logging.info("엔티티 생성을 시작합니다.")
+    logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
     try:
         # * 테이블 노드를 가져오기 위한 사이퍼쿼리 생성 및 실행합니다
         query = [f"MATCH (n:Table {{package_name: '{object_name}'}}) RETURN n"]
@@ -113,7 +113,6 @@ async def start_entity_processing(object_name):
             transformed_table_info = {
                 'name': item['n']['name'],
                 'fields': [(key, value) for key, value in item['n'].items() if key != 'name'],
-                'keyType': 'long',  # TODO 실제 기본키 타입으로 변경 필요
             }
             table_data_list.append(transformed_table_info)
         
@@ -121,14 +120,14 @@ async def start_entity_processing(object_name):
         # * 엔티티 클래스 생성을 시작합니다.
         entity_name_list = await calculate_tokens_and_process(table_data_list)
         entity_count = len(entity_name_list)
-        logging.info(f"{entity_count}개의 엔티티가 생성되었습니다.\n")
+        logging.info(f"[{object_name}] {entity_count}개의 엔티티가 생성되었습니다.\n")
         return entity_name_list
     
     except (TokenCountError, Neo4jError, OSError, LLMCallError):
         raise
     except Exception:
-        err_msg = "엔티티 클래스를 생성하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        err_msg = f"[{object_name}] 엔티티 클래스를 생성하는 도중 오류가 발생했습니다."
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise EntityCreationError(err_msg)
     finally:
         await connection.close()

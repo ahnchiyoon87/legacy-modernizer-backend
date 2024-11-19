@@ -20,7 +20,28 @@ app.add_middleware(
 app.include_router(router)
 
 # 로그 레벨을 info로 설정
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True  # 기존 로깅 설정을 덮어쓰기
+)
+
+# 외부 라이브러리 로그 레벨 설정
+noisy_loggers = [
+    'asyncio', 
+    'anthropic', 
+    'langchain', 
+    'urllib3',
+    'anthropic._base_client', 
+    'anthropic._client',
+    'langchain_core', 
+    'langchain_anthropic',
+    'uvicorn',
+    'fastapi'
+]
+
+for logger_name in noisy_loggers:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 # 애플리케이션 실행: 개발 시 uvicorn을 사용하여 로컬 서버를 실행
 if __name__ == "__main__":

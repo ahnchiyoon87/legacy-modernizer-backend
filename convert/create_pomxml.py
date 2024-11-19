@@ -113,5 +113,5 @@ async def start_pomxml_processing():
 
     except Exception:
         err_msg = "스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
         raise PomXmlCreationError(err_msg)

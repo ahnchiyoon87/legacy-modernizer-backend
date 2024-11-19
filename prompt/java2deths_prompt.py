@@ -80,5 +80,5 @@ async def convert_2deths_java(twoDeths_nodes, chatHistory, chat):
         logging.info("\n All stream data delivered \n")
     except Exception:
         err_msg = "LLM으로 부터 스트림으로 자바 코드를 받는 도중 문제가 발생했습니다"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

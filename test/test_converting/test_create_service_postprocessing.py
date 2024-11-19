@@ -8,9 +8,27 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from convert.create_service_postprocessing import start_service_postprocessing
 
 
-# * 로그 레벨을 INFO로 설정
-logging.basicConfig(level=logging.INFO) 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True
+)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
+noisy_loggers = [
+    'asyncio', 
+    'anthropic', 
+    'langchain', 
+    'urllib3',
+    'anthropic._base_client', 
+    'anthropic._client',
+    'langchain_core', 
+    'langchain_anthropic',
+    'uvicorn',
+    'fastapi'
+]
+
+for logger_name in noisy_loggers:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
 # 스프링부트 기반의 자바 서비스(후처리)를 생성하는 테스트
@@ -18,9 +36,14 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_postService(self):
         
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
-        sp_file_name = "P_B_CAC120_CALC_SUIP_STD"
-        lower_file_name = sp_file_name.replace('_', '').lower()
-        
+        object_names = [
+            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_ALARM",
+            "TPX_ALARM_CONTENT",
+            "TPX_TMF_SYNC_JOB",
+            "TPX_ALARM_FILE",
+            "TPX_ALARM_RECIPIENT"
+        ]
         
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
@@ -31,14 +54,20 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
-                
-            # * 결과 파일에서 테스트에 필요한 데이터를 가지고 옵니다.
-            service_skeleton = test_data.get('service_skeleton', [])
-            service_skeleton_name = test_data.get('service_skeleton_name', [])
-
-
             # * Service 후처리 테스트 시작
-            await start_service_postprocessing(lower_file_name, service_skeleton, service_skeleton_name)
+            service_results = {}
+            for object_name in object_names:
+                service_skeleton = test_data.get('service_skeleton', {}).get(object_name, [])
+                service_skeleton_name = test_data.get('service_skeleton_name', {}).get(object_name, [])
+                
+
+                result = await start_service_postprocessing(service_skeleton, service_skeleton_name, object_name)
+                service_results[object_name] = result
+            
+            # * 결과를 결과 파일에 저장합니다.
+            test_data["service_post_results"] = service_results
+            with open(result_file_path, 'w', encoding='utf-8') as f:
+                json.dump(test_data, f, ensure_ascii=False, indent=2)
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

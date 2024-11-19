@@ -51,7 +51,7 @@ async def process_big_size_node(node_startLine, summarized_java_code, connection
         raise
     except Exception:
         err_msg = "Service 클래스 생성과정에서 크기가 매우 큰 노드에 대한 처리를 하는 도중 문제가 발생했습니다"
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ProcessResultError(err_msg)
 
 
@@ -106,7 +106,7 @@ async def process_service_class(node_list, connection, object_name):
         raise
     except Exception:
         err_msg = "(후처리) Service 클래스 생성을 위해 노드를 순회하는 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise TraverseCodeError(err_msg)
 
 
@@ -173,7 +173,7 @@ async def start_service_postprocessing(service_skeleton, service_class_name, obj
         raise
     except Exception:
         err_msg = "(후처리) 서비스 클래스를 생성을 위한 준비 및 시작 도중 문제가 발생했습니다."
-        logging.exception(err_msg)
+        logging.error(err_msg, exc_info=False)
         raise ServiceCreationError(err_msg)
     finally:
         await connection.close() 
