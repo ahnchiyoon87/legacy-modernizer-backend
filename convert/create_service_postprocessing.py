@@ -126,13 +126,13 @@ async def start_service_postprocessing(service_skeleton, service_class_name, obj
         node_query = [
             f"""
             MATCH (n)
-            WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY 
+            WHERE (NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY 
                       OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PACKAGE_SPEC_MEMBER)
-                  OR (n.package_name = '{object_name}')
+                  AND n.package_name = '{object_name}')
             OPTIONAL MATCH (n)-[r:NEXT]->(m)
-            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY
+            WHERE (NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY
                       OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PACKAGE_SPEC_MEMBER)
-                  OR (m.package_name = '{object_name}')
+                  AND m.package_name = '{object_name}')
             RETURN n, r, m
             ORDER BY n.startLine
             """

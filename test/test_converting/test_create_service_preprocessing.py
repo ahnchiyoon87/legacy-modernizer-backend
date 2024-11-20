@@ -8,9 +8,28 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from convert.create_service_preprocessing import start_service_preprocessing
 
 
-# * 로그 레벨을 INFO로 설정
-logging.basicConfig(level=logging.INFO) 
+# * 로그 레벨 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True
+)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
+noisy_loggers = [
+    'asyncio', 
+    'anthropic', 
+    'langchain', 
+    'urllib3',
+    'anthropic._base_client', 
+    'anthropic._client',
+    'langchain_core', 
+    'langchain_anthropic',
+    'uvicorn',
+    'fastapi'
+]
+
+for logger_name in noisy_loggers:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
 # 스프링부트 기반의 자바 서비스(전처리) 생성하는 테스트

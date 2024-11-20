@@ -8,6 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from convert.create_service_postprocessing import start_service_postprocessing
 
 
+# * 로그 레벨 설정
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s: %(message)s',

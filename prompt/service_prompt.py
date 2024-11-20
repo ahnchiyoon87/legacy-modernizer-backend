@@ -14,7 +14,7 @@ import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
@@ -58,13 +58,19 @@ jpa_method_list:
 
 [SECTION 2] 상황별 자바 코드 변환 규칙
 ===============================================
-1. SQL 구문 변환 규칙
+1. 범위 처리 규칙
+   - 모든 범위({count}개)에 대해 누락 및 생략 없이 {count}개의 'code'를 반환
+   - 이미 상위 블록에서 다뤄진 코드라도 주석 처리나 생략 없이 온전한 코드로 반환
+   - Context Range의 각 범위를 독립적으로 처리
+   - 중첩 범위의 예시:
+     상위범위(1925~1977), 하위범위(1942~1977)
+     → 각각 독립적으로 변환하여 생략 없이 별도의 온잔한 코드로 생성
+     → 범위를 합치거나, 생략하지 말고, 모든 범위에 대해서 온전한 코드를 생성
+
+2. SQL 구문 변환 규칙
    A. SELECT 구문
       - jpa_method_list에서 적절한 조회 메서드 사용
       - 결과는 엔티티 객체나 컬렉션으로 받음
-      예시:
-      * 단일 조회: Employee employee = employeeRepository.findById(id);
-      * 목록 조회: List<Employee> employees = employeeRepository.findByDepartment(deptCode);
    
    B. UPDATE/MERGE 구문
       - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
@@ -81,11 +87,11 @@ jpa_method_list:
         * 조회된 데이터로 새 엔티티 생성 후 save() 수행
         예시:
         List<SourceEntity> sourceList = sourceRepository.findByCondition(param);
-        for (SourceEntity source : sourceList) {
+        for (SourceEntity source : sourceList) {{
             TargetEntity target = new TargetEntity();
             target.setField(source.getField());
             targetRepository.save(target);
-        }
+        }}
 
       - 순수 INSERT 구문의 경우:
         * 새 엔티티 객체 생성
@@ -98,36 +104,52 @@ jpa_method_list:
    D. DELETE 구문
       - 적절한 삭제 메서드 사용
 
-2. 범위 처리 규칙
-   - Context Range의 각 범위를 독립적으로 처리
-   - 중첩 범위의 예시:
-     상위범위(1925~1977), 하위범위(1942~1977)
-     → 각각 독립적으로 변환하여 별도 코드 생성
-   - 모든 범위({count}개)에 대해 누락 없이 변환
-
 3. 변수 처리 규칙
-   A. Used Variable (값 추적 필요)
-      - 새로운 변수 선언 금지 (기존 변수만 사용)
-      - 변수값 변화 추적:
-        * 초기값 → 중간값 → 최종값 순서로 기록
-        * SQL 실행 결과 저장값 추적
-        * 조건문에 따른 값 변경 추적
-      - 변수 용도 분석:
-        * 쿼리 결과 저장
-        * 임시 데이터 보관
-        * 상태 플래그
+   A. 변수값 추적 (Used Variable)
+      - 'Used Variable'로 전달된 모든 변수들의 값 변화를 매우 상세하게 추적하여 기록
+      - 추적 대상:
+        * SQL 실행 결과값 저장
+        * 조건문에 따른 값 변경
+        * 연산에 의한 값 변경
+      - 추적된 값은 'variables' 객체에 저장(변수 이름은 전달된 변수 이름과 동일하게 반환)
       예시:
-      "resultCount": "0 → 조회결과 건수 저장 → 최종 처리된 레코드 수"
-   
-   B. Command Class Variable (추적 불필요)
-      - 단순 입력 매개변수로만 처리
-      - DTO의 getter 메서드로 값 획득
-      - 카멜 케이스 명명규칙 적용
-      예시:
-      * employeeDto.getEmployeeId()
-      * employeeDto.getDepartmentCode()
+        "vEmpId": "SQL 조회 결과(사원번호) -> 초기값은 NULL, TB_EMPLOYEE 테이블에서 조회한 EMP_ID 값이 할당됨 -> 이후 UPDATE 문의 조건절에서 사용",
+        "vStatus": "초기값 'N' -> 사원정보가 존재하면 'Y'로 변경 -> 'Y'인 경우 추가 데이터 처리 수행 -> 모든 처리가 정상적으로 완료되면 최종적으로 'S'로 설정",
 
+   B. 변수 사용 규칙
+      1) Used Variable
+         - 새로운 변수 선언 금지 (전달된 변수만 사용)
+         - 카멜 케이스 명명규칙 유지
+         예시: vEmpId, vDeptCode
+
+      2) Command Class Variable
+         - DTO의 getter 메서드로만 접근
+         - 단순 입력 매개변수로 사용
+         - 카멜 케이스 명명규칙 적용
+         예시: employeeDto.getEmployeeId()
+
+         
+4. 프로시저 호출 변환 규칙
+   A. 외부 프로시저 호출
+      - 형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
+      - 변환: {{스키마명}}Service.{{프로시저명}}({{파라미터}})
+      예시:
+      * 프로시저: TPX_PROJECT.SET_KEY(iProjKey)
+      * 변환: tpxProjectService.setKey(projKey)
+
+   B. 내부 프로시저 호출
+      - 형식: {{프로시저명}}({{파라미터}})
+      - 변환: private 메서드로 추출하여 호출
+      예시:
+      * 프로시저: INPUT(idata)
+      * 변환: input(data)
+
+   C. 명명 규칙
+      - 스네이크 케이스를 카멜 케이스로 변환
+      - 서비스 클래스명은 스키마명 + Service
+      - 메서드명은 프로시저명을 카멜 케이스로 변환         
       
+
 [SECTION 3] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리

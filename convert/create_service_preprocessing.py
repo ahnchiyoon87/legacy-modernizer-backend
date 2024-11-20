@@ -1,43 +1,10 @@
 from collections import defaultdict
+import json
 import logging
 from prompt.service_prompt import convert_service_code
 from prompt.parent_service_skeleton_prompt import convert_parent_skeleton
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractCodeError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TokenCountError, TraverseCodeError, VariableNodeError
-
-
-# 역할: 주어진 범위에서 startLine과 endLine을 추출하여, 스토어드 프로시저 코드를 잘라내는 함수
-# 매개변수: 
-#   - sp_code : 스토어드 프로시저 코드
-#   - context_range : 잘라낼 범위를 나타내는 딕셔너리의 리스트
-# 반환값: 
-#   - join(extracted_lines) : 범위에 맞게 추출된 스토어드 프로시저 코드
-def extract_code_within_range(sp_code, context_range):
-    try:
-        if not (sp_code and context_range):
-            return ""
-
-        # * context_range에서 가장 작은 시작 라인과 가장 큰 끝 라인을 찾습니다.
-        start_line = min(range_item['startLine'] for range_item in context_range)
-        end_line = max(range_item['endLine'] for range_item in context_range)
-
-
-        # * 코드를 라인별로 분리합니다.
-        code_lines = sp_code.split('\n')
-        
-
-        # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
-        extracted_lines = [
-            line for line in code_lines 
-            if ':' in line and start_line <= int(line.split(':')[0].split('~')[0].strip()) <= end_line
-        ]
-        
-        return '\n'.join(extracted_lines)
-    
-    except Exception:
-        err_msg = "(전처리) 서비스 코드 생성 과정에서 범위내에 코드 추출 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise ExtractCodeError(err_msg)
 
 
 # 역할: 변수 노드에서 실제로 사용된 변수 노드만 추려서 제공하는 함수
@@ -54,25 +21,22 @@ async def process_variable_nodes(node_id, used_variables, variable_nodes, tracki
         # * 현재 노드 id를 기준으로 사용된 변수 노드들을 추출합니다.
         for node in variable_nodes:
             for key in node['v']:
-                if '_' in key:
-                    try:
-                        start, end = map(int, key.split('_'))
-                        if start <= node_id <= end:
-                            var_name = node['v']['name']
-                            new_key = f"{start}~{end}"
-                            var_type = node['v'].get('type', 'Unknown')
-                            var_role = tracking_variables.get(var_name, '초기값(0 또는 "")')
-                            var_info = f"{var_type} : {var_name}, {var_role}"
-                            
-                            # * 순서를 유지하면서 중복 제거
-                            if new_key not in used_variables:
-                                used_variables[new_key] = []
-                            if var_info not in used_variables[new_key]:
-                                used_variables[new_key].append(var_info)
-                            break
-                    except ValueError:
-                        # logging.warning(f"Invalid key format: {key}")
-                        continue
+                if '_' in key and all(part.isdigit() for part in key.split('_')):
+                    start, end = map(int, key.split('_'))
+                    if start <= node_id <= end:
+                        var_name = node['v']['name']
+                        var_type = node['v'].get('type', 'Unknown')
+                        var_role = tracking_variables.get(var_name, '초기값(0 또는 "")')                  
+                        var_info = {
+                            'type': var_type,
+                            'name': var_name,
+                            'role': var_role
+                        }
+
+                        # * 중복 검사: name을 기준으로 중복 체크(TODO 성능이슈)
+                        if not any(existing_var['name'] == var_name for existing_var in used_variables):
+                            used_variables.append(var_info)
+                        break
 
         return used_variables
 
@@ -120,7 +84,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 # 매개변수:
 #   - convert_sp_code : 스토어드 프로시저 코드
 #   - current_tokens : 총 토큰 수
-#   - used_variables : 사용된 변수 딕셔너리
+#   - used_variables : 사용된 변수 리스트
 #   - context_range : 컨텍스트 범위
 #   - connection : Neo4j 연결 객체
 #   - procedure_variables: command 클래스에 선언된 변수 목록 
@@ -131,7 +95,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 # 반환값: 
 #   - convert_sp_code : 초기화된 스토어드 프로시저 코드
 #   - current_tokens : 초기화된 총 토큰 수
-#   - used_variables : 초기화된 변수 딕셔너리
+#   - used_variables : 초기화된 변수 리스트
 #   - context_range : 초기화된 컨텍스트 범위
 #   - used_jpa_method_dict : 초기화된 Jpa 쿼리 메서드 사전
 #   - tracking_variables : 초기화된 변수 정보 추적을 위한 사전
@@ -196,7 +160,7 @@ async def handle_convert_result(analysis_result, connection, tracking_variables,
             MATCH (n:Variable) 
             WHERE n.package_name = '{object_name}' 
             AND n.name = '{var_name}'
-            SET n.value_tracking = '{var_info}'
+            SET n.value_tracking = {json.dumps(var_info)}
             """
             node_update_query.append(query)
 
@@ -245,7 +209,7 @@ async def extract_used_jpa_methods(used_jpa_method_dict, jpa_method_list, start_
 # 반환값: 없음 
 async def traverse_node_for_service(node_list, connection, procedure_variables, service_skeleton, jpa_method_list, object_name):
 
-    used_variables =  defaultdict(list)   # 사용된 변수 정보를 저장하는 딕셔너리
+    used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
     current_tokens = 0                    # 총 토큰 수
     convert_sp_code = ""                  # converting할 프로시저 코드 문자열
@@ -272,7 +236,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
             if "EXECUTE_IMMDDIATE" in start_node['name']: continue
 
 
-            # * 가독성을 위해 복잡한 조건을 변수로 
+            # * 각 부모 노드의 1단계 깊이 자식들 순회 여부를 확인하는 조건
             is_small_parent_traverse_1deth = start_node['startLine'] == small_parent_info.get("startLine", 0) and relationship == "NEXT"
             is_big_parent_traverse_1deth = start_node['startLine'] == big_parent_info.get("startLine", 0) and relationship == "NEXT"
 
@@ -293,19 +257,19 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
                 continue
 
 
-            # * 가독성을 위해 복잡한 조건을 변수로 분리
+            # * 각 부모 노드 및 마지막 자식의 처리 여부를 확인하는 조건
             is_big_parent_processed = big_parent_info.get('nextLine', 0) == start_node['startLine']
             is_small_parent_processed = small_parent_info.get('nextLine', 0) == start_node['startLine']
             is_last_child_processed = small_parent_info.get('endLine', 0) and small_parent_info.get('endLine', 0) < start_node['startLine']
 
 
-            # * (큰) 최상위 부모와 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
+            # * (큰) 최상위 부모 처리가 끝나고, 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
             if is_big_parent_processed:
                 print(f"큰 부모 노드({big_parent_info['startLine']})의 모든 자식들 순회 완료")
                 big_parent_info.clear()
 
 
-            # * (작은) 최상위 부모와 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
+            # * (작은) 최상위 부모 처리가 끝나고, 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
             if is_small_parent_processed:
                 print(f"작은 부모 노드({small_parent_info['startLine']})의 모든 자식들 순회 완료1")
                 small_parent_info.clear()
@@ -314,7 +278,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
                 small_parent_info.clear()
 
 
-            # * 가독성을 위해 조건을 변수로 분리
+            # * 각 노드의 타입에 따른 조건
             is_big_parent_and_small_child = relationship == "PARENT_OF" and start_node['token'] > 1700 and end_node['token'] < 1700
             is_small_parent = relationship == "PARENT_OF" and start_node['token'] < 1700 and not small_parent_info
             is_single_node = relationship == "NEXT" and not small_parent_info and not big_parent_info
@@ -327,8 +291,8 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
                 node_tokens += start_node['token']
 
 
-            # * 가독성을 위해 조건을 변수로 분리
-            is_token_limit_exceeded = (current_tokens + node_tokens >= 1500 or len(context_range) >= 10) and context_range 
+            # * 총 토큰 수 및 결과 개수 초과 여부를 확인하는 조건
+            is_token_limit_exceeded = (current_tokens + node_tokens >= 1500) and context_range 
 
 
             # * 총 토큰 수 검사를 진행합니다.
@@ -433,10 +397,16 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
             WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR n:Table OR m:CREATE_PROCEDURE_BODY OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PACKAGE_SPEC_MEMBER)
             AND m.package_name = '{object_name}'
             AND NOT type(r) CONTAINS 'CALLS'
+            AND NOT type(r) CONTAINS 'WRITES'
+            AND NOT type(r) CONTAINS 'FROM'
             RETURN n, r, m
             ORDER BY n.startLine
             """,
-            f"MATCH (v:Variable) WHERE v.package_name = '{object_name}' RETURN v"
+            f"""
+            MATCH (d:DECLARE)-[r:SCOPE]->(v:Variable)
+            WHERE d.package_name = '{object_name}'
+            RETURN DISTINCT v
+            """
         ]
         
         # * 쿼리 실행하여, 노드를 (전처리) 서비스 생성 함수로 전달합니다

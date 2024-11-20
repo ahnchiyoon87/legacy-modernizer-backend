@@ -4,6 +4,7 @@ import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -12,7 +13,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatOpenAI(model_name="gpt-4o")
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 변수 데이터를 기반으로 서비스 클래스를 생성하는 작업을 맡았습니다.
@@ -35,15 +36,14 @@ prompt = PromptTemplate.from_template(
    - 날짜타입: LocalDate 사용
 
 3. 코드 구조 유지
-   - CodePlaceHolder1, CodePlaceHolder2 위치 유지
-   - 하드코딩된 값 그대로 사용
+   - CodePlaceHolder1, CodePlaceHolder2은 하드코딩된 값 그대로 위치 유지
 
 4. Import 선언
    - 기본 제공되는 import문 유지
    - 추가로 필요한 import문 선언
 
 
-[SECTION 2] Service 클래스 기본 템플릿
+[SECTION 2] Service 클래스 예시 템플릿
 ===============================================
 package com.example.demo.service;
 
@@ -93,7 +93,7 @@ CodePlaceHolder2
 def convert_service_skeleton_code(variable_data, command_class_name):
     
     try:
-        declare_json = json.dumps(variable_data)
+        variable_json = json.dumps(variable_data)
 
         chain = (
             RunnablePassthrough()
@@ -101,7 +101,7 @@ def convert_service_skeleton_code(variable_data, command_class_name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"declare_json": declare_json, "command_class_name": command_class_name})
+        result = chain.invoke({"variable_json": variable_json, "command_class_name": command_class_name})
         return result
     except Exception:
         err_msg = "서비스 골격 클래스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."

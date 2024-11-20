@@ -10,27 +10,6 @@ from util.exception import ConvertingError, ExtractCodeError, HandleResultError,
 
 encoder = tiktoken.get_encoding("cl100k_base")
 
-# TODO 수정 필요 JPA쿼리 메서드를 리스트로 받아야함
-# 역할: 프로시저 노드 코드에서 입력 매개변수 부분만 추출하는 함수
-# 매개변수: 
-#   - procedure_code : 프로시저 노드 부분의 코드
-# 반환값: 
-#   - procedure_code : 프로시저 노드 코드에서 변수 선언 부분만 필터링된 코드
-def extract_procedure_variable_code(procedure_code):
-    try:
-
-        # * AS 키워드를 찾아서 AS 이후 모든 라인을 제거합니다.
-        as_index = procedure_code.find(' AS')
-        if as_index != -1:
-            newline_after_as = procedure_code.find('\n', as_index)
-            procedure_code = procedure_code[:newline_after_as]
-
-        return procedure_code
-
-    except Exception:
-        err_msg = "서비스 골격을 생성하는 과정에서 코드를 추출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise ExtractCodeError(err_msg)
 
 
 # 역할: 프로시저 노드의 토큰 개수를 체크하여, 처리하는 함수입니다.
@@ -201,8 +180,8 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
 
         # * Neo4j 데이터베이스에서 프로시저, 패키지 입력 매개변수와 단순 지역 변수 노드를 검색하는 쿼리를 실행합니다.
         query = [
-            f"MATCH (v:Variable {{package_name: '{object_name}'}}) WHERE NOT EXISTS ((v)-[:scope]-(:DECLARE)) RETURN v",
-            f"MATCH (d:DECLARE {{package_name: '{object_name}'}})-[:scope]-(v:Variable {{package_name: '{object_name}'}}) RETURN v"
+            f"MATCH (v:Variable {{package_name: '{object_name}'}}) WHERE NOT EXISTS ((v)-[:SCOPE]-(:DECLARE)) RETURN DISTINCT v",
+            f"MATCH (d:DECLARE {{package_name: '{object_name}'}})-[:SCOPE]-(v:Variable {{package_name: '{object_name}'}}) RETURN DISTINCT v"
         ]  
         procedure_declare_nodes = await connection.execute_queries(query)  
         transformed_variable_data = [] 

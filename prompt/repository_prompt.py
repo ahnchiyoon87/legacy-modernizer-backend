@@ -13,6 +13,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
+# llm = ChatOpenAI(model="gpt-4o", max_tokens=8000)
 llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
 prompt = PromptTemplate.from_template(
 """
@@ -57,9 +58,20 @@ Used Variable:
    - 예시: Person findById(Long id)
 
 2. 읽기 전용 원칙
-   - 모든 쿼리 메서드는 조회(Read) 작업만 수행
-   - CUD(Create, Update, Delete) 작업은 비즈니스 로직으로 처리
+   - 모든 쿼리는 SELECT 문으로만 변환
+   - UPDATE/INSERT/DELETE 문도 SELECT 문으로 변환하여 데이터 조회
+   - 예시:
+     * UPDATE 문의 경우: 업데이트할 데이터를 먼저 조회
+     * 입력: "UPDATE Users SET name = 'John' WHERE id = 1"
+     * 변환: "SELECT * FROM Users WHERE id = 1"
+   
+   - INSERT 문의 경우: 삽입할 데이터의 중복 체크를 위한 조회
+   - DELETE 문의 경우: 삭제할 데이터를 먼저 조회
    - 데이터 변경 작업은 서비스 레이어에서 구현
+   예시:
+      Employee employee = employeeRepository.findById(id);
+      employee.setStatus(newStatus);
+      employeeRepository.save(employee);
 
 3. 복잡한 쿼리 처리
    - 복잡한 조건문의 경우 @Query 어노테이션 사용
@@ -69,11 +81,7 @@ Used Variable:
    - TRUNC 함수 사용 금지
    - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
    - BETWEEN 절을 통한 기간 필터링
-   - 예시:
-     @Query("SELECT e FROM Entity e WHERE e.date BETWEEN :startDate AND :endDate")
-     List<Entity> findByDateBetween(@Param("startDate") LocalDate startDate, 
-                                  @Param("endDate") LocalDate endDate);
-
+   
 
 [SECTION 3] JPA Query Methods 작성 예시
 ===============================================
@@ -83,13 +91,6 @@ Used Variable:
 - 순수 쿼리 메서드만 'jpaQueryMethod'에 포함
 
 예시 출력:
-❌ 잘못된 형식:
-@Repository
-public interface EmployeeRepository extends JpaRepository<Employee, Long> {{
-    Person findByEmployeeId(Long employeeId);
-}}
-
-✅ 올바른 형식:
 @Query("적절한 쿼리문, value= 를 쓰지마세요")
 \nType exampleJPAQueryMethod(@Param("Type TableColumn") Type exampleField, ...)
 

@@ -8,9 +8,28 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from convert.create_service_skeleton import start_service_skeleton_processing
 
 
-# * 로그 레벨을 INFO로 설정
-logging.basicConfig(level=logging.INFO) 
+# * 로그 레벨 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True
+)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
+noisy_loggers = [
+    'asyncio', 
+    'anthropic', 
+    'langchain', 
+    'urllib3',
+    'anthropic._base_client', 
+    'anthropic._client',
+    'langchain_core', 
+    'langchain_anthropic',
+    'uvicorn',
+    'fastapi'
+]
+
+for logger_name in noisy_loggers:
+    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
 # 스프링부트 기반의 자바 서비스 틀을 생성하는 테스트
@@ -44,8 +63,7 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
 
                 # * Service Skeleton 생성
                 (service_skeleton, command_class_variable, 
-                 service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(
-                    object_name, entity_name_list)
+                 service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(entity_name_list, object_name)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {
