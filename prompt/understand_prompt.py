@@ -85,13 +85,18 @@ prompt = PromptTemplate.from_template(
 }}
 """)
 
-# 역할 : 주어진 스토어드 프로시저 코드  분석하여, 사이퍼쿼리 생성에 필요한 정보 받습니다
+# 역할: PL/SQL 프로시저 코드를 심층 분석하여 Neo4j 사이퍼 쿼리 생성에 필요한 정보를 추출하는 함수입니다.
+#      LLM을 통해 프로시저의 구조, 테이블 관계, 변수 사용, 프로시저 호출 등을 분석하고,
+#      코드의 각 부분이 어떤 비즈니스 로직을 수행하는지 파악합니다.
 # 매개변수: 
-#   - sp_code: 분석할 스토어드 프로시저 코드 
-#   - context_ranges : 분석할 스토어드 프로시저 코드의 범위 
-#   - context_range_count : 분석할 스토어드 프로시저 범위의 개수(결과 개수 유지를 위함)
-# 반환값 : 
-#   - parsed_content : JSON으로 파싱된 llm의 분석 결과
+#   - sp_code : 분석 대상 PL/SQL 프로시저의 전체 코드
+#   - context_ranges : 분석이 필요한 코드 범위 목록
+#      (특정 라인 범위만 분석하기 위한 정보)
+#   - context_range_count : 분석해야 할 코드 범위의 총 개수
+#      (LLM 분석 결과의 일관성 유지를 위한 검증용)
+# 반환값: 
+#   - parsed_content : LLM의 코드 분석 결과
+#      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
 def understand_code(sp_code, context_ranges, context_range_count):
     try:
         ranges_json = json.dumps(context_ranges)

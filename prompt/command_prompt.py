@@ -47,9 +47,9 @@ prompt = PromptTemplate.from_template(
      * TIMESTAMP -> LocalDateTime
      * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
      * 복합 데이터 타입이나 사용자 정의 타입 -> Object
-   - 모든 필드에 대해 Lombok @Getter @Setter 사용
    - ROWTYPE이나 복합 데이터 타입의 경우 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
-
+   - 'parameters' 목록에 있는 변수 중 ROWTYPE이나 복합 데이터 타입인 경우에만 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
+   - 'parameters'에 없는 변수는 절대 생성하지 않음
 
 3. import 추가 규칙
    - 필요한 import문은 다음과 같습니다.
@@ -93,13 +93,14 @@ public class ExampleCommand {{
 """
 )
 
-# 역할 : 프로시저 노드 데이터를 기반으로, 커맨드 클래스를 생성합니다.
+# 역할: PL/SQL 프로시저의 파라미터 정보를 기반으로 Java Command 클래스를 생성하는 함수입니다.
+#      LLM을 통해 프로시저의 입력 파라미터들을 Java 데이터 타입으로 변환하고,
+#      Getter/Setter가 포함된 완성된 Command 클래스를 생성합니다.
 # 매개변수: 
-#   - command_class_data : 커맨드 클래스 생성에 필요한 데이터
-#   - object_name : 패키지 및 프로시저 이름
-# 반환값 : 
-#   - result : Command 클래스
-def convert_command_code(command_class_data, object_name):
+#   - command_class_data : Command 클래스 생성에 필요한 데이터
+# 반환값: 
+#   - result : LLM이 생성한 Command 클래스 정보
+def convert_command_code(command_class_data):
     
     try:
         command_class_data = json.dumps(command_class_data)
@@ -110,7 +111,7 @@ def convert_command_code(command_class_data, object_name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"command_class_data": command_class_data, "object_name": object_name})
+        result = chain.invoke({"command_class_data": command_class_data})
         return result
     except Exception:
         err_msg = "Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."

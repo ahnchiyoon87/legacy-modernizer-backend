@@ -105,11 +105,13 @@ public class EntityName {{
 )
 
 
-# 역할 : 테이블 정보를 기반으로 스프링 부트 기반의 엔티티 클래스를 생성합니다
+# 역할: Neo4j에서 추출한 테이블 메타데이터를 기반으로 JPA Entity 클래스를 생성하는 함수입니다.
+#      LLM을 통해 테이블의 컬럼들을 Java 데이터 타입으로 매핑하고,
+#      클린 아키텍처 원칙을 따르는 스프링 부트 엔티티 클래스를 생성합니다.
 # 매개변수: 
-#   - table_data : 테이블 노드 정보
-# 반환값 : 
-#   - result : 엔티티 클래스
+#   - table_data : 테이블 노드의 메타데이터 정보
+# 반환값: 
+#   - result : LLM이 생성한 Entity 클래스 정보
 def convert_entity_code(table_data):
     
     try:

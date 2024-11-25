@@ -183,17 +183,20 @@ JPA Method List:
 """)
 
 
-# 역할 : 주어진 프로시저 코드를 기반으로 Service 클래스 코드를 생성합니다.
+# 역할: PL/SQL 프로시저를 Java 서비스 계층의 메서드로 변환하는 함수입니다.
+#      LLM을 통해 프로시저의 비즈니스 로직을 분석하고,
+#      클린 아키텍처와 DDD 원칙을 따르는 서비스 메서드를 생성합니다.
+#      SQL 작업은 Repository 계층으로 위임하고, 트랜잭션 관리와 비즈니스 규칙을 처리합니다.
 # 매개변수: 
-#  - clean_code : 스토어드 프로시저 코드 
-#  - method_skeleton : 메서드 스켈레톤
-#  - variable_list : 사용된 변수 목록
-#  - jpa_query_methods : 사용된 JPA 쿼리 메서드
-#  - command_class_variable : command 클래스에 선언된 변수 목록
-#  - context_range: 분석할 범위
-#  - count : 분석할 범위 개수
-# 반환값 : 
-#  - json_parsed_content : 메서드 바디 부분을 생성하기 위한 정보
+#  - clean_code : 변환할 PL/SQL 프로시저 코드
+#  - method_skeleton : 생성될 Java 메서드의 기본 구조
+#  - variable_list : PL/SQL에서 사용된 변수들의 정보
+#  - jpa_query_methods : 사용 가능한 JPA Repository 메서드 목록
+#  - command_class_variable : Command 클래스의 필드 정보
+#  - context_range : 코드 변환 범위 정보
+#  - count : context_range의 범위 개수
+# 반환값: 
+#  - json_parsed_content : LLM이 생성한 서비스 메서드 정보
 # TODO 토큰 초과시 로직 추가 필요
 def convert_service_code(convert_sp_code, method_skeleton, variable_list, command_class_variable, context_range, count, jpa_method_list):
    

@@ -8,19 +8,20 @@ from prompt.repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, LLMCallError, Neo4jError, ProcessResultError, RepositoryCreationError, TokenCountError, TraverseCodeError, VariableNodeError
 
+MAX_TOKENS = 1000
+REPOSITORY_PATH = 'java/demo/src/main/java/com/example/demo/repository'
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
-# 역할: 전달된 문자열의 토큰 길이를 계산합니다.
+# 역할: 전달된 코드의 토큰 길이를 계산하는 유틸리티 함수입니다.
 # 매개변수: 
-#   - text : 전달된 문자열
+#   - code : 토큰 수를 계산할 코드 문자열 (dict, list 등 다양한 타입 가능)
 # 반환값: 
-#   - len(text_json) : 전달된 문자열의 토큰 수
-def calculate_code_token(text):
+#   - len(text_json) : JSON으로 변환된 코드의 토큰 수
+def calculate_code_token(code):
     
     try:
-        # * 데이터를 JSON 형식으로 인코딩하고, 인코딩된 데이터의 길이를 반환합니다.
-        text_json = json.dumps(text, ensure_ascii=False)
+        text_json = json.dumps(code, ensure_ascii=False)
         return len(encoder.encode(text_json))
 
     except Exception:
@@ -30,44 +31,39 @@ def calculate_code_token(text):
 
 
 
-# 역할: 리포지토리 인터페이스로 생성합니다. (파일로 생성하는 최종 단계)
+# 역할: Spring Data JPA 리포지토리 인터페이스 파일을 생성합니다.
 # 매개변수:
-#   - repository_codes : 리포지토리 인터페이스 생성을 위한 모든 JPA 쿼리 메서드 코드들
-# 반환값: 없음
-async def create_repository_interface(repository_codes):
-    
+#   - repository_interface : {테이블명: [JPA 메서드 정보]} 형식의 딕셔너리
+async def create_repository_interface(repository_interface):
     
     try:
         # * 리포지토리 인터페이스를 저장할 경로를 설정합니다.
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         if base_directory:
-            repository_directory = os.path.join(base_directory, 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'repository')
+            repository_directory = os.path.join(base_directory, REPOSITORY_PATH)
         else:
-            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            repository_directory = os.path.join(current_dir, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'repository')
+            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            repository_directory = os.path.join(parent_workspace_dir, 'target', REPOSITORY_PATH)
         os.makedirs(repository_directory, exist_ok=True)
 
 
         # * 엔티티 클래스의 이름을 찾아내서 해당 엔티티를 위한 리포지토리 인터페이스 이름을 결정
-        for table_name, methods in repository_codes.items():
+        for table_name, jpa_query_method in repository_interface.items():
             entity_pascal_name = ''.join(word.capitalize() for word in table_name.split('_'))
             entity_camel_name = entity_pascal_name[0].lower() + entity_pascal_name[1:]
         
 
             # * 전달된 JPA 쿼리 메서드들의 들여쓰기 조정하여 하나의 문자열로 생성
-            adjusted_methods = []
-            for method in methods:
-                lines = method['method'].strip().split('\n')
-                indented_lines = ['    ' + line.strip() for line in lines]
-                adjusted_methods.append('\n'.join(indented_lines))
+            indented_method_list = []
+            for method in jpa_query_method:
+                method_lines = method['method'].strip().split('\n')
+                indented_lines = ['    ' + line.strip() for line in method_lines]
+                indented_method_list.append('\n'.join(indented_lines))
+            merged_methods = '\n\n'.join(indented_method_list)
 
 
-            # * 메서드들 사이에 빈 줄을 추가하여 합칩니다.
-            merged_methods = '\n\n'.join(adjusted_methods)
-
-
-            # * 리포지토리 인터페이스를 생성합니다.
-            repository_interface = f"""package com.example.demo.repository;
+            # * 리포지토리 인터페이스 템플릿을 생성합니다.
+            repository_interface_template = f"""package com.example.demo.repository;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -81,120 +77,106 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 {merged_methods}
 }}
     """
-
-            # * 설정된 경로에 리포지토리 인터페이스를 생성합니다
+            # * 설정된 경로에 리포지토리 인터페이스 파일을 생성합니다
             file_path = os.path.join(repository_directory, f"{entity_pascal_name}Repository.java")
             async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
-                await file.write(repository_interface)
+                await file.write(repository_interface_template)
 
     except Exception:
         err_msg = "리포지토리 인터페이스 파일 쓰기 및 생성 도중 오류가 발생"
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise OSError(err_msg)
 
 
-# 역할: 현재 노드에서 사용된 변수 노드를 neo4j에서 가져오는 함수 
+# 역할: 특정 코드 라인에서 사용된 변수들의 정보를 추출합니다.
 # 매개변수: 
-#   - startLine : 현재 노드 시작라인
-#   - variable_nodes : 모든 변순 노드 리스트
+#   - startLine : 분석할 코드의 시작 라인 번호
+#   - all_variable_nodes : Neo4j에서 조회한 모든 변수 노드 정보
 # 반환값: 
-#   - filtered_variable_info : 사용된 변수에 대한 정보가 담긴 사전
-#   - variable_tokens : 변수 정보 리스트의 토큰 길이.
-async def process_variable_nodes(startLine, variable_nodes):
+#   - used_variables : {'라인범위': ['변수타입: 변수명']} 형식의 딕셔너리
+#   - variable_tokens : 추출된 변수 정보의 토큰 수
+async def extract_used_variable_nodes(startLine, all_variable_nodes):
     try:
-
         # * 현재 노드에서 사용된 변수를 구합니다.
-        filtered_variable_info = defaultdict(list)
-        for node in variable_nodes:
-            for key in node['v']:
-                if '_' in key and all(part.isdigit() for part in key.split('_')):
-                    var_start, var_end = map(int, key.split('_'))
-                    if var_start == startLine:
-                        range_key = f'{var_start}~{var_end}'
-                        variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
-                        filtered_variable_info[range_key].append(variable_info)
+        used_variables = defaultdict(list)
+        for variable_node in all_variable_nodes:
+            for used_range in variable_node['v']:
+                if '_' in used_range and all(part.isdigit() for part in used_range.split('_')):
+                    used_startLine, used_endLine = map(int, used_range.split('_'))
+                    if used_startLine == startLine:
+                        range_key = f'{used_startLine}~{used_endLine}'
+                        variable_info = f"{variable_node['v'].get('type', 'Unknown')}: {variable_node['v']['name']}"
+                        used_variables[range_key].append(variable_info)
                         break
 
 
-        # * 필터링된 변수 정보의 토큰을 계산합니다.
-        variable_tokens = calculate_code_token(filtered_variable_info)
-        return filtered_variable_info, variable_tokens
+        # * 변수 정보의 토큰을 계산합니다.
+        variable_tokens = calculate_code_token(used_variables)
+        return used_variables, variable_tokens
     
-    except (TokenCountError, Neo4jError):
+    except (TokenCountError):
         raise
     except Exception:
         err_msg = "사용된 변수 노드를 추출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise VariableNodeError(err_msg)
 
 
-# 역할: 테이블과 직접 연결된 노드의 정보의 토큰의 개수를 체크하고, 처리하는 함수
+
+# 역할: 테이블 연관 노드들을 토큰 제한에 맞춰 처리하는 메인 로직입니다.
 # 매개변수: 
-#   - one_depth_nodes : 테이블과 직접적으로 연결된 노드 리스트
-#   - variable_nodes : 모든 변수 노드 리스트
+#   - repository_nodes : 테이블과 직접 연결된 Neo4j 노드 리스트
+#   - all_variable_nodes : 모든 변수 노드 정보 리스트
 # 반환값: 
-#   - used_jpa_methods_list : JPA 쿼리 메서드 리스트
-async def check_tokens_and_process(one_depth_nodes, variable_nodes):
-    total_tokens = 0                        # 전체 토큰 수
-    variable_tokens = 0                     # llm에게 전달할 변수 정보의 토큰 수
-    table_link_node_chunk = []              # llm에게 전달할 노드 데이터 모음
-    used_variable_nodes = defaultdict(list) # llm에게 전달할 변수 데이터 모음
-    repository_codes = defaultdict(list)    # JPA 쿼리 메서드 리스트(현재 단계에서 리포지토리 인터페이스 생성에 사용) 
-    used_jpa_methods_list = []              # 사용된 JPA 쿼리 메서드 리스트(반환값 다음 단계에 사용)
-    process_append_flag = True              # 데이터 추가를 제어하는 플래그
+#   - used_jpa_methods_list : 생성된 JPA 메서드들의 정보 리스트
+async def process_repository_by_token_limit(repository_nodes, all_variable_nodes):
+    current_tokens = 0                        # 현재 토큰 수
+    repository_data_chunk = []                # 리포지토리 인터페이스 데이터 청크
+    used_variable_nodes = defaultdict(list)   # 현재 노드에서 사용된 변수 노드 정보
+    repository_interface = defaultdict(list)  # 테이블(엔티티)를 기준으로 리포지토리 인터페이스 코드 저장할 딕셔너리
+    used_jpa_methods_list = []                # 특정 라인 범위에서 사용된 JPA 쿼리 메서드 리스트
 
     try:
         # * 테이블와 직접 연결된 노드를 순회하면서 토큰 수를 체크합니다
-        for node in one_depth_nodes:
-            process_append_flag = True                    
+        for node in repository_nodes:
             node_tokens = node['m']['token']  
             node_sp_code = node['m'].get('summarized_code', node['m']['node_code'])
             node_startLine = node['m']['startLine']
 
+            # * 현재 노드에서 사용된 변수를 구합니다.
+            variable_node_dict, variable_tokens = await extract_used_variable_nodes(node_startLine, all_variable_nodes) 
+
             # * 총 토큰 수가 1500을 넘었는지 확인합니다
-            if total_tokens + node_tokens + variable_tokens >= 1000:
-                
+            if repository_data_chunk and current_tokens + node_tokens + variable_tokens >= MAX_TOKENS:
 
-                # * table_link_node_chunk가 비어있으면서, 첫 시작 노드의 크기가 클 경우, 처리합니다
-                if not table_link_node_chunk:     
-                    table_link_node_chunk.append(node_sp_code)
-                    variable_node_dict, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes) 
-                    [used_variable_nodes[k].extend(v) for k, v in variable_node_dict.items()]
-                    process_append_flag = False  # 추가 데이터 처리 방지
-                
-
-                # * 리포지토리 인터페이스 생성을 위해 데이터를 LLM에게 전달합니다.
-                convert_data_count = len(table_link_node_chunk)
-                grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, used_variable_nodes, convert_data_count)
-                [repository_codes[key].extend(value) for key, value in grouped_query_methods.items()]
+                # * 리포지토리 인터페이스 코드 생성을 위한 함수 호출 및 결과 처리
+                convert_data_count = len(repository_data_chunk)
+                jpa_query_methods, used_jpa_methods = await process_convert_with_llm(repository_data_chunk, used_variable_nodes, convert_data_count)
+                [repository_interface[key].extend(value) for key, value in jpa_query_methods.items()]
                 used_jpa_methods_list.extend([{key: value} for key, value in used_jpa_methods.items()])
 
-
                 # * 다음 사이클을 위해 각 변수를 초기화합니다
-                table_link_node_chunk = []
+                repository_data_chunk = []
                 used_variable_nodes.clear()  
-                total_tokens = 0  
-                variable_tokens = 0
+                current_tokens = 0  
                 
             
-            # * 데이터 추가 플래그가 True인 경우, 현재 노드를 데이터 청크에 추가합니다
-            if process_append_flag:    
-                table_link_node_chunk.append(node_sp_code)
-                variable_node_dict, variable_tokens = await process_variable_nodes(node_startLine, variable_nodes)
-                [used_variable_nodes[k].extend(v) for k, v in variable_node_dict.items()]
-                total_tokens += node_tokens + variable_tokens
+            # * 현재 노드를 데이터 청크에 추가합니다
+            repository_data_chunk.append(node_sp_code)
+            [used_variable_nodes[key].extend(value) for key, value in variable_node_dict.items()]
+            current_tokens += node_tokens + variable_tokens
 
 
         # * 마지막 데이터 그룹을 처리합니다
-        if table_link_node_chunk:
-            convert_data_count = len(table_link_node_chunk)
-            grouped_query_methods, used_jpa_methods = await process_llm_repository_interface(table_link_node_chunk, used_variable_nodes, convert_data_count)
-            {repository_codes[key].extend(value) for key, value in grouped_query_methods.items()}
+        if repository_data_chunk:
+            convert_data_count = len(repository_data_chunk)
+            jpa_query_methods, used_jpa_methods = await process_convert_with_llm(repository_data_chunk, used_variable_nodes, convert_data_count)
+            {repository_interface[key].extend(value) for key, value in jpa_query_methods.items()}
             used_jpa_methods_list.extend([{key: value} for key, value in used_jpa_methods.items()])
         
 
-        # * 최종적으로 리포지토리 인터페이스를 생성합니다.
-        await create_repository_interface(repository_codes)
+        # * 리포지토리 인터페이스.java를 생성합니다.
+        await create_repository_interface(repository_interface)
 
         return used_jpa_methods_list
     
@@ -202,42 +184,42 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes):
         raise
     except Exception:
         err_msg = "Converting 과정에서 리포지토리 인터페이스 관련 정보를 순회하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise TraverseCodeError(err_msg)
 
 
-# 역할: LLM의 분석 결과를 바탕으로 리포지토리 인터페이스 정보를 얻는 함수
+# 역할: LLM 분석 결과를 처리하여 리포지토리 인터페이스 정보를 생성합니다.
 # 매개변수:
-#   - node_data: 분석할 노드 데이터의 리스트
-#   - used_variable_nodes: 변수 노드의 컨텍스트 정보를 포함하는 딕셔너리
-#   - convert_data_count : 분석할 데이터의 개수
+#   - repository_data: LLM에 전달할 코드 데이터 리스트
+#   - used_variable_nodes: {'라인범위': ['변수정보']} 형식의 변수 컨텍스트
+#   - convert_data_count : 처리할 데이터 청크의 크기
 # 반환값: 
-#   - grouped_query_methods: 각 테이블의 JPA 쿼리 메서드 리스트.
-#   - used_jpa_method : 사용된 JPA 쿼리 메서드 목록으로 다음 단계(서비스 생성)에서 사용됨
-async def process_llm_repository_interface(node_data, used_variable_nodes, convert_data_count):
+#   - jpa_query_methods: {'테이블명': [JPA메서드정보]} 형식의 딕셔너리
+#   - used_jpa_method : {'라인범위': 'JPA메서드'} 형식의 딕셔너리
+async def process_convert_with_llm(repository_data, used_variable_nodes, convert_data_count):
     
-    grouped_query_methods = {}
+    jpa_query_methods = {}
     used_jpa_method = {}
 
     try:
-        # * LLM을 사용하여 주어진 노드 데이터를 분석하고, 나온 결과에서 필요한 정보를 추출합니다
-        analysis_data = convert_repository_code(node_data, used_variable_nodes, convert_data_count)            
+        # * LLM을 통해 리포지토리 인터페이스 코드를 받고, 그 중 필요한 정보를 추출합니다
+        analysis_data = convert_repository_code(repository_data, used_variable_nodes, convert_data_count)            
         for method_info in analysis_data['analysis']:
             table_name = method_info['tableName'].split('.')[-1]
-            if table_name not in grouped_query_methods:
-                grouped_query_methods[table_name] = []
-            grouped_query_methods[table_name].append({
+            if table_name not in jpa_query_methods:
+                jpa_query_methods[table_name] = []
+            jpa_query_methods[table_name].append({
                 'startLine': method_info['startLine'],
                 'endLine': method_info['endLine'],
                 'method': method_info['method']
             })
 
 
-            # * @query 어노테이션 부분을 제거하고 최대한 축약해서 사용된 JPA 쿼리 메서드 목록들을 생성합니다.
+            # * @Query 어노테이션을 제거하고, 특정 라인에서 사용된 JPA 쿼리 메서드 목록들을 생성합니다.
             method_body = method_info['method'].split('\n')[1].strip()
             used_jpa_method[f"{method_info['startLine']}~{method_info['endLine']}"] = method_body
 
-        return grouped_query_methods, used_jpa_method
+        return jpa_query_methods, used_jpa_method
     
     except LLMCallError:
         raise
@@ -247,11 +229,12 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
         raise ProcessResultError(err_msg)
 
 
-# 역할: 테이블 노드와 1단계 깊이의 수준으로 연결된 노드를 가져와서 Repository 생성을 준비합니다
+# 역할: 리포지토리 인터페이스 생성 프로세스의 시작점입니다.
 # 매개변수: 
-#   - object_name : 프로시저, 패키지 이름
+#   - object_name : 처리할 프로시저/패키지의 이름
+#                   이 이름으로 Neo4j에서 관련 노드들을 검색
 # 반환값: 
-#   - jpa_method_list : JPA 쿼리 메서드 리스트
+#   - jpa_method_list : 생성된 모든 JPA 메서드 정보 리스트
 async def start_repository_processing(object_name):
     
     logging.info(f"[{object_name}] Repository Interface 생성을 시작합니다.")
@@ -271,8 +254,8 @@ async def start_repository_processing(object_name):
         variable_nodes = results[1]
 
 
-        # * 토큰 수에 따라서 리포지토리 인터페이스 관련 작업을 처리하는 함수를 호출합니다.
-        jpa_method_list = await check_tokens_and_process(one_depth_nodes, variable_nodes)
+        # * 리포지토리 인터페이스 생성을 시작합니다.
+        jpa_method_list = await process_repository_by_token_limit(one_depth_nodes, variable_nodes)
         logging.info(f"[{object_name}] Repository Interface를 생성했습니다.\n")
         return jpa_method_list
     

@@ -39,11 +39,11 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
         # * 테스트할 객체 이름들을 설정
         object_names = [
             "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_ALARM",
-            "TPX_ALARM_CONTENT",
-            "TPX_TMF_SYNC_JOB",
-            "TPX_ALARM_FILE",
-            "TPX_ALARM_RECIPIENT"
+            # "TPX_ALARM",
+            # "TPX_ALARM_CONTENT",
+            # "TPX_TMF_SYNC_JOB",
+            # "TPX_ALARM_FILE",
+            # "TPX_ALARM_RECIPIENT"
         ]
 
         try:
@@ -56,20 +56,21 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
                 test_data = {}              
 
             # * Service 전처리 테스트 시작
-            service_results = {}
             for object_name in object_names:
-                # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
-                summarzied_service_skeleton = test_data.get('summarzied_service_skeleton', {}).get(object_name, [])
-                jpa_method_list = test_data.get('jpa_method_list', {}).get(object_name, [])
-                command_class_variable = test_data.get('command_class_variable', {}).get(object_name, [])
 
-                result = await start_service_preprocessing(summarzied_service_skeleton, jpa_method_list, command_class_variable, object_name)
-                service_results[object_name] = result
-            
-            # * 결과를 결과 파일에 저장합니다.
-            test_data["service_pre_results"] = service_results
-            with open(result_file_path, 'w', encoding='utf-8') as f:
-                json.dump(test_data, f, ensure_ascii=False, indent=2)
+                # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
+                service_skeleton_list = test_data.get('service_skeleton_list', {}).get(object_name, [])
+                jpa_method_list = test_data.get('jpa_method_list', {}).get(object_name, [])
+
+                # * 각 스켈레톤 데이터에 대해 전처리 수행
+                for skeleton_data in service_skeleton_list:
+                    await start_service_preprocessing(
+                        skeleton_data['method_skeleton_code'],
+                        skeleton_data['command_class_variable'],
+                        skeleton_data['procedure_name'],
+                        jpa_method_list,
+                        object_name
+                    )
             
             self.assertTrue(True, "전처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

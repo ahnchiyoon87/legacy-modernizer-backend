@@ -31,7 +31,6 @@ for logger_name in noisy_loggers:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
-
 # 스프링부트 기반의 자바 메인 클래스를 생성하는 테스트
 class TestMainGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_Main(self):

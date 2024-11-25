@@ -55,13 +55,17 @@ Provide a brief summary of the Java architecture derived from the Cypher query.
 """)
 
 
-# 역할: 테이블과 2단계 깊이의 노드들, 사용자의 요구사항, 이전 히스토리를 받아서, 간단한 자바 코드로 전환하는 함수
-# 매개변수 : 
-#   - twoDeths_nodes : 테이블과 2단계 깊이 기준 연결된 노드 목록
-#   - chatHistory : 채팅(요구사항), 
-#   - chat : 이전 히스토리
+# 역할: Neo4j 그래프에서 추출한 테이블 관계 정보와 사용자 요구사항을 기반으로 
+#      Java 도메인 모델을 생성하는 함수입니다.
+#      LLM을 통해 테이블 간의 연관 관계를 분석하고, 
+#      DDD(Domain-Driven Design) 원칙에 따라 Aggregate Root를 식별하여
+#      JPA Entity 클래스들을 생성합니다.
+# 매개변수: 
+#   - twoDeths_nodes : 테이블과 2단계 깊이까지 연결된 노드들의 관계 정보
+#   - chatHistory : 이전에 생성된 Java 코드 히스토리
+#   - chat : 사용자의 추가 요구사항이나 수정 요청 사항
 # 반환값: 
-#   - 스트림 : 자바 코드
+#   - 스트림 : LLM이 생성한 Java 코드를 실시간으로 스트리밍
 async def convert_2deths_java(twoDeths_nodes, chatHistory, chat):
     try:
         logging.info(f"\n Start conversion to Java \n")

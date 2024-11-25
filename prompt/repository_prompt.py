@@ -14,7 +14,7 @@ from util.exception import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 # llm = ChatOpenAI(model="gpt-4o", max_tokens=8000)
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
@@ -22,7 +22,7 @@ prompt = PromptTemplate.from_template(
 
 
 Stored Procedure Code:
-{node_json}
+{repository_nodes}
 
 
 Used Variable:
@@ -111,17 +111,20 @@ Used Variable:
 """
 )
 
-# 역할 : 테이블과 직접적으로 연결된 노드를 기반으로, 리포지토리 인터페이스에 대한 정보를 받는 함수
+# 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 JPA Repository 인터페이스를 생성하는 함수입니다.
+#      LLM을 통해 PL/SQL 쿼리를 JPA Query Method로 변환하고,
+#      클린 아키텍처 원칙을 따르는 Repository 인터페이스 메서드를 생성합니다.
+#      각 SQL 문은 읽기 전용 쿼리로 변환되며, 데이터 변경 작업은 서비스 레이어로 위임됩니다.
 # 매개변수: 
-#   - node_data : 테이블과 직접적으로 연결된 노드
-#   - variable_nodes_context : 해당 노드에서 사용된 변수목록
-#   - convert_data_count : 분석할 데이터의 개수
-# 반환값 : 
-#   - result : 리포지토리 인터페이스에 대한 정보
-def convert_repository_code(node_data, variable_nodes_context, data_count):
+#   - repository_nodes : 테이블과 직접 연결된 PL/SQL 노드 정보
+#   - variable_nodes_context : SQL에서 사용된 변수들의 정보
+#   - convert_data_count : 하나의 SQL 문에서 생성될 JPA Query Method의 수
+# 반환값: 
+#   - result : LLM이 생성한 Repository 메서드 정보
+def convert_repository_code(repository_nodes, variable_nodes_context, data_count):
     
     try: 
-        node_json = json.dumps(node_data)
+        repository_nodes = json.dumps(repository_nodes)
 
         chain = (
             RunnablePassthrough()
@@ -129,7 +132,7 @@ def convert_repository_code(node_data, variable_nodes_context, data_count):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"node_json": node_json, "variable_node": variable_nodes_context, "count": data_count})
+        result = chain.invoke({"repository_nodes": repository_nodes, "variable_node": variable_nodes_context, "count": data_count})
         return result
     
     except Exception:

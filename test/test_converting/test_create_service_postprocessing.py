@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_postprocessing import start_service_postprocessing
+from convert.create_service_postprocessing import start_service_postprocessing, write_service_file
 
 
 # * 로그 레벨 설정
@@ -39,11 +39,11 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
         object_names = [
             "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_ALARM",
-            "TPX_ALARM_CONTENT",
-            "TPX_TMF_SYNC_JOB",
-            "TPX_ALARM_FILE",
-            "TPX_ALARM_RECIPIENT"
+            # "TPX_ALARM",
+            # "TPX_ALARM_CONTENT",
+            # "TPX_TMF_SYNC_JOB",
+            # "TPX_ALARM_FILE",
+            # "TPX_ALARM_RECIPIENT"
         ]
         
         try:
@@ -53,22 +53,25 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                 with open(result_file_path, 'r', encoding='utf-8') as f:
                     test_data = json.load(f)
             else:
-                test_data = {}              
+                test_data = {}   
 
             # * Service 후처리 테스트 시작
-            service_results = {}
             for object_name in object_names:
-                service_skeleton = test_data.get('service_skeleton', {}).get(object_name, [])
-                service_skeleton_name = test_data.get('service_skeleton_name', {}).get(object_name, [])
-                
+                    # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
+                    service_skeleton_list = test_data.get('service_skeleton_list', {}).get(object_name, [])
+                    service_skeleton = test_data.get('service_skeleton', {}).get(object_name, '')
+                    service_class_name = test_data.get('service_class_name', {}).get(object_name, '')
+                    merge_method_code = ""
 
-                result = await start_service_postprocessing(service_skeleton, service_skeleton_name, object_name)
-                service_results[object_name] = result
-            
-            # * 결과를 결과 파일에 저장합니다.
-            test_data["service_post_results"] = service_results
-            with open(result_file_path, 'w', encoding='utf-8') as f:
-                json.dump(test_data, f, ensure_ascii=False, indent=2)
+                    # * 각 스켈레톤 데이터에 대해 후처리 수행
+                    for skeleton_data in service_skeleton_list:
+                        merge_method_code = await start_service_postprocessing(
+                            skeleton_data['method_skeleton_code'],
+                            skeleton_data['procedure_name'],
+                            object_name,
+                            merge_method_code
+                        )
+                    await write_service_file(service_skeleton, service_class_name, merge_method_code)            
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

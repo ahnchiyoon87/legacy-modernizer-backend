@@ -7,15 +7,24 @@ from prompt.entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import EntityCreationError, LLMCallError, Neo4jError, TokenCountError
 
+MAX_TOKENS = 1000
+ENTITY_PATH = 'java/demo/src/main/java/com/example/demo/entity'
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
-# 역할: 테이블 데이터의 토큰 수에 따라, LLM으로 분석을 결정하는 함수
+# 역할: Neo4j 데이터베이스에서 가져온 테이블 정보를 LLM이 처리할 수 있는 크기로 나누어 Java 엔티티 클래스를 생성합니다.
+# 
 # 매개변수: 
-#   - table_data_list : 테이블 노드 정보 모음
+#   table_data_list (list): 
+#     - Neo4j 데이터베이스에서 가져온 테이블 정보 목록
+#     - 각 테이블은 테이블명과 컬럼 정보를 포함합니다
+#     - 예시: [{'name': 'user_table', 'fields': [('id', 'int'), ('name', 'varchar')]}]
+#
 # 반환값:
-#   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
-async def calculate_tokens_and_process(table_data_list):
+#   entity_name_list (list): 
+#     - 생성된 Java 엔티티 클래스의 이름 목록
+#     - 예시: ['UserEntity', 'ProductEntity']
+async def process_table_by_token_limit(table_data_list):
 
     current_tokens = 0        
     table_data_chunk = []   
@@ -29,7 +38,7 @@ async def calculate_tokens_and_process(table_data_list):
 
 
             # * 토큰 수가 초과되었다면, LLM을 이용하여 분석을 진행합니다
-            if current_tokens + table_tokens >= 1000:
+            if table_data_chunk and current_tokens + table_tokens >= MAX_TOKENS:
                 entity_names = await create_entity_class(table_data_chunk)
                 entity_name_list.extend(entity_names)
                 table_data_chunk = []     
@@ -42,21 +51,29 @@ async def calculate_tokens_and_process(table_data_list):
         if table_data_chunk: 
             result = await create_entity_class(table_data_chunk)
             entity_name_list.extend(result)
+        
         return entity_name_list
     
     except (OSError, LLMCallError):
         raise
     except Exception:
         err_msg = "엔티티 생성 과정에서 테이블 노드 토큰 계산 도중 문제가 발생"
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise TokenCountError(err_msg)
 
 
-# 역할: 전달된 테이블 데이터를 LLM으로 분석하여, Entity 클래스를 생성
-# 매개변수: 
-#   - table_data_group : 테이블 노드 데이터 그룹
+# 역할: LLM을 사용하여 테이블 정보를 분석하고, 이를 바탕으로 Java 엔티티 클래스 파일을 생성합니다.
+#
+# 매개변수:
+#   table_data_group (list):
+#     - 처리할 테이블 정보 그룹
+#     - 각 테이블은 이름과 필드 정보를 포함
+#     - 예시: [{'name': 'user_table','fields': [('user_id', 'number'), ('user_name', 'varchar')]}]
+#
 # 반환값:
-#   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
+#   entity_name_list (list):
+#     - 생성된 엔티티 클래스의 이름 목록
+#     - 예시: ['UserEntity']
 async def create_entity_class(table_data_group):
 
     try:
@@ -68,21 +85,19 @@ async def create_entity_class(table_data_group):
         # * Entity 클래스을 저장할 경로를 설정합니다
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         if base_directory:
-            entity_directory = os.path.join(base_directory, 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'entity')
+            entity_directory = os.path.join(base_directory, ENTITY_PATH)
         else:
-            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 현재 프로젝트의 상위 디렉토리
-            entity_directory = os.path.join(current_dir, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'entity')
-        
+            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 현재 프로젝트의 상위 디렉토리
+            entity_directory = os.path.join(parent_workspace_dir, 'target', ENTITY_PATH)
         os.makedirs(entity_directory, exist_ok=True)
 
 
-
         # * Entity Class를 파일로 생성합니다
-        for item in analysis_data['analysis']:
-            entity_name_list.append(item['entityName'])
-            file_path = os.path.join(entity_directory, f"{item['entityName']}.java")
+        for entity in analysis_data['analysis']:
+            entity_name_list.append(entity['entityName'])
+            file_path = os.path.join(entity_directory, f"{entity['entityName']}.java")
             async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
-                await file.write(item['code'])
+                await file.write(entity['code'])
         return entity_name_list
     
     except LLMCallError: 
@@ -93,11 +108,19 @@ async def create_entity_class(table_data_group):
         raise OSError(err_msg)
 
 
-# 역할: Neo4J에서 모든 테이블 노드를 가져오고, 테이블 노드 데이터를 재구성하는 함수
-# 매개변수: 
-#    - object_name : 스토어드 프로시저(패키지) 이름
+# 역할: 전체 엔티티 생성 프로세스를 관리하는 메인 함수입니다.
+#      Neo4j 데이터베이스 연결부터 엔티티 파일 생성까지 모든 과정을 조율합니다.
+#
+# 매개변수:
+#   object_name (str):
+#     - 처리할 데이터베이스 객체(패키지/프로시저)의 이름
+#     - Neo4j에서 이 이름으로 관련 테이블들을 검색
+#     - 예시: 'HR_PACKAGE'
+#
 # 반환값:
-#   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
+#   entity_name_list (list):
+#     - 생성된 모든 Java 엔티티 클래스의 이름 목록
+#     - 예시: ['EmployeeEntity', 'DepartmentEntity']
 async def start_entity_processing(object_name):
     connection = Neo4jConnection()
     logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
@@ -112,13 +135,13 @@ async def start_entity_processing(object_name):
         for item in table_nodes[0]:
             transformed_table_info = {
                 'name': item['n']['name'],
-                'fields': [(key, value) for key, value in item['n'].items() if key != 'name'],
+                'fields': [(key, value) for key, value in item['n'].items() if key not in ['name', 'object_name']],
             }
             table_data_list.append(transformed_table_info)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list = await calculate_tokens_and_process(table_data_list)
+        entity_name_list = await process_table_by_token_limit(table_data_list)
         entity_count = len(entity_name_list)
         logging.info(f"[{object_name}] {entity_count}개의 엔티티가 생성되었습니다.\n")
         return entity_name_list
@@ -127,7 +150,7 @@ async def start_entity_processing(object_name):
         raise
     except Exception:
         err_msg = f"[{object_name}] 엔티티 클래스를 생성하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise EntityCreationError(err_msg)
     finally:
         await connection.close()

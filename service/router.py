@@ -3,10 +3,10 @@ import os
 import shutil
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import delete_all_temp_files, process_zip_file, transform_fileName
+from service.service import delete_all_temp_data, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
-from service.service import generate_simple_java
+from service.service import generate_simple_java_code
 from service.service import generate_spring_boot_project
 
 
@@ -43,7 +43,7 @@ async def understand_data(request: Request):
 #   - 스트림 : 자바 코드
 # TODO FRONT에서 값이 전달이 제대로 안되고 있습니다.
 @router.post("/java/")
-async def convert_java(request: Request):
+async def convert_simple_java(request: Request):
 
     try:
         node_info = await request.json()
@@ -53,7 +53,7 @@ async def convert_java(request: Request):
     except Exception:
         raise HTTPException(status_code=500, detail="테이블 노드 기준으로 자바 코드 생성에 실패했습니다.")
 
-    return StreamingResponse(generate_simple_java(cypher_query_for_java))
+    return StreamingResponse(generate_simple_java_code(cypher_query_for_java))
     
 
 
@@ -76,7 +76,7 @@ async def receive_chat(request: Request):
     except Exception:
         raise HTTPException(status_code=500, detail="자바 코드 생성을 위해 전달된 데이터가 잘못되었습니다.")
 
-    return StreamingResponse(generate_simple_java(None, prevHistory, userInput))
+    return StreamingResponse(generate_simple_java_code(None, prevHistory, userInput))
 
 
 
@@ -121,7 +121,7 @@ async def download_spring_project():
             
         output_zip_path = os.path.join(zipfile_dir, 'project.zip')
         
-        await process_zip_file(target_path, output_zip_path)
+        await process_project_zipping(target_path, output_zip_path)
         
         return FileResponse(
             path=output_zip_path, 
@@ -137,23 +137,23 @@ async def download_spring_project():
 # 매개변수: 없음
 # 반환값: 삭제 결과 메시지
 @router.delete("/deleteAll/")
-async def delete_all_files():
+async def delete_all_data():
     try:
         docker_context = os.getenv('DOCKER_COMPOSE_CONTEXT')
         
         if docker_context:
-            paths = {
+            delete_paths = {
                 'target_dir': os.path.join(docker_context, 'target'),
                 'zip_dir': os.path.join(docker_context, 'zipfile')
             }
         else:
             parent_dir = os.path.dirname(os.getcwd())
-            paths = {
+            delete_paths = {
                 'target_dir': os.path.join(parent_dir, 'target'),
                 'zip_dir': os.path.join(parent_dir, 'zipfile')
             }
 
-        await delete_all_temp_files(paths)
+        await delete_all_temp_data(delete_paths)
         return {"message": "모든 임시 파일이 삭제되었습니다."}
         
     except Exception as e:

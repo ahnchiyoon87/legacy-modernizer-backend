@@ -49,12 +49,17 @@ summarized_stored_procedure_code:
 """
 )
 
-# 역할 : 요약된 코드를 기반으로, 요약된 자바 코드를 받는 함수
+# 역할: 토큰 수가 제한을 초과하는 대형 PL/SQL 코드 블록을 처리하는 함수입니다.
+#      LLM을 통해 자식 노드들이 "...code..."로 요약된 코드를 분석하고,
+#      코드의 전체적인 구조와 흐름을 유지하면서
+#      Java 코드의 골격(skeleton)을 생성합니다.
 # 매개변수: 
-#   - summarized_code : 자식들이 전부 요약된 코드
+#   - summarized_code : 자식 노드들이 "...code..."로 요약된 PL/SQL 코드
+#      (큰 코드 블록의 구조를 파악할 수 있는 요약본)
 # 반환값: 
-#   - result : 요약된 자바 코드
-def convert_parent_skeleton(summarized_code):
+#   - result : LLM이 생성한 요약된 형태의 Java 코드
+#      (실제 구현은 나중에 채워질 수 있도록 자리 표시자를 포함)
+def convert_summarized_code(summarized_code):
     
     try:
         chain = (

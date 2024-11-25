@@ -11,7 +11,7 @@ from convert.create_properties import start_APLproperties_processing
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
-from convert.create_service_postprocessing import start_service_postprocessing 
+from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
@@ -26,29 +26,30 @@ os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
 
 
-# 역할: 스토어드 프로시저의 각 라인에 줄 번호를 추가합니다.
+# 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
 # 매개변수: 
-#   - contents : 스토어드 프로시저 파일 내용
+#   - plsql : 원본 PL/SQL 코드 (라인 단위 리스트)
 # 반환값: 
-#   - numbered_contents : 라인 번호가 추가된 스토어드 프로시저 파일 내용 
-def add_line_numbers(contents):
+#   - numbered_plsql : 각 라인 앞에 번호가 추가된 PL/SQL 코드
+def add_line_numbers(plsql):
     try: 
         # * 각 라인에 번호를 추가합니다.
-        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(contents)]
-        numbered_contents = "".join(numbered_lines)
-        return numbered_contents
+        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
+        numbered_plsql = "".join(numbered_lines)
+        return numbered_plsql
     except Exception:
         err_msg = "전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다."
         logging.error(err_msg, exc_info=False)
         raise AddLineNumError(err_msg)
 
 
-# 역할: 사이퍼 쿼리를 생성 및 실행하고, 그 결과를 스트림 형식으로 반환
+
+# 역할: Neo4j에서 노드와 관계를 조회하여 그래프 데이터를 스트림 형태로 반환합니다.
+#      코드 분석 결과를 실시간으로 시각화하기 위한 데이터를 제공합니다.
 # 매개변수:
-#    - sp_file_name: 스토어드 프로시저 파일 이름(확장자 제거)
-#    - last_line: 스토어드 프로시저 파일의 내용의 마지막 라인 번호
+#   - file_names : 분석할 파일 이름과 객체 이름 튜플의 리스트
 # 반환값: 
-#   - 스트림 : 그래프를 그리기 위한 데이터들
+#   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
 async def generate_and_execute_cypherQuery(file_names):
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
@@ -117,11 +118,12 @@ async def generate_and_execute_cypherQuery(file_names):
         await connection.close()
 
 
-# 역할: 노드 ID를 기반으로 두 단계 깊이의 노드를 조회하여 그래프 객체로 반환합��다.
+# 역할: 특정 노드를 중심으로 2단계 깊이까지의 연관 노드와 관계를 조회합니다.
+#      선택된 노드의 주변 컨텍스트를 파악하기 위한 서브그래프를 제공합니다.
 # 매개변수: 
-#   - node_info : 노드 정보
+#   - node_info : 중심이 되는 노드의 식별 정보
 # 반환값: 
-#   - graph_object_result : 그래프 객체
+#   - graph_object_result : 2단계 깊이까지의 서브그래프 데이터
 async def generate_two_depth_match(node_info):
     try:
         connection = Neo4jConnection()
@@ -147,16 +149,17 @@ async def generate_two_depth_match(node_info):
         await connection.close()
 
 
-# 역할: 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드를 생성하여, 스트림 형태로 반환
+# 역할: 사이퍼 쿼리와 사용자 요구사항을 기반으로 Java 코드를 생성합니다.
+#      생성된 코드는 실시간으로 스트리밍됩니다.
 # 매개변수:
-#   - cypher_query: 사이퍼쿼리
-#   - previous_history: 이전 히스토리
-#   - requirements_chat: 요구사항
+#   - cypher_query : Neo4j 사이퍼 쿼리
+#   - previous_history : 이전 코드 생성 히스토리
+#   - requirements_chat : 사용자의 추가 요구사항
 # 반환값: 
-#   - 스트림 : 자바 코드
-async def generate_simple_java(cypher_query=None, previous_history=None, requirements_chat=None):
+#   - 스트림 : 생성된 Java 코드
+async def generate_simple_java_code(cypher_query=None, previous_history=None, requirements_chat=None):
     try:
-        # * 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드 생성 프로세스를 실행합니다
+        # * 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 간단한 자바 코드 생성 프로세스를 실행합니다
         async for java_code in convert_2deths_java(cypher_query, previous_history, requirements_chat):
             yield java_code
         yield "END_OF_STREAM"
@@ -169,13 +172,14 @@ async def generate_simple_java(cypher_query=None, previous_history=None, require
         yield "stream-error" 
 
 
-# 역할 : 전달받은 스토어드 프로시저 파일 이름을 각각의 표기법에 맞게 변환하는 함수
-# 매개변수 : 
-#   - sp_fileName : 스토어드 프로시저 파일의 이름
-# 반환값 : 
-#   - pascal_file_name : 파스칼 표기법으로 변환된 파일 이름
-#   - lower_file_name : 소문자로 변환된 파일
-async def transform_fileName(sp_fileName):
+# 역할: PL/SQL 파일 이름을 Java 네이밍 컨벤션에 맞게 변환합니다.
+#      파스칼 케이스와 소문자 형식으로 변환된 이름을 제공합니다.
+# 매개변수: 
+#   - sp_fileName : 원본 PL/SQL 파일 이름
+# 반환값: 
+#   - pascal_file_name : 파스칼 케이스로 변환된 이름
+#   - lower_file_name : 소문자로 변환된 이름
+async def transform_file_name(sp_fileName):
     try:
         # * 파일 이름에서 _를 제거하고, 각각의 표기법으로 전환합니다.
         words = sp_fileName.split('_')
@@ -188,14 +192,17 @@ async def transform_fileName(sp_fileName):
         raise OSError(err_msg)
 
 
-# 역할: 스프링 부트 프로젝트 생성을 위한 단계별 변환 과정을 수행하는 비동기 제너레이터 함수
+
+# 역할: PL/SQL 프로시저를 스프링 부트 프로젝트로 변환하는 전체 프로세스를 관리합니다.
+#      엔티티, 리포지토리, 서비스 등 각 계층의 변환을 순차적으로 진행합니다.
 # 매개변수: 
-#   - file_names : 스프링 부트 프로젝트로 전환될 스토어드 프로시저(패키지)의 파일 이름 목록
+#   - file_names : 변환할 파일 이름과 객체 이름 튜플의 리스트
 # 반환값: 
-#   - 스트림 : 각 변환 단계의 완료 메시지
+#   - 스트림 : 각 변환 단계의 진행 상태 메시지
 async def generate_spring_boot_project(file_names):
     try:
         for file_name, object_name in file_names:
+            merge_method_code = ""
 
             yield f"Start converting {object_name}\n"
 
@@ -208,24 +215,25 @@ async def generate_spring_boot_project(file_names):
             yield f"{file_name}-Step2 completed\n"
             
             # * 3 단계 : 서비스 스켈레톤 생성
-            service_skeleton_list = await start_service_skeleton_processing(entity_name_list, object_name)
+            service_creation_info, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name)
             yield f"{file_name}-Step3 completed\n"
 
             # * 4 단계 : 각 프로시저별 서비스 생성
-            for skeleton_data in service_skeleton_list:
+            for service_data in service_creation_info:
                 await start_service_preprocessing(
-                    skeleton_data['method_skeleton_code'], 
-                    skeleton_data['command_class_variable'],
-                    skeleton_data['procedure_name'],
+                    service_data['method_skeleton_code'], 
+                    service_data['command_class_variable'],
+                    service_data['procedure_name'],
                     jpa_method_list, 
                     object_name
                 )
-                await start_service_postprocessing(
-                    skeleton_data['method_skeleton_code'],
-                    skeleton_data['service_skeleton'],
-                    skeleton_data['procedure_name'],
-                    object_name
+                merge_method_code = await start_service_postprocessing(
+                    service_data['method_skeleton_code'],
+                    service_data['procedure_name'],
+                    object_name,
+                    merge_method_code
                 )
+            await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
             yield f"{file_name}-Step4 completed\n"
 
         # * 5 단계 : pom.xml 생성
@@ -251,12 +259,13 @@ async def generate_spring_boot_project(file_names):
         yield "convert-error"
 
 
-# 역할: 전환된 스프링 기반의 자바 프로젝트를 zip으로 압축하는 함수
+# 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축합니다.
+#      프로젝트의 전체 구조를 유지하면서 압축 파일을 생성합니다.
 # 매개변수: 
-#   - source_directory : zip으로 압축할 대상이 있는 파일 경로
-#   - output_zip_path : 압축된 zip 파일이 저장되는 경로
+#   - source_directory : 압축할 프로젝트 디렉토리 경로
+#   - output_zip_path : 생성될 ZIP 파일 경로
 # 반환값: 없음
-async def process_zip_file(source_directory, output_zip_path):
+async def process_project_zipping(source_directory, output_zip_path):
     try:
         # * zipfile 모듈을 사용하여 ZIP 파일 생성
         os.makedirs(os.path.dirname(output_zip_path), exist_ok=True)
@@ -275,15 +284,16 @@ async def process_zip_file(source_directory, output_zip_path):
         raise OSError(err_msg)
     
 
-# 역할: 임시 저장된 모든 파일을 삭제하는 함수
+# 역할: 임시 생성된 모든 파일과 Neo4j 데이터를 정리합니다.
+#      다음 변환 작업을 위해 작업 환경을 초기화합니다.
 # 매개변수: 
-#   - paths : 삭제할 디렉토리 경로들이 담긴 딕셔너리
+#   - delete_paths : 삭제할 디렉토리 경로들이 담긴 딕셔너리
 #       - docker 환경: {'java_dir': 경로, 'zip_dir': 경로}
 #       - 로컬 환경: {'target_dir': 경로, 'zip_dir': 경로}
-async def delete_all_temp_files(paths: dict):
+async def delete_all_temp_data(delete_paths: dict):
     try:
         neo4j = Neo4jConnection()
-        for dir_path in paths.values():
+        for dir_path in delete_paths.values():
             if os.path.exists(dir_path):
                 shutil.rmtree(dir_path)
                 os.makedirs(dir_path)

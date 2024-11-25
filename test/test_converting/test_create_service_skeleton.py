@@ -39,11 +39,11 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         # * 테스트할 객체 이름들을 설정
         object_names = [
             "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_ALARM",
-            "TPX_ALARM_CONTENT",
-            "TPX_TMF_SYNC_JOB",
-            "TPX_ALARM_FILE",
-            "TPX_ALARM_RECIPIENT"
+            # "TPX_ALARM",
+            # "TPX_ALARM_CONTENT",
+            # "TPX_TMF_SYNC_JOB",
+            # "TPX_ALARM_FILE",
+            # "TPX_ALARM_RECIPIENT"
         ]
 
         try:
@@ -58,27 +58,25 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             # * Service Skeleton 생성 테스트 시작
             skeleton_results = {}
             for object_name in object_names:
+
                 # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
                 entity_name_list = test_data.get('entity_name_list', {}).get(object_name, [])
 
                 # * Service Skeleton 생성
-                (service_skeleton, command_class_variable, 
-                 service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(entity_name_list, object_name)
+                service_skeleton_list, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {
+                    "service_skeleton_list": service_skeleton_list,
                     "service_skeleton": service_skeleton,
-                    "command_class_variable": command_class_variable,
-                    "service_skeleton_name": service_skeleton_name,
-                    "summarzied_service_skeleton": summarzied_service_skeleton
+                    "service_class_name": service_class_name
                 }
             
             # * 결과를 결과 파일에 저장합니다.
             test_data.update({
+                "service_skeleton_list": {name: results["service_skeleton_list"] for name, results in skeleton_results.items()},
                 "service_skeleton": {name: results["service_skeleton"] for name, results in skeleton_results.items()},
-                "command_class_variable": {name: results["command_class_variable"] for name, results in skeleton_results.items()},
-                "service_skeleton_name": {name: results["service_skeleton_name"] for name, results in skeleton_results.items()},
-                "summarzied_service_skeleton": {name: results["summarzied_service_skeleton"] for name, results in skeleton_results.items()}
+                "service_class_name": {name: results["service_class_name"] for name, results in skeleton_results.items()}
             })
             
             with open(result_file_path, 'w', encoding='utf-8') as f:

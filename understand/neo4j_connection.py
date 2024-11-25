@@ -19,16 +19,17 @@ class Neo4jConnection:
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
 
-    # 역할: 데이터베이스 연결을 종료합니다.
+    # 역할: 데이터베이스 연결을 안전하게 종료하고 리소스를 정리합니다.
     async def close(self):
         await self.__driver.close()
 
 
-    # 역할: 주어진 사이퍼 쿼리 목록을 실행합니다.
+
+    # 역할: 여러 개의 사이퍼 쿼리를 순차적으로 실행하고 결과를 수집합니다.
     # 매개변수: 
-    #   - queries : 실행할 사이퍼 쿼리 목록
-    # 반환값 : 
-    #   - results : 사이퍼 쿼리의 실행 결과
+    #   - queries: 실행할 사이퍼 쿼리 문자열의 리스트
+    # 반환값: 
+    #   - results: 각 쿼리의 실행 결과를 담은 리스트
     async def execute_queries(self, queries):
         try:
             results = [] 
@@ -44,11 +45,12 @@ class Neo4jConnection:
             raise Neo4jError(error_msg)
     
     
-    # 그래프 DB에 있는 노드와 관계를 그래프 객체 형태로 가져옵니다.
+    # 역할: 그래프 데이터베이스의 노드와 관계를 시각화 가능한 형태로 조회합니다.
+    #      Variable 라벨을 가진 노드는 제외하고 조회합니다.
     # 매개변수: 
-    #   - custom_query - 사용자 정의 쿼리 (기본값: "MATCH (n)-[r]->(m) RETURN n, r, m")
+    #   - custom_query: 사용자가 정의한 조회 쿼리 (선택적)
     # 반환값: 
-    #   - 그래프 객체 : 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
+    #   - graph_data: 노드와 관계 정보를 포함하는 그래프 데이터 딕셔너리
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
             default_query = custom_query or "MATCH (n)-[r]->(m) WHERE NOT 'Variable' IN labels(n) AND NOT 'Variable' IN labels(m) RETURN n, r, m"
