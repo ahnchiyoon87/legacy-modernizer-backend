@@ -2,7 +2,7 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from prompt.service_skeleton_prompt import convert_controller_method_code, convert_function_code, convert_method_skeleton_code
+from prompt.service_skeleton_prompt import convert_controller_method_code, convert_function_code
 from prompt.command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractCodeError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, TraverseCodeError
@@ -57,7 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class {service_class_name} {{
 
 {chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list)}
-CodePlaceHolder1
+CodePlaceHolder
 }}"""
 
         return service_class_template, service_class_name
@@ -161,11 +161,11 @@ async def save_java_file(class_name: str, source_code: str) -> None:
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
 async def start_service_skeleton_processing(entity_name_list, object_name):
-    
+
     connection = Neo4jConnection()  
-    logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
     procedure_groups = {}
     service_creation_info = []
+    logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
 
     try:
 
@@ -194,7 +194,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
         # * 프로시저별로 데이터 구조화
         for item in nodes[0]:
             proc_name = item['p'].get('procedure_name', '')
-            
+
             # * 새로운 프로시저인 경우 딕셔너리 초기화
             if proc_name not in procedure_groups:
                 procedure_groups[proc_name] = {
@@ -214,11 +214,12 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
 
 
         # * 서비스 클래스의 틀을 생성합니다.
-        service_skeleton, service_name = await create_service_skeleton(object_name, entity_name_list)
-    
+        service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list)
+
 
         # * 커맨드 클래스 및 메서드 틀 생성을 위한 데이터를 구성합니다.
         for proc_name, proc_data in procedure_groups.items():
+            logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성을 시작합니다.")
             
             # * 메서드 틀 생성을 위한 데이터 구성
             method_skeleton_data = {
@@ -243,16 +244,15 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
 
             # * 결과를 딕셔너리로 구성하여 리스트에 추가
             service_creation_info.append({
-                'service_skeleton': service_skeleton,
-                'service_class_name': service_name,
                 'command_class_variable': command_class_variable,
                 'method_skeleton_name': method_skeleton_name,
                 'method_skeleton_code': method_skeleton_code,
                 'procedure_name': proc_name
             })
+            logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성 완료\n")
 
         logging.info(f"[{object_name}] {len(service_creation_info)}개의 커맨드 클래스 및 메서드 골격을 생성했습니다.\n")
-        return service_creation_info, service_skeleton, service_name
+        return service_creation_info, service_skeleton, service_class_name
 
     except (ConvertingError, Neo4jError, SaveFileError):
         raise

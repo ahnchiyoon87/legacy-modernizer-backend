@@ -14,7 +14,7 @@ import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
@@ -52,21 +52,25 @@ JPA Method List:
    - jpa_method_list: 현재 범위에서 사용 가능한 JPA 쿼리 메서드 목록
 
 주요 작업
-   - Method Template을 참고하여, CodePlaceHolder 위치에 들어갈 코드만 구현
+   - 'Method Signature'을 참고하여, CodePlaceHolder 위치에 들어갈 코드만 구현하세요.
+   - 'Method Signature'는 제외하고 메서드 내부의 실제 구현 코드만 결과로 반환하세요.
+   - 자바코드는 클린코드 및 가독성이 좋아야 하며, 들여쓰기가 적용된 상태로 반환하세요.
 
-   
 [SECTION 2] 상황별 자바 코드 변환 규칙
 ===============================================
 
 1. 범위 처리 규칙
    - 모든 범위({count}개)에 대해 누락 및 생략 없이 {count}개의 'code'를 반환
    - 이미 상위 블록에서 다뤄진 코드라도 주석 처리나 생략 없이 온전한 코드로 반환
-   - Context Range의 각 범위를 독립적으로 처리
+   - Context Range의 각 범위를 독립적으로 처리하며, 자신의 범위에 해당하는 코드만 변환
+   - 다른 범위와 중첩되더라도 자신의 범위 내 코드만 처리하고 범위를 합치지 마세요
    - 중첩 범위의 예시:
-     상위범위(1925~1977), 하위범위(1942~1977)
-     → 각각 독립적으로 변환하여 생략 없이 별도의 온잔한 코드로 생성
-     → 범위를 합치거나, 생략하지 말고, 모든 범위에 대해서 온전한 코드를 생성
-
+     상위범위(1925~1977), 하위범위(1942~1977)인 경우
+     → 상위범위: 1925~1941 구간의 코드만 변환
+     → 하위범위: 1942~1977 구간의 코드만 변환
+   - 각 범위는 다른 범위의 코드를 참조하거나 포함하지 않음
+   - 예외처리(try-catch)를 하지마세요
+   
 2. SQL 구문 변환 규칙
    A. SELECT 구문
       - jpa_method_list에서 적절한 조회 메서드 사용
@@ -119,16 +123,16 @@ JPA Method List:
    B. 변수 사용 규칙
       1) Used Variable
          - 새로운 변수 선언 금지 (전달된 변수만 사용)
-         - 카멜 케이스 명명규칙 유지
-         예시: vEmpId, vDeptCode
+         - 실제 사용된 변수명을 그대로 사용하고, 접두어를 제거하지마세요.
+         - 카멜 케이스 명명규칙 적용
+         예시: vEmpId, vDeptCode, vRow
 
       2) Command Class Variable
          - DTO의 getter 메서드로만 접근
          - 단순 입력 매개변수로 사용
          - 카멜 케이스 명명규칙 적용
          예시: employeeDto.getEmployeeId()
-
-         
+  
 4. 프로시저 호출 변환 규칙
    A. 외부 프로시저 호출
       - 형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
@@ -147,9 +151,32 @@ JPA Method List:
    C. 명명 규칙
       - 스네이크 케이스를 카멜 케이스로 변환
       - 서비스 클래스명은 스키마명 + Service
-      - 메서드명은 프로시저명을 카멜 케이스로 변환         
-      
+      - 메서드명은 프로시저명을 카멜 케이스로 변환
 
+5. 'EXCEPTION' 예외처리 변환 규칙
+   A. 코드 반환 형식
+      - 'EXCEPTION' 키워드가 식별되는 코드 범위만 다음 try-catch 형식으로 예외처리하세요.
+        try {{
+         CodePlaceHolder
+        }} catch (Exception e) {{
+            * // EXCEPTION 키워드가 있는 코드 범위를 자바로 변환한 코드
+        }}
+      - 'CodePlaceHolder' 문자열은 하드코딩 그대로 반환하고, try 안에 내용을 채우지 마세요.
+      - 그 이외에 모든 코드 범위는 예외처리(try-catch) 없이 자바 코드로 반환   
+   
+   예시:
+   * PL/SQL:
+     203: 203: INSERT INTO TABLE VALUES row;
+     204: 204: EXCEPTION WHEN OTHERS THEN
+     205: 205:     RAISE_APPLICATION_ERROR(-20102, SQLERRM);
+   
+   * 변환 결과:
+     203~203: "repository.save(entity);"  
+     204~205: "try CodePlaceHolder catch (Exception e) {{ 
+         throw new Exception(\"Cannot insert: \" + e.getMessage());
+     }}"
+
+     
 [SECTION 3] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
@@ -167,7 +194,7 @@ JPA Method List:
 
 [SECTION 4] JSON 출력 형식
 ===============================================
-부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요. ('analysis' 결과는 반드시 리스트가 아닌 dictionary(사전) 형태여야 합니다.):
+부가 설명 없이 결과만을 포함하여, 다음과 같은 dictionary(사전) 형태의 JSON 형식으로 반환하세요:
 {{
    "analysis": {{
       "code": {{

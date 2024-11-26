@@ -19,7 +19,7 @@ if api_key is None:
     raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
 # llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
 
 prompt = PromptTemplate.from_template(
 """

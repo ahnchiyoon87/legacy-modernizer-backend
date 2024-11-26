@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_postprocessing import start_service_postprocessing, write_service_file
+from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing
 
 
 # * 로그 레벨 설정
@@ -71,7 +71,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                             object_name,
                             merge_method_code
                         )
-                    await write_service_file(service_skeleton, service_class_name, merge_method_code)            
+                    await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

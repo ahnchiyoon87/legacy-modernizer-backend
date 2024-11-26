@@ -17,30 +17,26 @@
   "service_skeleton_list": {
     "TPX_TMF_SYNC_JOB_STATUS": [
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": null,
         "method_skeleton_name": "pEqual",
-        "method_skeleton_code": "public Boolean pEqual(Object iRow) {\n    private Boolean vBool;\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS.ROWTYPE\")\n    private Object iRowObj;\n\nCodePlaceHolder\n    return vBool;\n}",
+        "method_skeleton_code": "public Boolean pEqual(Object iRow) {\n    Boolean vBool;\n\n    CodePlaceHolder\n}",
         "procedure_name": "p_EQUAL"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": null,
         "method_skeleton_name": "pValue",
-        "method_skeleton_code": "public String pValue(Object iRow) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS.ROWTYPE\")\n    private Object row;\n\nCodePlaceHolder\n    return result;\n}",
+        "method_skeleton_code": "public String pValue(Object iRow) {\n    CodePlaceHolder\n}",
         "procedure_name": "p_VALUE"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iRow"
         ],
         "method_skeleton_name": "pInsert",
-        "method_skeleton_code": "@PostMapping(\"/pInsert\")\npublic ResponseEntity<String> pInsert(@RequestBody PInsertCommand pInsertCommandDto) {\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/pInsert\")\npublic ResponseEntity<String> pInsert(@RequestBody PInsertCommand command) {\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "p_INSERT"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iRow"
         ],
@@ -49,14 +45,12 @@
         "procedure_name": "p_UPDATE"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": null,
         "method_skeleton_name": "getRow",
-        "method_skeleton_code": "public Object getRow(Long iTmfSyncJobKey, Long iTscKey) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private Object vRow;\n\nCodePlaceHolder\n    return vRow;\n}",
+        "method_skeleton_code": "public Object getRow(Object iTmfSyncJobKey, Object iTscKey) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n\n    CodePlaceHolder\n}",
         "procedure_name": "p_GET_ROW"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iTmfSyncJobKey",
           "Object:iTscKey"
@@ -66,16 +60,14 @@
         "procedure_name": "SET_KEY"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iRow"
         ],
         "method_skeleton_name": "input",
-        "method_skeleton_code": "@PostMapping(\"/input\")\npublic ResponseEntity<String> input(@RequestBody InputCommand command) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private Object vRow;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/input\")\npublic ResponseEntity<String> input(@RequestBody InputCommand command) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "INPUT"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iTmfSyncJobKey",
           "Object:iTscKey",
@@ -85,11 +77,10 @@
           "Object:iSiteKey"
         ],
         "method_skeleton_name": "insRow",
-        "method_skeleton_code": "@PostMapping(\"/insRow\")\npublic ResponseEntity<String> insRow(@RequestBody InsRowCommand insRowCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private Object vRow;\n    private LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/insRow\")\npublic ResponseEntity<String> insRow(@RequestBody InsRowCommand insRowCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n    LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "INS_ROW"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iTmfSyncJobKey",
           "Object:iTscKey",
@@ -99,11 +90,10 @@
           "Object:iSiteKey"
         ],
         "method_skeleton_name": "updStatus",
-        "method_skeleton_code": "@PostMapping(\"/updStatus\")\npublic ResponseEntity<String> updStatus(@RequestBody UpdStatusCommand updStatusCommandDto) {\n    private Object vRow;\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/updStatus\")\npublic ResponseEntity<String> updStatus(@RequestBody UpdStatusCommand updStatusCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n    LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "UPD_STATUS"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iTmfSyncJobKey",
           "Object:iTscKey",
@@ -113,11 +103,10 @@
           "Object:iSiteKey"
         ],
         "method_skeleton_name": "updBatchFail",
-        "method_skeleton_code": "@PostMapping(\"/updBatchFail\")\npublic ResponseEntity<String> updBatchFail(@RequestBody UpdBatchFailCommand updBatchFailCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private Object vRow;\n    private LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/updBatchFail\")\npublic ResponseEntity<String> updBatchFail(@RequestBody UpdBatchFailCommand updBatchFailCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n    LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "UPD_BATCH_FAIL"
       },
       {
-        "service_skeleton": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}",
         "command_class_variable": [
           "Object:iTmfSyncJobKey",
           "Object:iTscKey",
@@ -128,12 +117,15 @@
           "Object:iSiteKey"
         ],
         "method_skeleton_name": "updTmfJobKey",
-        "method_skeleton_code": "@PostMapping(\"/updTmfJobKey\")\npublic ResponseEntity<String> updTmfJobKey(@RequestBody UpdTmfJobKeyCommand updTmfJobKeyCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    private Object vRow;\n    private LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
+        "method_skeleton_code": "@PostMapping(\"/updTmfJobKey\")\npublic ResponseEntity<String> updTmfJobKey(@RequestBody UpdTmfJobKeyCommand updTmfJobKeyCommandDto) {\n    @ToDo(\"Original Type: TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE\")\n    Object vRow;\n    LocalDateTime vCurrentTime;\n\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}",
         "procedure_name": "UPD_TMF_JOB_KEY"
       }
     ]
   },
   "service_skeleton": {
-    "TPX_TMF_SYNC_JOB_STATUS": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\nCodePlaceHolder1\n}"
+    "TPX_TMF_SYNC_JOB_STATUS": "package com.example.testjava.service;\n\nimport com.example.testjava.entity.TpjTmfSyncJobStatus;\nimport com.example.testjava.repository.TpjTmfSyncJobStatusRepository;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.time.LocalDate;\nimport java.util.List;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\nCodePlaceHolder\n}"
+  },
+  "service_class_name": {
+    "TPX_TMF_SYNC_JOB_STATUS": "TpxTmfSyncJobStatusService"
   }
 }

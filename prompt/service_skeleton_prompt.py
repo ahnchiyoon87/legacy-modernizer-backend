@@ -13,7 +13,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
 controller_method_prompt = PromptTemplate.from_template(
 """
 당신은 PL/SQL 프로시저를 스프링부트 컨트롤러 메서드로 변환하는 전문가입니다.
@@ -58,9 +58,8 @@ controller_method_prompt = PromptTemplate.from_template(
     - 'local_variables'에 없는 변수는 절대 생성하지 않음
 
 4. 코드 구조
-   - 문자열 "CodePlaceHolder"는 그대로 유지하고, 들여쓰기 하지 마세요. (변경하지 않음)
-   - 메서드 내부에는 "CodePlaceHolder" 문자열만 존재해야 함
-   - 메서드 내부 구현은 비워둠
+   - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
+   - 메서드 내부 구현 없이, "CodePlaceHolder" 문자열만 존재해야 함
 
 
 [SECTION 2] 컨트롤러 메서드 예시 템플릿
@@ -72,8 +71,8 @@ public ResponseEntity<String> methodName(@RequestBody {command_class_name} {comm
     @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
     Object employeeRow;
 
-CodePlaceHolder2
-    return ResponseEntity.ok("Operation completed successfully");
+    CodePlaceHolder
+    return ResponseEntity.ok("message");
 }}
 
 
@@ -163,11 +162,9 @@ function_prompt = PromptTemplate.from_template(
     - 'local_variables'에 없는 변수는 절대 생성하지 않음
     
 4. 코드 구조
-    - 문자열 "CodePlaceHolder2"를 하드코딩된 채로 그대로 반환하세요.
-    - "CodePlaceHolder2" 들여쓰기를 해서는 안되며, 위치를 그대로 유지하세요. 
-    - 메서드 내부에는 "CodePlaceHolder2" 문자열만 존재해야 함
-    - 메서드 내부 구현은 비워둠
-
+    - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
+    - 메서드 내부 구현 없이, "CodePlaceHolder" 문자열만 존재해야 함
+    - return 문 또한 별도로 추가 예정으로, return을 추가하지말고, 템플릿 구조를 지키세요.
 
 [SECTION 2] 일반 메서드 예시 템플릿
 ===============================================
@@ -177,8 +174,7 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
     @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
     Object employeeRow;
     
-CodePlaceHolder2
-    return result;
+    CodePlaceHolder
 }}
 
 

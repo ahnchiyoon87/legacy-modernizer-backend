@@ -81,15 +81,16 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
             end_node = node['m']
             token = start_node['token']
             node_name = start_node['name']
-            print("\n"+"-" * 40) 
+            print("-" * 40+"\n") 
             print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
             print(f"관계: {relationship}")
             if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-            is_duplicate_or_unnecessary = (previous_node_endLine > start_node['startLine'] and previous_node_endLine) or ("EXECUTE_IMMDDIATE" in node_name)
-
+            is_duplicate = previous_node_endLine > start_node['startLine'] and previous_node_endLine
+            is_unnecessary = any(skip_type in node_name for skip_type in ["EXECUTE_IMMDDIATE", "EXCEPTION"])
+        
 
             # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
-            if is_duplicate_or_unnecessary:
+            if is_duplicate or is_unnecessary:
                 print("현재 노드에 대한 처리가 필요하지 않습니다.") 
                 continue
 
@@ -125,7 +126,9 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
 # 반환값: 없음
 async def create_service_class_file(service_skeleton, service_class_name, merge_method_code):
     try:
-        service_skeleton = service_skeleton.replace("CodePlaceHolder1", merge_method_code)
+        # * 병합된 메서드 코드를 들여쓰기 처리
+        merge_method_code = textwrap.indent(merge_method_code, '    ')
+        service_skeleton = service_skeleton.replace("CodePlaceHolder", merge_method_code)
 
         # * 서비스 클래스 생성을 위한 경로를 설정합니다.
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
@@ -160,10 +163,11 @@ async def create_service_class_file(service_skeleton, service_class_name, merge_
 async def start_service_postprocessing(method_skeleton_code, procedure_name, object_name, merge_method_code):
     
     connection = Neo4jConnection() 
-    logging.info(f"[{object_name}] {procedure_name} 프로시저의 (후처리) 서비스 생성을 시작합니다.")
+    logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 병합을 시작합니다.")
     
     try:
         # * 노드와 관계를 가져오는 쿼리 
+        # TODO : 예외처리는 일단 제외 
         node_query = [
             f"""
             MATCH (p)
@@ -176,7 +180,7 @@ async def start_service_postprocessing(method_skeleton_code, procedure_name, obj
             OPTIONAL MATCH (n)-[r:NEXT]->(m)
             WHERE m.object_name = '{object_name}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
+                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
             RETURN n, r, m
             ORDER BY n.startLine
             """
@@ -191,13 +195,18 @@ async def start_service_postprocessing(method_skeleton_code, procedure_name, obj
         all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name)
 
 
-        # * 결과를 바탕으로 서비스 클래스 생성 (바디 채우기)
-        all_java_code = all_java_code.strip()
-        indented_java_code = textwrap.indent(all_java_code, '        ')
-        completed_service_code = method_skeleton_code.replace("CodePlaceHolder2", indented_java_code)
-        merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
+        # * 첫 줄과 나머지 줄을 분리하고, 나머지 줄을 들여쓰기 처리
+        lines = all_java_code.strip().split('\n', 1)  
+        first_line = lines[0].strip()  
+        rest_lines = textwrap.indent(lines[1], '    ') if len(lines) > 1 else ''
+        final_java_code = f"{first_line}\n{rest_lines}"
         
-        logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 Java 파일 생성이 완료되었습니다.")
+
+        # * 최종 병합된 메서드 코드를 생성
+        completed_service_code = method_skeleton_code.replace("CodePlaceHolder", final_java_code)
+        merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
+
+        logging.info(f"[{object_name}] {procedure_name} 프로시저의 메서드 코드 병합이 완료되었습니다.\n")
         return merge_method_code
 
     except (Neo4jError, ProcessResultError, TraverseCodeError):

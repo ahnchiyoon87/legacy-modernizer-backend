@@ -1,7 +1,7 @@
 import json
 import logging
 from prompt.service_prompt import convert_service_code
-from prompt.summarized_service_skeleton_prompt import convert_parent_skeleton, convert_summarized_coden
+from prompt.summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TraverseCodeError, VariableNodeError
 
@@ -62,7 +62,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 
 
         # * 요약된 코드를 분석하여, 요약된 메서드 틀을 생성합니다.
-        analysis_result = convert_summarized_coden(summarized_code)
+        analysis_result = convert_summarized_code(summarized_code)
         service_code = analysis_result['code']
 
 
@@ -148,7 +148,7 @@ async def handle_convert_result(analysis_result, connection, tracking_variables,
 
         # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
         for key, service_code in code_info.items():
-            start_line, end_line = map(int, key.split('~'))
+            start_line, end_line = map(int, key.replace('-','~').split('~'))
             query = f"MATCH (n) WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
             node_update_query.append(query)        
 
@@ -231,11 +231,11 @@ async def traverse_node_for_creating_service(node_list, connection, command_clas
             relationship = node['r'][1] if node['r'] else "NEXT"
             end_node = node['m']
             node_tokens = 0
-            print("\n"+"-" * 40) 
+            print("-" * 40+"\n") 
             print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
             print(f"관계: {relationship}")
             if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-            if "EXECUTE_IMMDDIATE" in start_node['name']: continue
+            if start_node['name'] in ["EXECUTE_IMMDDIATE"]: continue
 
 
             # * 각 부모 노드의 1단계 깊이 자식들 순회 여부를 확인하는 조건
@@ -403,7 +403,7 @@ async def start_service_preprocessing(method_skeleton, command_class_variable, p
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE m.object_name = '{object_name}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
+                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
             AND NOT type(r) CONTAINS 'CALLS'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'
@@ -422,7 +422,7 @@ async def start_service_preprocessing(method_skeleton, command_class_variable, p
         # * 쿼리 실행하여, 노드를 (전처리) 서비스 생성 함수로 전달합니다
         results = await connection.execute_queries(node_query)        
         await traverse_node_for_creating_service(results, connection, command_class_variable, method_skeleton, jpa_method_list, object_name)
-        logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.")
+        logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
 
 
     except (ConvertingError, Neo4jError): 
