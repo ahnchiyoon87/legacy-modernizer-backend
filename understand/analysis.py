@@ -574,7 +574,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         node_statementType.add(f"{statement_type}_{start_line}")
 
 
-        # * 부모 변수가 있을 경우(부모가 존재할 경우), 부모 노드와 현재 노드의 parent_of 라는 관계를 생성합니다
+        # * 부모가 있을 경우, 부모 노드와 현재 노드의 parent_of 라는 관계를 생성합니다
         if parent_statementType:
             cypher_query.append(f"""
                 MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, object_name: '{object_name}'}})
