@@ -47,6 +47,7 @@ Global Variable:
 2. 변환 규칙
    - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
    - 다른 객체의 코드는 참고하지 않음
+   - 각 JPA Query Methods의 이름은 중복 되어선 안됨
    - Entity 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
 
 3. 매개변수 처리

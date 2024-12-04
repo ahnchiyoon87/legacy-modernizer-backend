@@ -19,7 +19,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         file_names = [
             ("TPX_PROJECT.sql", "TPX_PROJECT"),
             # ("calculate_payroll.txt", "calculate_payroll"),
-            # ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
+            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
             # ("TPX_ALARM.sql", "TPX_ALARM"),
             # ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
             # ("TPX_TMF_SYNC_JOB.sql", "TPX_TMF_SYNC_JOB"),

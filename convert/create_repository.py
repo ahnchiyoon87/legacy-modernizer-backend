@@ -4,7 +4,7 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from prompt.repository_prompt import convert_repository_code
+from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, LLMCallError, Neo4jError, ProcessResultError, RepositoryCreationError, TokenCountError, TraverseCodeError, VariableNodeError
 
