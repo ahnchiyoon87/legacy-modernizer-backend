@@ -263,7 +263,8 @@ async def start_repository_processing(object_name):
             'name': var['v']['name'],
             'type': var['v'].get('type', 'Unknown'),
             'role': var['v'].get('role', ''),
-            'scope': var['v'].get('scope', 'Global')
+            'scope': var['v'].get('scope', 'Global'),
+            'value': var['v'].get('value', '')
         } for var in global_variables]
 
 

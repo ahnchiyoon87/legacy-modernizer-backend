@@ -73,6 +73,7 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
                         service_data['procedure_name'],
                         service_data['command_class_variable'],
                         service_data['command_class_name'],
+                        service_data['node_type'],
                         merge_controller_method_code,
                         controller_skeleton,
                         object_name

@@ -100,7 +100,13 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
    A. SELECT 구문
       - jpa_method_list에서 적절한 조회 메서드 사용
       - 결과는 엔티티 객체나 컬렉션으로 받음
-   
+      - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
+        예시: 
+         Employee employee = employeeRepository.findById(id);
+         if (employee == null) {{
+               throw new EntityNotFoundException("Employee not found with id: " + id);
+         }}
+
    B. UPDATE/MERGE 구문
       - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
       - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
@@ -174,11 +180,10 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
       "vEmpId": "SQL 조회 결과(사원번호) -> 초기값은 NULL, TB_EMPLOYEE 테이블에서 조회한 EMP_ID 값이 할당됨 -> 이후 UPDATE 문의 조건절에서 사용",
       "vStatus": "초기값 'N' -> 사원정보가 존재하면 'Y'로 변경 -> 'Y'인 경우 추가 데이터 처리 수행 -> 모든 처리가 정상적으로 완료되면 최종적으로 'S'로 설정",
 
-2. 변수 사용 규칙(Used Variable)
-   - 새로운 변수 선언 금지 (전달된 변수만 사용)
-   - 실제 사용된 변수명을 그대로 사용하고, 접두어를 제거하지마세요.
-   - 카멜 케이스 명명규칙 적용
-   예시: vEmpId, vDeptCode, vRow
+2. 변수 사용 규칙
+   - 'Used Variable'에 있는 변수는 중복으로 변수를 선언하지마세요.
+   - 'Service Signature'에 있는 선언된 변수들을 사용하여, 값을 할당하고 초기화하세요.
+   - 필요한 경우에만 변수를 선언하세요.
 
          
 [SECTION 7] 자바 코드 생성시 JSON 문자열 처리 규칙
@@ -199,6 +204,7 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
 [ 반드시 지켜야할 필수 사항 ]
 1. 프로시저 호출하는 로직이 식별되면, 반드시 해당 프로시저 이름이 그대로 반영된 메서드를 호출하는 자바 로직으로 생성하고, JPA 쿼리 메서드를 사용하지마세요.
 2. 모든 범위에 대해서 자바 코드를 생성하세요. 'code'의 요소 개수는 반드시 17개여야합니다. 누락없이 모든 범위에 대해서 결과를 생성하세요. 범위가 겹처도 상관없습니다. (예 : 115~116, 115~115, 116~116) 모두 독립적으로 생성해야함
+3. 객체타입의 경우 이미 객체가 할당되어있어도, 변경이 필요할 경우 할당된 값을 바꿔도됩니다.
 
 
 [SECTION 8] JSON 출력 형식

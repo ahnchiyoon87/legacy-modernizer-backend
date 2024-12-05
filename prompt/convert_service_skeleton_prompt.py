@@ -25,12 +25,12 @@ prompt = PromptTemplate.from_template(
 1. 메서드 데이터:
 {method_skeleton_data}
 - procedure_name: 프로시저/함수 이름
-- local_variables: 로컬 변수 목록 (각 변수는 name과 type 속성을 가짐)
+- local_variables: 로컬 변수 목록 (각 변수는 name, type, value 속성을 가짐)
 - declaration: 선언부 코드 (리턴타입, 입력 매개변수 등이 선언된 부분)
 
 2. 파라미터 데이터:
 {parameter_data}
-- parameters: 파라미터 목록 (각 파라미터는 name과 type 속성을 가짐)
+- parameters: 파라미터 목록 (각 파라미터는 name, type, value 속성을 가짐)
 - procedure_name: 함수 이름
 
 
@@ -57,11 +57,12 @@ prompt = PromptTemplate.from_template(
         * 날짜: LocalDate
         * 시간: LocalDateTime (Time 이라는 키워드가 식별된 경우)
         * 문자/문자열: String (char 사용 금지)
-    - 테이블 이름의 경우:
-        * 테이블명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
-        * 객체 선언 후 반드시 'new 엔티티클래스명()'으로 초기화
-        * 예: Employee employee = new Employee();
-    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지않음
+        * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
+    - 변수 초기화:
+        - local_variables의 value 값이 존재하는 경우에만 해당 값으로 초기화합니다.
+        - 테이블 명, 엔티티 클래스가 타입으로 선정된 경우 new EntityClass() 형태로 표현
+        - 그 외 기본 타입들은 'value' 값이 없다면 변수 초기화 하지 않고 선언만 합니다.
+    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지 않습니다.
 
 4. 메서드의 파라미터 규칙
     - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
@@ -71,6 +72,7 @@ prompt = PromptTemplate.from_template(
         * VARCHAR, VARCHAR2, CHAR -> String
         * DATE -> LocalDate
         * TIMESTAMP -> LocalDateTime
+        * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
 
 5. 코드 구조
     - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
@@ -81,11 +83,11 @@ prompt = PromptTemplate.from_template(
 [SECTION 2] 메서드 예시 템플릿
 ===============================================
 public ReturnType methodName(Type1 param1, Type2 param2) {{
-    Long id;
+    Long employeeId;
     String name;
     LocalDate date;
     LocalDateTime time;
-    Employee employee = new Employee();
+    Employee employee;
     
     CodePlaceHolder
 }}

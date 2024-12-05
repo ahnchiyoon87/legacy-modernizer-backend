@@ -1,5 +1,6 @@
 import logging
 import os
+import textwrap
 import aiofiles
 import tiktoken
 from prompt.convert_controller_prompt import convert_controller_method_code
@@ -45,6 +46,7 @@ async def create_controller_method(method_signature, procedure_name, command_cla
 async def create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code):
     try:
         # * 병합된 컨트롤러 메서드 코드를 들여쓰기 처리
+        merge_controller_method_code = textwrap.indent(merge_controller_method_code.strip(), '        ')
         controller_code = controller_skeleton.replace("CodePlaceHolder", merge_controller_method_code)
 
         # * 컨트롤러 클래스 생성을 위한 경로를 설정합니다.
@@ -78,24 +80,30 @@ async def create_controller_class_file(controller_skeleton, controller_class_nam
 #   - merge_controller_method_code: 병합될 컨트롤러 메서드 코드
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
 #   - object_name: 대상 객체 이름 (로깅용)
+#   - node_type: 대상 노드 타입
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
-async def start_controller_processing(method_signature, procedure_name, command_class_variable, command_class_name, merge_controller_method_code, controller_skeleton, object_name):
+async def start_controller_processing(method_signature, procedure_name, command_class_variable, command_class_name, node_type, merge_controller_method_code, controller_skeleton, object_name):
 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 
     try:
-        # * 컨트롤러 메서드 생성을 시작합니다.
-        controller_method_code = await create_controller_method(
-            method_signature, 
-            procedure_name, 
-            command_class_variable,
-            command_class_name,
-            controller_skeleton
-        )
+        # * FUNCTION 타입이 아닐 때만 컨트롤러 메서드 생성
+        if node_type != "FUNCTION":
 
-        logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 메서드 생성 완료\n")
-        merge_controller_method_code = f"{merge_controller_method_code}\n\n{controller_method_code}"
+            # * 컨트롤러 메서드 생성을 시작합니다.
+            controller_method_code = await create_controller_method(
+                method_signature, 
+                procedure_name, 
+                command_class_variable,
+                command_class_name,
+                controller_skeleton
+            )
+
+            logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 메서드 생성 완료\n")
+            merge_controller_method_code = f"{merge_controller_method_code}\n\n{controller_method_code}"
+        else:
+            logging.info(f"[{object_name}] {procedure_name}은 FUNCTION 타입이므로 컨트롤러 메서드 생성을 건너뜁니다.\n")
 
         return merge_controller_method_code
 

@@ -6,7 +6,7 @@ import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
 from util.exception import (TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
-                            RemoveInfoCodeError, ProcessResultError, HandleResultError, LLMCallError, EventRsRqError, CreateNodeError)
+                            ProcessResultError, HandleResultError, EventRsRqError)
 
 
 encoder = tiktoken.get_encoding("cl100k_base")
@@ -429,24 +429,25 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 var_parameter_type = variable["parameter_type"]
                 var_name = variable["name"]
                 var_type = variable["type"]
+                var_value = variable["value"]
                 
                 if statement_type == 'DECLARE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
                         f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', procedure_name: '{procedure_name}'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', procedure_name: '{procedure_name}', value: '{var_value}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
                         f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 else:
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
                         f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"

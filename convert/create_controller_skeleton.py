@@ -42,7 +42,8 @@ def convert_to_camel_case(snake_str: str) -> str:
 async def create_controller_skeleton(object_name: str) -> str:
     try:
         # * 1. 컨트롤러 클래스명 생성 
-        controller_class_name = convert_to_pascal_case(object_name) + "Controller"
+        pascal_name = convert_to_pascal_case(object_name)
+        controller_class_name = pascal_name + "Controller"
         dir_name = convert_to_camel_case(object_name)
 
 
@@ -50,7 +51,7 @@ async def create_controller_skeleton(object_name: str) -> str:
         controller_class_template = f"""package com.example.demo.controller;
 
 import com.example.demo.command.{dir_name}.*;
-import com.example.demo.service.{object_name}Service;
+import com.example.demo.service.{pascal_name}Service;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

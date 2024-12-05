@@ -67,7 +67,7 @@ controller_skeleton: 컨트롤러 클래스의 기본 구조 코드
     - 반환타입은 항상 ResponseEntity<String>
     - @RequestBody 어노테이션으로 Command DTO 수신
     예시)
-    public ResponseEntity<String> updateEmployee(@RequestBody 'command_class_name' command)
+    public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand command)
 
     
 4. 메서드 구현 규칙
@@ -80,10 +80,10 @@ controller_skeleton: 컨트롤러 클래스의 기본 구조 코드
 [컨트롤러 메서드 예시]
 ===============================================
 @PostMapping("/updateEmployee")
-public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand command) {
+public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand command) {{
     employeeService.updateEmployee(command.getId(),command.getName());
     return ResponseEntity.ok("Update Employee Completed Successfully");
-}
+}}
 
 
 [JSON 출력 형식]

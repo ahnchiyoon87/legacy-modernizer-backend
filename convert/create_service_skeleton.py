@@ -61,11 +61,22 @@ async def create_service_skeleton(object_name: str, entity_name_list: list, glob
         # * 2. 글로벌 변수를 클래스 필드로 변환
         global_fields = []
         for var in converted_vars["variables"]:
-            field = f"    private {var['javaType']} {var['javaName']};"
+            field = f"    private {var['javaType']} {var['javaName']} = {var['value']};"
             global_fields.append(field)
 
+        # * 3. Autowired 주입 로직 및 필드 생성
+        sections = []
+        if global_fields:
+            sections.append(chr(10).join(global_fields))
+        if entity_name_list:
+            sections.append(chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list))
+        if external_call_package_names:
+            sections.append(chr(10).join(f'    @Autowired\n    private {convert_to_pascal_case(package_name)}Service {convert_to_camel_case(package_name)}Service;' for package_name in external_call_package_names))
+        
+        # * 4 섹션들을 하나의 줄바꿈으로 연결하고, strip()으로 양쪽 공백 제거
+        class_content = "\n\n".join(sections).strip()
 
-        # * 3. 서비스 클래스 템플릿 생성
+        # * 5. 서비스 클래스 템플릿 생성
         service_class_template = f"""package com.example.demo.service;
 
 {chr(10).join(f'import com.example.demo.entity.{entity};' for entity in entity_name_list)}
@@ -75,6 +86,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.BeanUtils;
@@ -85,12 +97,7 @@ import java.util.*;
 @RestController
 @Transactional
 public class {service_class_name} {{
-
-{chr(10).join(global_fields)}
-
-{chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list)}
-
-{chr(10).join(f'    @Autowired\n    private {convert_to_pascal_case(package_name)}Service {convert_to_camel_case(package_name)}Service;' for package_name in external_call_package_names)}
+{class_content}
 
 CodePlaceHolder
 }}"""
@@ -262,7 +269,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
             if item['sv']:
                 parameter = {
                     'type': item['sv']['type'],
-                    'name': item['sv']['name']
+                    'name': item['sv']['name'],
                 }
                 if parameter not in procedure_groups[proc_name]['parameters']:
                     procedure_groups[proc_name]['parameters'].append(parameter)
@@ -271,7 +278,8 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
             if item['dv']:
                 local_var = {
                     'type': item['dv']['type'],
-                    'name': item['dv']['name']
+                    'name': item['dv']['name'],
+                    'value': item['dv']['value']
                 }
                 if local_var not in procedure_groups[proc_name]['local_variables']:
                     procedure_groups[proc_name]['local_variables'].append(local_var)
@@ -318,6 +326,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
                 'method_skeleton_code': method_skeleton_code,
                 'method_signature': method_signature,
                 'service_method_skeleton': service_method_skeleton,
+                'node_type': proc_data['node_type'],
                 'procedure_name': proc_name
             })
             logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성 완료\n")
