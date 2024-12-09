@@ -70,6 +70,7 @@ async def generate_and_execute_cypherQuery(file_names):
             ddl_file_name = file_name.replace('TPX_', 'TPJ_')
             ddl_file_path = os.path.join(DDL_DIR, ddl_file_name)
             has_ddl_info = False
+            ddl_results = None
 
             # * DDL 파일 존재 확인 및 처리
             if os.path.exists(ddl_file_path):
@@ -157,17 +158,7 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                 table_info = table['table']
                 columns = table['columns']
                 keys = table['keys']
-                
-
-                # * 컬럼 정보를 Neo4j 속성으로 변환 (컬럼명: 데이터타입:설명)
-                column_props = {
-                    col['name']: {
-                        'type': col['type'],
-                        'nullable': col['nullable']
-                    }
-                    for col in columns
-                }
-
+            
                 
                 # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
                 props = {
@@ -179,9 +170,13 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                         for fk in keys['foreign']
                     ),
                     'object_name': object_name,
-                    'columns': json.dumps(column_props)  # column_props를 JSON 문자열로 변환
                 }
-                            
+
+                # * 각 컬럼을 "타입:nullable여부" 형태로 저장
+                for col in columns:
+                    col_name = col['name']
+                    props[col_name] = f"{col_name}§{col['type']}§nullable:{str(col['nullable']).lower()}"
+
                                 
                 # * Neo4j 테이블 노드 생성 쿼리 구성
                 props_str = ', '.join(f"`{k}`: '{v}'" for k, v in props.items())
@@ -190,6 +185,7 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
             
             # * 생성된 모든 테이블 노드 쿼리를 실행
             await connection.execute_queries(cypher_queries)
+            logging.info(f"DDL 파일 처리 완료: {object_name}")
             return ddl_result
             
     except Exception:
@@ -296,8 +292,8 @@ async def generate_spring_boot_project(file_names):
             yield f"{file_name}-Step2 completed\n"
             
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
-            service_creation_info, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
-            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name)
+            service_creation_info, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
+            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
             yield f"{file_name}-Step3 completed\n"
 
             # * 4 단계 : 각 프로시저별 서비스 생성

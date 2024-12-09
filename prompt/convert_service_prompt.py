@@ -118,6 +118,7 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
       employeeRepository.save(employee);
    
    C. INSERT 구문
+      - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
       - INSERT INTO ... SELECT FROM 구조인 경우:
       * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
       * 조회된 데이터로 새 엔티티 생성 후 save() 수행
@@ -204,7 +205,11 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
 [ 반드시 지켜야할 필수 사항 ]
 1. 프로시저 호출하는 로직이 식별되면, 반드시 해당 프로시저 이름이 그대로 반영된 메서드를 호출하는 자바 로직으로 생성하고, JPA 쿼리 메서드를 사용하지마세요.
 2. 모든 범위에 대해서 자바 코드를 생성하세요. 'code'의 요소 개수는 반드시 17개여야합니다. 누락없이 모든 범위에 대해서 결과를 생성하세요. 범위가 겹처도 상관없습니다. (예 : 115~116, 115~115, 116~116) 모두 독립적으로 생성해야함
-3. 객체타입의 경우 이미 객체가 할당되어있어도, 변경이 필요할 경우 할당된 값을 바꿔도됩니다.
+3. 객체타입의 경우 이미 객체가 할당되어있어도, 재 할당이 필요한 경우 기존 변수를 재할당하세요.
+(예시로 TpjEmployee vEmployee = new TpjEmployee(); 이렇게 할당했으나, 재 할당이 필요한 경우 vEmployee = tpjEmployeeRepository.findByEmpKey(iEmpKey); 즉, 변수를 중복으로 선언하지말고, 기존 변수를 재할당)
+4. 각 범위내에 모든 코드를 자바로 전환하세요. 반드시 제대로된 범위를 식별하세요. 특히 return문 생략하지마세요.
+5. 프로시저 및 함수 호출시, 반드시 호출하는 메서드 이름이 그대로 반영된 형태로 호출하세요. 즉, p,i,o,v 접두어를 제거하지말고, 풀네임으로 호출하세요.
+(예 : p_INPUT(iData) -> pInput(iData))
 
 
 [SECTION 8] JSON 출력 형식

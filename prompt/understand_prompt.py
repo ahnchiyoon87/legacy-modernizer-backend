@@ -52,13 +52,16 @@ prompt = PromptTemplate.from_template(
    - 예를 들어, 223~250 라인과 240~241 라인이 중첩된 경우, 각각의 범위에서 실제로 사용된 변수만 독립적으로 식별합니다.
    - 상수나 열거형 값은 변수로 식별하지 않습니다.
 
-   
 3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
    - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
    - 현재 패키지 내부 호출: 'PROCEDURE_NAME' 형식으로 저장
    - 모든 호출을 'calls' 배열에 저장하세요.
 
-   
+4. 코드 내에서 사용된 테이블 식별하세요:
+  - 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블의 전체 이름을 'tableNames'로 반환하세요.
+  - TPJ_ 같은 접두어를 유지한 채 테이블의 풀 네임을 반환하세요.
+
+
 전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
 2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들과 컬럼의 타입을 식별하세요.

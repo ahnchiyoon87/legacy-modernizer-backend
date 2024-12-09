@@ -15,6 +15,7 @@ db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 # llm = ChatOpenAI(model="gpt-4o", max_tokens=8000)
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
+# TODO 엔티티클래스 필드 정보가 필요해보임
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
@@ -60,7 +61,7 @@ Global Variable:
 ===============================================
 1. 반환 타입 규칙
    - SELECT 구문: 항상 전체 엔티티 객체 반환
-   - 엔티티 이름은 전달된 테이블명을 파스칼케이스로 전환하여 사용하세요.
+   - 엔티티 이름은 전달된 테이블 명을 그대로 파스칼 케이스로 전환하여 사용하세요. (예: TPJ_EMPLOYEE -> TpjEmployee)
    - 부분 필드 조회 지양
    - 예시: Person findById(Long id)
 

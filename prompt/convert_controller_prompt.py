@@ -43,6 +43,8 @@ controller_skeleton: 컨트롤러 클래스의 기본 구조 코드
 ===============================================
 1. 'controller_skeleton'에서 ColdPlaceHolder 위치에 들어갈 컨트롤러 메서드 로직을 생성하세요.
 2. 결과는 클래스 선언부를 제외하고 오직 단일 컨트롤러 메서드 코드만 반환하세요.
+3. Command Class에 대한 정보가 없을 경우 파라미터 없이 메서드를 정의하세요.
+(예 : public ResponseEntity<String> getAllEmployees())
 
 
 [메서드 생성 규칙]

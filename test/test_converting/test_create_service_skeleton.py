@@ -38,8 +38,12 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_MAIN",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_TMF_SYNC_JOB",
@@ -65,20 +69,22 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
                 global_variables = test_data.get('global_variables', {}).get(object_name, [])
                 
                 # * Service Skeleton 생성
-                service_skeleton_list, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
+                service_skeleton_list, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {
                     "service_skeleton_list": service_skeleton_list,
                     "service_skeleton": service_skeleton,
-                    "service_class_name": service_class_name
+                    "service_class_name": service_class_name,
+                    "exist_command_class": exist_command_class
                 }
             
             # * 결과를 결과 파일에 저장합니다.
             test_data.update({
                 "service_skeleton_list": {name: results["service_skeleton_list"] for name, results in skeleton_results.items()},
                 "service_skeleton": {name: results["service_skeleton"] for name, results in skeleton_results.items()},
-                "service_class_name": {name: results["service_class_name"] for name, results in skeleton_results.items()}
+                "service_class_name": {name: results["service_class_name"] for name, results in skeleton_results.items()},
+                "exist_command_class": {name: results["exist_command_class"] for name, results in skeleton_results.items()}
             })
             
             with open(result_file_path, 'w', encoding='utf-8') as f:

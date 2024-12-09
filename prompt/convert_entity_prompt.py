@@ -59,11 +59,17 @@ prompt = PromptTemplate.from_template(
      * 복합키였던 경우 각 필드에 @Column(unique = true) 적용
 
 5. 데이터 타입 매핑
-   - 정수: Long 
-   - 실수: Double
-   - 날짜: LocalDate
-   - 시간: LocalDateTime
-   - 문자/문자열: String (char 사용 금지)
+   - NUMBER: 
+     * NUMBER(p): Long (소수점이 없는 경우)
+     * NUMBER(p,s): Double (소수점이 있는 경우)
+     * NUMBER without precision: Long (기본값)
+   - VARCHAR2, CHAR: String
+   - DATE: LocalDate
+   - TIMESTAMP: LocalDateTime
+   - CLOB: String
+   - BLOB: byte[]
+   - RAW: byte[]
+   - BOOLEAN: Boolean
 
 6. Import 선언
    - 기본 제공되는 import문 유지

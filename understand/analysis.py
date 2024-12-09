@@ -252,7 +252,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드
     sp_token_count = 0                # 토큰 수
 
-    logging.info(f"\n[{object_name}] 사이퍼 쿼리 생성 시작\n")
+    print(f"\n[{object_name}] 사이퍼 쿼리 생성 시작")
 
 
     # 역할: llm에게 분석할 코드를 전달한 뒤, 분석 결과를 처리를 결정하는 함수
@@ -380,11 +380,26 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
                 # * CALL 호출 관계를 생성합니다
-                if statement_type in ["CALL", "ASSIGNMENT", "EXCEPTION"]:
+                if statement_type in ["CALL", "ASSIGNMENT", "EXCEPTION", "IF"]:
                     for name in called_nodes:
                         if '.' in name:  # 다른 패키지 호출인 경우
                             package_name, proc_name = name.split('.')
-                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MERGE (p:PROCEDURE {{object_name: '{package_name}', procedure_name: '{proc_name}'}}) MERGE (c)-[:EXT_CALL]->(p)"
+                            call_relation_query = f"""
+                                MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) 
+                                OPTIONAL MATCH (p)
+                                WHERE (p:PROCEDURE OR p:FUNCTION)
+                                AND p.object_name = '{package_name}' 
+                                AND p.procedure_name = '{proc_name}'
+                                WITH c, p
+                                FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
+                                    CREATE (new:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}'}})
+                                    MERGE (c)-[:EXT_CALL]->(new)
+                                )
+                                FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
+                                    MERGE (c)-[:EXT_CALL]->(p)
+                                )
+                            """
+                        
                         else:            # 자신 패키지 내부 호출인 경우
                             call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) AND p.object_name = '{object_name}' AND p.procedure_name = '{name}' MERGE (c)-[:INT_CALL]->(p)"
                         cypher_query.append(call_relation_query)
@@ -424,7 +439,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
             # * 변수를 분석하고, 각 타입별로 변수 노드를 생성합니다
             analysis_result = understand_variables(declaration_code, ddl_tables)
-            logging.info(f"[{object_name}] 변수 분석 완료\n")
+            logging.info(f"[{object_name}] {procedure_name} 프로시저의 변수 분석 완료")
             for variable in analysis_result["variables"]:
                 var_parameter_type = variable["parameter_type"]
                 var_name = variable["name"]
@@ -470,14 +485,14 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         try:
             # * 분석하는 메서드를 호출하고, 기다립니다. 만약 처리가 끝났다면, 분석 완료 이벤트를 송신합니다
             results = await process_analysis_results()
-            logging.info(f"[{object_name}] 분석 결과 이벤트 송신")
+            logging.info(f"[{object_name}] {procedure_name} 프로시저 분석 결과 이벤트 송신")
             await send_queue.put({"type": "analysis_code", "query_data": results, "line_number": node_end_line})
 
             # * 분석 완료 이벤트를 송신하고, 처리 완료 이벤트를 수신 대기합니다 
             while True:
                 response = await receive_queue.get()
                 if response['type'] == 'process_completed':
-                    logging.info(f"[{object_name}] 분석 결과 처리 완료\n")
+                    logging.info(f"[{object_name}] {procedure_name} 프로시저 분석 결과 처리 완료\n")
                     cypher_query.clear();
                     break;
         
@@ -522,6 +537,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         # * 프로시저 노드의 경우, 프로시저 정보를 저장합니다
         if statement_type in ["PROCEDURE", "CREATE_PROCEDURE_BODY", "FUNCTION"]:
             procedure_name = extract_procedure_name(node_code)
+            logging.info(f"[{object_name}] {procedure_name} 프로시저 분석 시작")
 
 
         # * focused_code에서 분석할 범위를 기준으로 잘라냅니다.
@@ -549,8 +565,8 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         else:
             if statement_type == "ROOT":
                 cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{object_name}', n.summary = '최상위 시작노드'")
-            elif statement_type == "PROCEDURE":
-                cypher_query.append(f"MERGE (n:{statement_type} {{procedure_name: '{procedure_name}', object_name: '{object_name}'}}) SET n.startLine = {start_line}, n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}")
+            elif statement_type in ["PROCEDURE", "FUNCTION"]:
+                cypher_query.append(f"MERGE (n:{statement_type} {{procedure_name: '{procedure_name}', object_name: '{object_name}'}}) SET n.startLine = {start_line}, n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size} WITH n REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}")
             else:
                 cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.procedure_name = '{procedure_name}'")
 
@@ -595,7 +611,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         if children:
             if statement_type in ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"] and context_range and focused_code:
                 extract_code, line_number = extract_code_within_range(focused_code, context_range)
-                logging.info(f"[{procedure_name}] 프로시저 끝 분석 시작\n")
+                logging.info(f"[{object_name}] {procedure_name} 프로시저 끝 분석 시작")
                 await signal_for_process_analysis(last_line)
             elif statement_type not in ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PACKAGE_BODY", "PROCEDURE", "PROCEDURE_SPEC", "FUNCTION", "DECLARE", "BODY", "TRY"]:
                 context_range.append({"startLine": start_line, "endLine": end_line})

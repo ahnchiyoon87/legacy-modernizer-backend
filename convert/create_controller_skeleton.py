@@ -36,22 +36,24 @@ def convert_to_camel_case(snake_str: str) -> str:
 # 역할: 컨트롤러 클래스의 기본 구조를 생성하는 함수입니다.
 # 매개변수: 
 #   - object_name: plsql 패키지 이름
+#   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 # 반환값: 
 #   - controller_class_template: 생성된 컨트롤러 클래스 템플릿
 #   - controller_class_name: 생성된 컨트롤러 클래스 이름
-async def create_controller_skeleton(object_name: str) -> str:
+async def create_controller_skeleton(object_name: str, exist_command_class: bool) -> str:
     try:
         # * 1. 컨트롤러 클래스명 생성 
         pascal_name = convert_to_pascal_case(object_name)
         controller_class_name = pascal_name + "Controller"
         dir_name = convert_to_camel_case(object_name)
 
+        # * 2 파라미터가 있는 경우 커맨드 패키지 임포트 추가
+        command_import = f"import com.example.demo.command.{dir_name}.*;\n" if exist_command_class else ""
 
-        # * 2. 컨트롤러 클래스 템플릿 생성
+        # * 3. 컨트롤러 클래스 템플릿 생성
         controller_class_template = f"""package com.example.demo.controller;
 
-import com.example.demo.command.{dir_name}.*;
-import com.example.demo.service.{pascal_name}Service;
+{command_import}import com.example.demo.service.{pascal_name}Service;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -81,16 +83,17 @@ CodePlaceHolder
 # 역할: 컨트롤러 클래스 기본 구조를 생성 프로세스를 시작하고 관리하는 함수입니다.
 # 매개변수:
 #   - object_name: plsql 패키지 이름
+#   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 # 반환값:
 #   - controller_skeleton: 생성된 컨트롤러 클래스의 기본 구조
 #   - controller_class_name: 생성된 컨트롤러 클래스 이름
-async def start_controller_skeleton_processing(object_name):
+async def start_controller_skeleton_processing(object_name, exist_command_class):
 
     logging.info(f"[{object_name}] 컨트롤러 틀 생성을 시작합니다.")
 
     try:
         # * 컨트롤러 클래스의 틀을 생성합니다.
-        controller_skeleton, controller_class_name = await create_controller_skeleton(object_name)
+        controller_skeleton, controller_class_name = await create_controller_skeleton(object_name, exist_command_class)
         logging.info(f"[{object_name}] 컨트롤러 틀 생성 완료\n")
         return controller_skeleton, controller_class_name
 

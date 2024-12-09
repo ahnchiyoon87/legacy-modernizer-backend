@@ -39,8 +39,12 @@ class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_MAIN",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_TMF_SYNC_JOB",
@@ -57,10 +61,12 @@ class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
+
             # * Controller Skeleton 생성 테스트 시작
             controller_results = {}
             for object_name in object_names:
-                controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name)
+                exist_command_class = test_data.get('exist_command_class', {}).get(object_name, [])
+                controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
 
                 # * 객체별 결과 저장
                 controller_results[object_name] = {

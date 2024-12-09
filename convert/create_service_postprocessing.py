@@ -96,10 +96,10 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
             is_exception_node = "EXCEPTION" in start_node_type
             
             # * 노드 정보 출력
-            print("-" * 40+"\n") 
+            print("-" * 40) 
             print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
             print(f"관계: {relationship}")
-            if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
+            if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}\n")
 
 
             # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
@@ -116,6 +116,7 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
 
             # * EXCEPTION 노드 처리
             if is_exception_node:
+                try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
                 indented_code = textwrap.indent(try_catch_code, '    ')
                 java_code = java_code.replace("CodePlaceHolder", indented_code)
                 all_java_code += java_code + "\n"

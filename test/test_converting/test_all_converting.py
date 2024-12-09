@@ -17,12 +17,16 @@ class TestGenerateSpringBootProject(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 파일 이름 설정
         file_names = [
-            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
-            ("TPX_ALARM.sql", "TPX_ALARM"),
-            ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
-            ("TPX_TMF_SYNC_JOB.sql", "TPX_TMF_SYNC_JOB"),
-            ("TPX_ALARM_FILE.sql", "TPX_ALARM_FILE"),
-            ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
+            ("TPX_MAIN.sql", "TPX_MAIN"),
+            ("TPX_EMPLOYEE.sql", "TPX_EMPLOYEE"),
+            ("TPX_SALARY.sql", "TPX_SALARY"),
+            ("TPX_ATTENDANCE.sql", "TPX_ATTENDANCE"),
+            # ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
+            # ("TPX_ALARM.sql", "TPX_ALARM"),
+            # ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
+            # ("TPX_TMF_SYNC_JOB.sql", "TPX_TMF_SYNC_JOB"),
+            # ("TPX_ALARM_FILE.sql", "TPX_ALARM_FILE"),
+            # ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
         ]
 
         try:

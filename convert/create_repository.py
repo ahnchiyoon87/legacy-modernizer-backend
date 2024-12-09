@@ -216,10 +216,9 @@ async def process_convert_with_llm(repository_data, used_variable_nodes, convert
                 'method': method_info['method']
             })
 
-
-            # * @Query 어노테이션을 제거하고, 특정 라인에서 사용된 JPA 쿼리 메서드 목록들을 생성합니다.
-            method_body = method_info['method'].split('\n')[1].strip()
-            used_jpa_method[f"{method_info['startLine']}~{method_info['endLine']}"] = method_body
+            # * 특정 라인에서 사용된 JPA 쿼리 메서드 목록들을 생성합니다.
+            method_code = method_info['method']
+            used_jpa_method[f"{method_info['startLine']}~{method_info['endLine']}"] = method_code
 
         return jpa_query_methods, used_jpa_method
     

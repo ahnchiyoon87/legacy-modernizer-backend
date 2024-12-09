@@ -38,6 +38,7 @@ prompt = PromptTemplate.from_template(
 ===============================================
 1. 메서드 명명 규칙
     - 'procedure_name'을 카멜케이스로 변환하여 메서드명 생성
+    - v, p, i, o 와 같은 접두어를 제거하지말고, 풀네임을 메서드 명으로 전환
     - 예시: GET_EMPLOYEE_COUNT -> getEmployeeCount
     - 첫 글자는 소문자로 시작
 
@@ -46,17 +47,17 @@ prompt = PromptTemplate.from_template(
     - 반환타입:
         * declaration에서 반환타입이 명시되지 않은 경우 void로 설정
         * declaration에 반환타입이 있는 경우 해당 타입으로 매핑
+        * 반드시 RETURN에 맞춰서 반환타입을 설정하세요. (예 : RETURN NUMBER -> Long, RETURN VARCHAR2 -> String, RETURN DATE -> LocalDate, RETURN BOOLEAN -> Boolean)
     - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성
     
 3. 메서드의 필드 규칙
     - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 변수로 생성
     - 명명규칙: 접두어 제거하지 말고, 원본 이름을 그대로 카멜케이스로 표현 (첫 글자 소문자)
     - 데이터 타입 매핑:
-        * 정수: Long 
-        * 실수: Double
-        * 날짜: LocalDate
-        * 시간: LocalDateTime (Time 이라는 키워드가 식별된 경우)
-        * 문자/문자열: String (char 사용 금지)
+        * NUMBER, NUMERIC -> Long
+        * VARCHAR, VARCHAR2, CHAR -> String
+        * DATE -> LocalDate
+        * TIMESTAMP -> LocalDateTime
         * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
     - 변수 초기화:
         - local_variables의 value 값이 존재하는 경우에만 해당 값으로 초기화합니다.
