@@ -405,48 +405,64 @@ async def delete_all_temp_data(delete_paths: dict):
         raise OSError("임시 파일 삭제 및 그래프 데이터 삭제 중 오류가 발생했습니다.")
     
 
+# 역할: 주어진 PL/SQL 파일을 기반으로 JUnit 테스트 코드를 생성하고, 필요한 데이터를 Neo4j에서 가져옵니다.
+# 매개변수:
+#   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_MAIN.sql")
+# 반환값: 없음
 async def process_comparison_result(main_file_name: str):
     try:
         object_name = os.path.splitext(main_file_name)[0]
+        camel_object_name = object_name.lower().split('_')[0] + ''.join(word.capitalize() for word in object_name.lower().split('_')[1:])
         parameters = None
         procedure_name = None
         file_content = None
         input_parameters = None
+        table_names = []
         neo4j = Neo4jConnection()
         
-        # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
-        query = f"""
-        MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
-        WHERE n.object_name = '{object_name}'
-        RETURN s
-        """
+
+        # # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
+        # query = f"""
+        # MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
+        # WHERE n.object_name = '{object_name}'
+        # WITH s
+        # MATCH (t:Table)
+        # RETURN s, collect(t) as tables
+        # """
         
-        # * 프로시저 노드의 스펙을 조회
-        result = await neo4j.execute_queries(query)
-        if result:
-            parameters = result[0]['spec']['node_code']
-            procedure_name = result[0]['spec']['procedure_name']
+        # # * Junit 테스트와 docker-compose.yml 생성을 위한 정보를 Neo4J로 부터 가지고 옴
+        # result = await neo4j.execute_queries(query)
+        # if result:
+        #     parameters = result[0]['spec']['node_code']
+        #     procedure_name = result[0]['spec']['procedure_name']
+        #     table_names = [table['name'] for table in result[0]['tables']]
         
-        # * 커맨드 클래스가 있다면 파일 읽기
-        target_file_path = os.path.join(TARGET_DIR, object_name)
+
+        # * Neo4j에서 데이터를 들고왔다고 가정
+        object_name = "TPX_MAIN"
+        procedure_name = "MAIN_PROCESS"
+        table_names = ["TPJ_ATTENDANCE", "TPJ_EMPLOYEE", "TPJ_SALARY"]
+
+
+        # * 해당 커맨드 클래스가 있다면 파일 읽기
+        target_file_path = os.path.join(TARGET_DIR, camel_object_name)
         if os.path.exists(target_file_path):
             with open(target_file_path, 'r', encoding='utf-8') as file:
                 file_content = file.read()
 
 
-        # * Given을 위한 입력 매개변수 생성
+        # * Given을 위한 테스트 데이터를 생성 
         if file_content and parameters:
             input_parameters = generate_given_parameters(file_content, parameters)
 
 
         # * Junit 테스트 코드 작성 
-        await create_junit_test(parameters, file_content, object_name, procedure_name)
+        await create_junit_test(input_parameters, camel_object_name, procedure_name)
 
 
         # TODO docker-compose.yml
         # TODO ddl데이터 추가(CREATE, INSERT 등등..)
-        await generate_docker_compose_yml(object_name)
-
+        # await generate_docker_compose_yml(object_name, table_names)
 
 
     except Exception:
