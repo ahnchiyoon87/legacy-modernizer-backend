@@ -210,6 +210,8 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
 4. 각 범위내에 모든 코드를 자바로 전환하세요. 반드시 제대로된 범위를 식별하세요. 특히 return문 생략하지마세요.
 5. 프로시저 및 함수 호출시, 반드시 호출하는 메서드 이름이 그대로 반영된 형태로 호출하세요. 즉, p,i,o,v 접두어를 제거하지말고, 풀네임으로 호출하세요.
 (예 : p_INPUT(iData) -> pInput(iData))
+6. 'Used Variable'에 있는 변수와 'Service Signature'에 있는 변수는 중복으로 변수를 선언하지마세요. 
+(예 : String vEmpName; 이 이미 선언 되어 있는데 String vEmpName = "홍길동"; 이렇게 선언하지마세요. vEmpName = "홍길동"; 이렇게 할당하세요.)
 
 
 [SECTION 8] JSON 출력 형식
