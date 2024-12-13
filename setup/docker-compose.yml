@@ -162,6 +162,14 @@ services:
           \"schema.history.internal.kafka.topic\": \"schema-changes.javadb\",
           \"database.connection.adapter\": \"logminer\",
           \"log.mining.strategy\": \"online_catalog\",
+          \"snapshot.mode\": \"schema_only\",
+          \"schema.include.list\": \"C##DEBEZIUM\",
+          \"database.tablename.case.insensitive\": \"true\",
+          \"log.mining.archive.log.only.mode\": \"false\",
+          \"log.mining.archive.log.only.scn.poll.interval.ms\": \"1000\",
+          \"log.mining.transaction.retention.hours\": \"1\",
+          \"log.mining.batch.size.default\": \"1000\",
+          \"decimal.handling.mode\": \"string\",
           \"include.schema.changes\": \"true\"
         }
       }' &&

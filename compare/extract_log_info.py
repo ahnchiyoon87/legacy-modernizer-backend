@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from pathlib import Path
 import time
@@ -6,6 +7,8 @@ import aiofiles
 import base64
 from decimal import Decimal
 from datetime import datetime
+
+from util.exception import ProcessResultError
 
 # 현재 파일(capture_log.py)의 위치를 기준으로 경로 설정
 CURRENT_DIR = Path(__file__).parent  # compare
@@ -15,6 +18,49 @@ LOGS_DIR = PROJECT_ROOT / 'logs'     # logs 디렉토리
 # 로그 파일 경로
 JAVA_LOG_PATH = LOGS_DIR / 'java_logs.jsonl'
 PLSQL_LOG_PATH = LOGS_DIR / 'plsql_logs.jsonl'
+
+
+async def generate_given_when_then(case_number: int, procedure_name: str, params: dict):
+    try:
+        # 로그 파일 읽기
+        async with aiofiles.open(f"logs/extracted_given_plsql_case{case_number}.json", encoding='utf-8') as given_file, \
+                  aiofiles.open(f"logs/extracted_then_plsql_case{case_number}.json", encoding='utf-8') as then_file:
+            given_data = json.loads(await given_file.read())
+            then_data = json.loads(await then_file.read())
+
+        result = {
+            "given": [
+                {
+                    "operation": value["operation"],
+                    "table": value["table"],
+                    "data": value["after"]
+                }
+                for value in given_data.values()
+            ],
+            "when": {
+                "procedure": procedure_name,
+                "parameters": params
+            },
+            "then": [
+                {
+                    "operation": value["operation"],
+                    "table": value["table"],
+                    "data": value["after"]
+                }
+                for value in then_data.values()
+            ]
+        }
+
+        # JSON 파일 저장
+        async with aiofiles.open(f"logs/given_when_then_case{case_number}.json", 'w', encoding='utf-8') as outfile:
+            await outfile.write(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+            
+        return result
+        
+    except Exception:
+        err_msg = "Given-When-Then 로그 생성 중 오류가 발생했습니다."
+        logging.error(err_msg, exc_info=False)
+        raise ProcessResultError(err_msg)
 
 
 
@@ -159,14 +205,14 @@ async def process_logs(log_type: str, case_number: int) -> dict:
 
 async def extract_given_log(case_number: int) -> dict:
     """Given 로그 추출 (Java와 PLSQL 모두)"""
-    time.sleep(15)
+    time.sleep(5)
     return await process_logs("given", case_number)
 
 
 
 async def extract_then_log(case_number: int) -> dict:
     """Then 로그 추출 (Java와 PLSQL 모두)"""
-    time.sleep(15)
+    time.sleep(5)
     return await process_logs("then", case_number)
 
 

@@ -47,7 +47,7 @@ prompt = PromptTemplate.from_template(
     - 반환타입:
         * declaration에서 반환타입이 명시되지 않은 경우 void로 설정
         * declaration에 반환타입이 있는 경우 해당 타입으로 매핑
-        * 반드시 RETURN에 맞춰서 반환타입을 설정하세요. (예 : RETURN NUMBER -> Long, RETURN VARCHAR2 -> String, RETURN DATE -> LocalDate, RETURN BOOLEAN -> Boolean)
+        * 반드시 RETURN에 맞춰서 반환타입을 설정하세요. (예 : RETURN NUMBER -> Long, RETURN VARCHAR2 CHAR -> String, RETURN DATE -> LocalDate, RETURN BOOLEAN -> Boolean)
     - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성
     
 3. 메서드의 필드 규칙

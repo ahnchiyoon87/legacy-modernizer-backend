@@ -6,7 +6,7 @@ from datetime import date
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from compare.execute_plsql_sql import execute_plsql, execute_sql
-from compare.extract_log_info import extract_given_log, extract_then_log
+from compare.extract_log_info import extract_given_log, extract_then_log, generate_given_when_then
 
 # 로그 레벨을 INFO로 설정
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -100,6 +100,11 @@ class TestPLSQLExecution(unittest.IsolatedAsyncioTestCase):
                 then_result = await extract_then_log(1)
                 self.assertIsInstance(then_result, dict)
                 logging.info("Then 로그 추출 완료")
+
+                # * Given, When, Then 로그 생성
+                gwt_result = await generate_given_when_then(i, 'TPX_UPDATE_SALARY', test_case["params"])
+                self.assertIsInstance(gwt_result, dict)
+                logging.info("Given, When, Then 로그 생성 완료")
 
 
             logging.info("모든 테스트 케이스 실행 완료")

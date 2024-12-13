@@ -6,9 +6,9 @@ import shutil
 import zipfile
 import aiofiles
 import os
-from compare.extract_log_info import compare_log_files, extract_given_log, extract_then_log
+from compare.extract_log_info import compare_log_files, extract_given_log, extract_then_log, generate_given_when_then
 from compare.create_docker_compose_yml import generate_docker_compose_yml, process_docker_compose_yml, start_docker_compose_yml
-from compare.create_init_sql import generate_init_sql
+# from compare.create_init_sql import generate_init_sql
 from compare.create_junit_test import create_junit_test
 from compare.execute_plsql_sql import execute_plsql, execute_sql
 from convert.create_controller import create_controller_class_file, start_controller_processing
@@ -411,12 +411,11 @@ async def delete_all_temp_data(delete_paths: dict):
 
 # 역할: 주어진 PL/SQL 파일을 기반으로 JUnit 테스트 코드를 생성하고, 필요한 데이터를 Neo4j에서 가져옵니다.
 # 매개변수:
-#   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_MAIN.sql")
+#   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_UPDATE_SALARY.sql")
 # 반환값: 없음
 async def process_comparison_result(main_file_name: str):
     try:
         object_name = os.path.splitext(main_file_name)[0]
-        camel_object_name = object_name.lower().split('_')[0] + ''.join(word.capitalize() for word in object_name.lower().split('_')[1:])
         procedure_name = None
         # input_parameters = None
         # parameters = None
@@ -446,15 +445,16 @@ async def process_comparison_result(main_file_name: str):
 
 
         # * 테스트를 위한 하드 코딩된 데이터 설정 ( Neo4j 데이터 없이 테스트 진행 )
-        procedure_name = "TPX_MAIN"
+        procedure_name = "TPX_UPDATE_SALARY"
         table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
-        package_names = ["TPX_EMPLOYEE", "TPX_ATTENDANCE", "TPX_SALARY", "TPX_MAIN"]
-
+        package_names = ["TPX_EMPLOYEE", "TPX_ATTENDANCE", "TPX_SALARY", "TPX_UPDATE_SALARY"]
+        called_procedure_name = "TPX_UPDATE_SALARY"
         # TODO 테스트 커버리지를 100% 진행할 수 있도록하는 Given을 여러개 생성 어떻게? 
+        # TODO When 또한 어떤 프로시저를 어떤 파라미터를 전달할지 필요 
         # 함수 호출 llm을 이용()
 
 
-        # 테스트 데이터 생성
+        # GIVEN과 THEN 로그를 얻기 위한 데이터 생성
         test_cases = [
             # Case 1: 이정규 (정규직, 결근 4번)
             {
@@ -521,9 +521,10 @@ async def process_comparison_result(main_file_name: str):
             await extract_given_log(i)
             await execute_plsql(object_name, test_data["params"])
             await extract_then_log(i)
-
+            given_when_then_log = await generate_given_when_then(i, procedure_name, test_data["params"])
+            
             # * Junit 테스트 코드 작성 
-            # await create_junit_test(test_data["params"], camel_object_name, procedure_name)
+            await create_junit_test(given_when_then_log, table_names, procedure_name, called_procedure_name)
 
 
     except Exception:
