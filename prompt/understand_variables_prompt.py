@@ -65,6 +65,13 @@ prompt = PromptTemplate.from_template(
    - 기본값이 있는 경우에도 변수로 인식 (기본값은 무시)
    - 길이/정밀도 지정이 있는 경우 (예: VARCHAR2(100)) 데이터 타입만 추출
 
+   
+6. 변수 선언부 요약
+   - 선언된 모든 변수들을 종합적으로 분석하여 1-2줄로 요약
+   - 주요 변수들의 용도와 타입을 중심으로 설명
+   - 예시: "프로시저 실행 결과를 저장하는 OUT 파라미터(o_result)와 임시 데이터를 저장하는 로컬 변수들(v_temp_id, v_temp_name)이 선언되어 있음"
+
+
 [JSON 출력 형식]
 ===============================================
 주석이나 부가설명 없이 다음 JSON 형식으로만 결과를 반환하세요:
@@ -74,7 +81,8 @@ prompt = PromptTemplate.from_template(
             "name": "변수명",
             "type": "데이터타입",
             "value": "할당값 또는 null, 0",
-            "parameter_type": "IN/OUT/IN_OUT/LOCAL"
+            "parameter_type": "IN/OUT/IN_OUT/LOCAL",
+            "summary": "변수 선언부 요약 설명"
         }}
     ]
 }}
