@@ -68,7 +68,7 @@ prompt = PromptTemplate.from_template(
    
 6. 변수 선언부 요약
    - 선언된 모든 변수들을 종합적으로 분석하여 1-2줄로 요약
-   - 주요 변수들의 용도와 타입을 중심으로 설명
+   - 요약에는 반드시 변수 명과 용도를 포함
    - 예시: "프로시저 실행 결과를 저장하는 OUT 파라미터(o_result)와 임시 데이터를 저장하는 로컬 변수들(v_temp_id, v_temp_name)이 선언되어 있음"
 
 
@@ -82,9 +82,9 @@ prompt = PromptTemplate.from_template(
             "type": "데이터타입",
             "value": "할당값 또는 null, 0",
             "parameter_type": "IN/OUT/IN_OUT/LOCAL",
-            "summary": "변수 선언부 요약 설명"
         }}
-    ]
+    ],
+    "summary": "변수 선언부 요약 설명"
 }}
 """
 )

@@ -275,8 +275,8 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #
     # 반환값: 
     #   - list: 생성된 사이퍼 쿼리 목록
-    async def process_analysis_results(statement_type: None):
-        nonlocal sp_token_count, context_range, focused_code, extract_code
+    async def process_analysis_results(statement_type):
+        nonlocal sp_token_count, context_range, focused_code, extract_code, summary_dict
 
         try:
             # * context range의 수를 측정하고, 정렬을 진행합니다.
@@ -290,16 +290,18 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             
 
             # * 프로시저 형태의 경우, 요약 정보를 추출하고, 사이퍼쿼리를 생성합니다.
-            if statement_type is PROCEDURE_TYPES:
+            if statement_type in PROCEDURE_TYPES:
+                logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
                 summary = understand_summary(summary_dict)
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
-                      AND n.procedure_name = '{procedure_name}'
-                    SET n.summary = '{summary['summary']['description']}'
+                        AND n.procedure_name = '{procedure_name}'
+                    SET n.summary = {json.dumps(summary['summary'])}
                 """)
                 schedule_stack.clear()
                 node_statementType.clear()
+                summary_dict.clear()
 
             # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다.
             focused_code = ""
@@ -352,9 +354,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                         field_name = clean_field_name(field.split(':')[1])
                         field_type = field.split(':')[0]
                         update_query = f"""
-                            MERGE (t:Table)
-                            WHERE t.name = '{table}'
-                              AND t.object_name = '{object_name}'
+                            MERGE (t:Table {{name: '{table}', object_name: '{object_name}'}})
                             WITH t 
                             WHERE t.{field_name} IS NULL 
                             SET t.{field_name} = '{field_type}'
@@ -370,14 +370,10 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                 if source_table != target_table:
                     table_reference_query = f"""
-                        MERGE (source:Table)
-                        WHERE source.name = '{source_table}'
-                          AND source.object_name = '{object_name}'
-                        WITH source
-                        MERGE (target:Table)
-                        WHERE target.name = '{target_table}'
-                          AND target.object_name = '{object_name}'
-                        MERGE (source)-[:REFERENCES]->(target)
+                    MERGE (source:Table {{name: '{source_table}', object_name: '{object_name}'}})
+                    WITH source
+                    MERGE (target:Table {{name: '{target_table}', object_name: '{object_name}'}})
+                    MERGE (source)-[:REFERENCES]->(target)
                     """
                     cypher_query.append(table_reference_query)
 
@@ -405,10 +401,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
                 # * 구문의 설명(Summary)을 반영하는 사이퍼쿼리를 생성합니다
                 summary_query = f"""
-                    MATCH (n:{statement_type})
-                    WHERE n.startLine = {start_line}
-                      AND n.object_name = '{object_name}'
-                    WITH n 
+                    MATCH (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                     SET n.summary = {json.dumps(summary)}
                 """
                 cypher_query.append(summary_query)
@@ -425,11 +418,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 # * 변수 노드에 사용된 라인을 나타내는 속성을 추가합니다.
                 for var_name in variables:
                     variable_usage_query = f"""
-                        MATCH (v:Variable)
-                        WHERE v.name = '{var_name}'
-                          AND v.object_name = '{object_name}'
-                          AND v.procedure_name = '{procedure_name}'
-                        WITH v
+                        MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})
                         SET v.`{var_range}` = 'Used'
                     """
                     cypher_query.append(variable_usage_query)
@@ -455,17 +444,13 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                                     MERGE (c)-[:EXT_CALL]->(p)
                                 )
                             """
-                        
+                            cypher_query.append(call_relation_query)
                         else:            # 자신 패키지 내부 호출인 경우
                             call_relation_query = f"""
-                                MATCH (c:{statement_type})
-                                WHERE c.startLine = {start_line}
-                                  AND c.object_name = '{object_name}'
+                                MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                                 WITH c
-                                MATCH (p)
-                                WHERE (p:PROCEDURE OR p:FUNCTION)
-                                  AND p.object_name = '{object_name}'
-                                  AND p.procedure_name = '{name}'
+                                MATCH (p {{object_name: '{object_name}', procedure_name: '{name}'}} )
+                                WHERE p:PROCEDURE OR p:FUNCTION
                                 MERGE (c)-[:INT_CALL]->(p)
                             """
                             cypher_query.append(call_relation_query)
@@ -475,13 +460,9 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 if table_relationship_type and tableName:
                     first_table_name = tableName[0].split('.')[-1]
                     table_relationship_query = f"""
-                        MERGE (n:{statement_type})
-                        WHERE n.startLine = {start_line}
-                          AND n.object_name = '{object_name}'
+                        MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                         WITH n
-                        MERGE (t:Table)
-                        WHERE t.name = '{first_table_name}'
-                          AND t.object_name = '{object_name}'
+                        MERGE (t:Table {{name: '{first_table_name}', object_name: '{object_name}'}})
                         MERGE (n)-[:{table_relationship_type}]->(t)
                     """
                     cypher_query.append(table_relationship_query)
@@ -514,52 +495,47 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
             # * 변수를 분석하고, 각 타입별로 변수 노드를 생성합니다
             analysis_result = understand_variables(declaration_code, ddl_tables)
-            logging.info(f"[{object_name}] {procedure_name} 프로시저의 변수 분석 완료")
+            logging.info(f"[{object_name}] {procedure_name if procedure_name else '패키지 변수'} 분석 완료")
+            var_summary = json.dumps(analysis_result.get("summary", "unknown"))
             for variable in analysis_result["variables"]:
+                var_parameter_type = variable["parameter_type"]
                 var_name = variable["name"]
                 var_type = variable["type"]
                 var_value = variable["value"]
-                var_summary = variable["summary"]
-                var_scope = "Global" if statement_type == "PACKAGE_VARIABLE" else "Local"
-                var_parameter_type = variable.get("parameter_type", "")
                 
-                # * 기본 변수 속성 설정
-                variable_node = f"""
-                    MERGE (v:Variable {{
-                        name: '{var_name}',
-                        object_name: '{object_name}',
-                        type: '{var_type}',
-                        procedure_name: '{procedure_name}',
-                        role: '{role}',
-                        value: '{var_value}',
-                        scope: '{var_scope}'
-                        {f', parameter_type: "{var_parameter_type}"' if statement_type not in ["DECLARE", "PACKAGE_VARIABLE"] else ''}
-                    }})
-                """
-
-                # * 스코프 관계 설정 및 노드에 summary 속성 추가
-                scope_relation = f"""
-                    MATCH (p:{statement_type})
-                    WHERE p.startLine = {node_startLine}
-                      AND p.object_name = '{object_name}'
-                      AND p.procedure_name = '{procedure_name}'
-                    SET p.summary = '{var_summary}'
-                    WITH p
-                    MATCH (v:Variable)
-                    WHERE v.name = '{var_name}'
-                      AND v.object_name = '{object_name}'
-                      AND v.procedure_name = '{procedure_name}'
-                      {f"AND v.scope = 'Global'" if statement_type == 'PACKAGE_VARIABLE' else ''}
-                    MERGE (p)-[:SCOPE]->(v)
-                """
-
-                cypher_query.extend([variable_node, scope_relation])
-
+                if statement_type == 'DECLARE':
+                    cypher_query.extend([
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"SET p.summary = {var_summary}"
+                        f"WITH p "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
+                        f"MERGE (p)-[:SCOPE]->(v)"
+                    ])
+                elif statement_type == 'PACKAGE_VARIABLE':
+                    cypher_query.extend([
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}'}}) "
+                        f"SET p.summary = {var_summary}"
+                        f"WITH p "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global'}})"
+                        f"MERGE (p)-[:SCOPE]->(v)"
+                    ])
+                else:
+                    cypher_query.extend([
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"SET p.summary = {var_summary}"
+                        f"WITH p "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
+                        f"MERGE (p)-[:SCOPE]->(v)"
+                    ])
 
         except Exception:
             err_msg = "Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다."
             logging.error(err_msg, exc_info=False)
             raise HandleResultError(err_msg)
+
 
     
     # 역할: 스토어드 프로시저 코드를 분석하는 메서드를 호출하고, 결과를 이벤트 큐를 통해 처리하는 함수
@@ -651,9 +627,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         if not children and statement_type not in NON_CHILD_ANALYSIS_TYPES:
             context_range.append({"startLine": start_line, "endLine": end_line})
             cypher_query.append(f"""
-                MERGE (n:{statement_type})
-                WHERE n.startLine = {start_line}
-                  AND n.object_name = '{object_name}'
+                MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                 SET n.endLine = {end_line}
                 SET n.name = '{statement_type}[{start_line}]'
                 SET n.node_code = '{node_code.replace("'", "\\'")}'
@@ -663,18 +637,14 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         else:
             if statement_type == "ROOT":
                 cypher_query.append(f"""
-                    MERGE (n:{statement_type})
-                    WHERE n.startLine = {start_line}
-                      AND n.object_name = '{object_name}'
+                    MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                     SET n.endLine = {end_line}
                     SET n.name = '{object_name}'
                     SET n.summary = '최상위 시작노드'
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 cypher_query.append(f"""
-                    MERGE (n:{statement_type})
-                    WHERE n.procedure_name = '{procedure_name}'
-                      AND n.object_name = '{object_name}'
+                    MERGE (n:{statement_type} {{procedure_name: '{procedure_name}', object_name: '{object_name}'}})
                     SET n.startLine = {start_line}
                     SET n.endLine = {end_line}
                     SET n.name = '{statement_type}[{start_line}]'
@@ -686,9 +656,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 """)
             else:
                 cypher_query.append(f"""
-                    MERGE (n:{statement_type})
-                    WHERE n.startLine = {start_line}
-                      AND n.object_name = '{object_name}'
+                    MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}})
                     SET n.endLine = {end_line}
                     SET n.name = '{statement_type}[{start_line}]'
                     SET n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}'

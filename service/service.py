@@ -104,7 +104,7 @@ async def generate_and_execute_cypherQuery(file_names):
                     analysis_result = await receive_queue.get()
                     logging.info(f"Analysis Event Received for file: {file_name}")
                     if analysis_result.get('type') == 'end_analysis':
-                        logging.info(f"Understanding Completed for {file_name}")
+                        logging.info(f"Understanding Completed for {file_name}\n")
                         break
                     
                     elif analysis_result.get('type') == 'error':
@@ -431,7 +431,7 @@ async def process_comparison_result(test_cases: list):
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
         # ! 패키지 간의 의존 관계 파악 필요
         # await generate_init_sql(table_names, package_names)
-        # await process_docker_compose_yml(table_names)
+        await process_docker_compose_yml(table_names)
 
         # * 각 테스트 케이스에 처리 진행 
         for test_case in test_cases:
