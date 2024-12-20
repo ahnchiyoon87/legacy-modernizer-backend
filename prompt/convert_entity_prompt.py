@@ -64,8 +64,9 @@ prompt = PromptTemplate.from_template(
      * NUMBER(p,s): Double (소수점이 있는 경우)
      * NUMBER without precision: Long (기본값)
    - VARCHAR2, CHAR: String
-   - DATE: LocalDate
-   - TIMESTAMP: LocalDateTime
+   - DATE & TIME: 
+        * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate
    - CLOB: String
    - BLOB: byte[]
    - RAW: byte[]
@@ -96,9 +97,9 @@ public class EntityName {{
     private String originalPrimaryKey;
 
     @Column(nullable = false)
-    private String requiredField;
+    private LocalDate requiredField;
     
-    private String optionalField;
+    private LocalDateTime optionalField;
     ...
 }}
 

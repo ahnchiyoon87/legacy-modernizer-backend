@@ -56,8 +56,8 @@ prompt = PromptTemplate.from_template(
     - 데이터 타입 매핑:
         * NUMBER, NUMERIC -> Long
         * VARCHAR, VARCHAR2, CHAR -> String
-        * DATE -> LocalDate
-        * TIMESTAMP -> LocalDateTime
+        * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime (예 : CurrentTime, EndTime, StartTime)
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate (예 : CurrentDate, EndDate, StartDate)
         * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
     - 변수 초기화:
         - local_variables의 value 값이 존재하는 경우에만 해당 값으로 초기화합니다.
@@ -71,8 +71,8 @@ prompt = PromptTemplate.from_template(
     - 데이터 타입 매핑:
         * NUMBER, NUMERIC -> Long
         * VARCHAR, VARCHAR2, CHAR -> String
-        * DATE -> LocalDate
-        * TIMESTAMP -> LocalDateTime
+        * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime (예 : CurrentTime, EndTime, StartTime)
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate (예 : CurrentDate, EndDate, StartDate)
         * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
 
 5. 코드 구조

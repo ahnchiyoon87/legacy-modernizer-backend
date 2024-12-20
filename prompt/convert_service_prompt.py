@@ -55,139 +55,206 @@ JPA Method List:
    
 [SECTION 2] 코드 범위 처리 규칙
 ===============================================
-- 모든 범위({count}개)에 대해 누락 및 생략 없이 {count}개의 'code'를 반환
-- 이미 상위 블록에서 다뤄진 코드라도 주석 처리나 생략 없이 온전한 코드로 반환
-- Context Range의 각 범위를 독립적으로 처리하며, 자신의 범위에 해당하는 코드만 변환
-- 다른 범위와 중첩되더라도 자신의 범위 내 코드만 처리하고 범위를 합치지 마세요
-- 중첩 범위의 예시:
-   상위범위(1925~1977), 하위범위(1942~1977)인 경우
-   → 상위범위: 1925~1941 구간의 코드만 변환
-   → 하위범위: 1942~1977 구간의 코드만 변환
-- 각 범위는 다른 범위의 코드를 참조하거나 포함하지 않음
-- 예외처리(try-catch)를 하지마세요
-- CHR(10)은 줄바꿈 \n로 대체하지말고 무시하세요.
+1. Context Range 처리
+   - Context Range에 명시된 모든 범위를 처리하여 정확히 {count}개의 code 항목 생성
+   - 각 범위는 완전히 독립적으로 처리 (다른 범위와 병합하지 않음)
+   - 각 범위는 시작 라인부터 종료 라인까지의 모든 코드를 완전한 형태로 변환 
+   (예 : return문 있을 경우, 누락 없이 변환)
 
+2. 범위 중첩 처리
+   예시 1) 중첩 범위:
+   - 1925~1977, 1942~1977가 주어진 경우
+     * 1925~1977: 전체 범위의 완전한 코드
+     * 1942~1977: 해당 범위만의 완전한 코드
    
+   예시 2) 연속 범위:
+   - 321~322, 321~321, 322~322가 주어진 경우
+     * 321~322: 두 라인을 포함한 완전한 코드
+     * 321~321: 321 라인의 독립적인 코드
+     * 322~322: 322 라인의 독립적인 코드
+
+3. 제외 사항
+   - try-catch 블록 사용 금지
+   - CHR(10)가 식별되는 경우 줄바꿈 \n으로 처리하지 말고 무시하세요.
+   - Context Range에 명시되지 않은 범위는 처리하지 않음
+
+
 [SECTION 3] 프로시저 호출 처리 규칙
 ===============================================   
-   - 다음과 같은 프로시저 호출이 식별되면 메서드를 호출하는 형태로 자바 코드를 반환하세요.
-   - 절대로 JPA 쿼리 메서드를 사용하지말고, 프로시저 메서드 호출하는 로직으로 전환하세요. (예 : findbyId (X) , getData(O))
-   - 기본적으로 @Autowired된 서비스 클래스에 메서드를 사용하지마세요.
-      A. 외부 프로시저 호출
-         - 형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
-         - 변환: @Autowired된 서비스를 통해 호출
-         - 변환 예시:
-            * 프로시저: TPX_PROJECT.SET_KEY(iProjKey)
-            * 변환: tpxProjectService.setKey(projKey)
+1. 기본 원칙
+   - 프로시저 호출이 발견되면 무조건 메서드 호출로 변환
+   - JPA 쿼리 메서드 사용 금지
 
-      B. 내부 프로시저 호출
-         - 형식: {{프로시저명}}({{파라미터}})
-         - 변환: 동일 클래스의 private 메서드로 추출하여 호출
-         - 변환 예시:
-            * 프로시저: p_INPUT(iDATA)
-            * 변환: pInput(iData)
-            * 절대로 @Autowired된 서비스 클래스를 통해 호출하지 마세요
+2. 외부 프로시저 호출
+   형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
+   변환: {{스키마명}}Service.{{프로시저명}}({{파라미터}})
+   예시:
+   - 프로시저: TPX_PROJECT.SET_KEY(iProjKey)
+   - 변환: tpxProjectService.setKey(iProjKey)  // 접두어 'i' 유지
 
-      C. 명명 규칙
-         - i, p, o, v 같은 접두어를 제거하지말고, 프로시저 이름을 그대로 유지하세요.
-         - 메서드 명은 프로시저명을 카멜 케이스로 변환 (예: p_input -> pInput)
-         - 외부 서비스 클래스명은 스키마명 + Service
+3. 내부 프로시저 호출
+   형식: {{프로시저명}}({{파라미터}})
+   변환: 동일 클래스의 private 메서드로 호출
+   예시:
+   - 프로시저:SET_KEY(iProjKey)
+   - 변환: setKey(iProjKey)  // 접두어 'p', 'i' 유지
+   - 주의: 외부 클래스의 메서드로 호출이 아닌, 자신의 클래스 내부에 있는 private 메서드로 호출하는 것
+
+4. 메서드명 규칙
+   - 원본 프로시저명의 모든 접두어(i, p, o, v) 유지
+   - 언더스코어를 카멜케이스로 변환
+   - 예시: p_get_data -> pGetData, i_user_key -> iUserKey
 
 
 [SECTION 4] SQL 구문 처리 규칙
 =============================================== 
-Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 식별되는 경우에만 다음과 같이 변환하세요.
-   A. SELECT 구문
-      - jpa_method_list에서 적절한 조회 메서드 사용
-      - 결과는 엔티티 객체나 컬렉션으로 받음
-      - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
-        예시: 
-         Employee employee = employeeRepository.findById(id);
-         if (employee == null) {{
-               throw new EntityNotFoundException("Employee not found with id: " + id);
-         }}
+1. 기본 원칙
+   - SELECT, UPDATE, INSERT, DELETE 키워드가 식별된 경우에만 적용
+   - jpa_method_list에서 제공된 메서드만 사용
 
-   B. UPDATE/MERGE 구문
-      - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
-      - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
-      - 만약 엔티티의 모든 필드를 업데이트 해야한다면, BeanUtils.copyProperties를 사용하세요.
-      - save() 메서드로 변경사항 저장
-      예시:
+2. SELECT 구문
+   - jpa_method_list에서 적절한 조회 메서드 사용
+   - 결과는 엔티티 객체나 컬렉션으로 받음
+   - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
+      예시: 
       Employee employee = employeeRepository.findById(id);
-      employee.setStatus(newStatus);
-      employeeRepository.save(employee);
-   
-   C. INSERT 구문
-      - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
-      - INSERT INTO ... SELECT FROM 구조인 경우:
-      * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
-      * 조회된 데이터로 새 엔티티 생성 후 save() 수행
-      예시:
-      List<SourceEntity> sourceList = sourceRepository.findByCondition(param);
-      for (SourceEntity source : sourceList) {{
-            TargetEntity target = new TargetEntity();
-            target.setField(source.getField());
-            targetRepository.save(target);
+      if (employee == null) {{
+            throw new EntityNotFoundException("Employee not found with id: " + id);
       }}
 
-      - 순수 INSERT 구문의 경우:
+2. UPDATE/MERGE 구문 변환
+   - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
+   - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
+   - 만약 엔티티의 모든 필드를 업데이트 해야한다면, BeanUtils.copyProperties를 사용하세요.
+   - save() 메서드로 변경사항 저장
+   예시:
+   Employee employee = employeeRepository.findById(id);
+   employee.setStatus(newStatus);
+   employeeRepository.save(employee);
+   
+3. INSERT 구문 변환
+   - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
+   - INSERT INTO ... SELECT FROM 구조인 경우:
+      * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
+      * 조회된 데이터로 새 엔티티 생성 후 save() 수행
+   예시:
+   List<SourceEntity> sourceList = sourceRepository.findByCondition(param);
+   for (SourceEntity source : sourceList) {{
+         TargetEntity target = new TargetEntity();
+         target.setField(source.getField());
+         targetRepository.save(target);
+   }}
+
+   - 순수 INSERT 구문의 경우:
       * 새 엔티티 객체 생성
       * save() 메서드로 저장
-      예시:
+     예시:
       NewEntity entity = new NewEntity();
       entity.setField(value);
       repository.save(entity);
 
-   D. DELETE 구문
-      - 적절한 삭제 메서드 사용
+4. DELETE 구문
+   - 적절한 삭제 메서드 사용
 
   
 [SECTION 5] 예외 처리 규칙
 ===============================================
-'EXCEPTION' 키워드가 식별되는 코드 범위만 다음 try-catch 형식으로 예외처리하세요.
-      
-   코드 반환 형식:
-      try {{
+1. 기본 원칙
+   - 'EXCEPTION' 키워드가 있는 코드 범위만 try-catch로 변환
+   - 다른 모든 코드는 예외 처리 없이 순수 자바 코드로 변환
+   - try 블록 내용은 항상 'CodePlaceHolder' 문자열로 유지
+
+2. 예외 처리 패턴   
+   try {{
       CodePlaceHolder
-      }} catch (Exception e) {{
-         * // EXCEPTION 키워드가 있는 코드 범위를 자바로 변환한 코드
-      }}
-   - 'CodePlaceHolder' 문자열은 하드코딩 그대로 반환하고, try 안에 내용을 채우지 마세요.
-   - 그 이외에 모든 코드 범위는 예외처리(try-catch) 없이 자바 코드로 반환   
+   }} catch (Exception e) {{
+      * // EXCEPTION 블록의 변환 코드
+   }}
 
    예시:
-   * PL/SQL:
-   203: 203: INSERT INTO TABLE VALUES row;
-   204: 204: EXCEPTION WHEN OTHERS THEN
-   205: 205:     RAISE_APPLICATION_ERROR(-20102, SQLERRM);
+      * 원본 PL/SQL:
+      203: 203: INSERT INTO TABLE VALUES row;
+      204: 204: EXCEPTION WHEN OTHERS THEN
+      205: 205:     RAISE_APPLICATION_ERROR(-20102, SQLERRM);
    
-   * 변환 결과:
-   203~203: "repository.save(entity);"  
-   204~205: "try CodePlaceHolder catch (Exception e) {{ 
-         throw new RuntimeException(\"Cannot insert: \" + e.getMessage());
-   }}"
+      * 자바 변환 결과:
+      203~203: "repository.save(entity);"  
+      204~205: "try {{ 
+                  CodePlaceHolder 
+               }} catch (Exception e) {{ 
+                     throw new RuntimeException(\"Cannot insert: \" + e.getMessage());
+               }}"
+
+      
+3. 주의사항
+   - try 블록에는 반드시 'CodePlaceHolder' 문자열만 사용
+   - EXCEPTION 키워드가 없는 코드는 절대 try-catch로 감싸지 않음
 
      
 [SECTION 6] 변수 처리 규칙
 ===============================================
-1. 변수값 추적 (Used Variable)
-   - 'Used Variable'로 전달된 모든 변수들의 값 변화를 매우 상세하게 추적하여 기록
-   - 추적 대상:
-      * SQL 실행 결과값 저장
-      * 조건문에 따른 값 변경
-      * 연산에 의한 값 변경
-   - 추적된 값은 'variables' 객체에 저장(변수 이름은 전달된 변수 이름과 동일하게 반환)
-   예시:
-      "vEmpId": "SQL 조회 결과(사원번호) -> 초기값은 NULL, TB_EMPLOYEE 테이블에서 조회한 EMP_ID 값이 할당됨 -> 이후 UPDATE 문의 조건절에서 사용",
-      "vStatus": "초기값 'N' -> 사원정보가 존재하면 'Y'로 변경 -> 'Y'인 경우 추가 데이터 처리 수행 -> 모든 처리가 정상적으로 완료되면 최종적으로 'S'로 설정",
+1. 변수 추적 원칙
+   A. 추적 대상
+      - SQL 실행 결과 할당
+      - 조건문에 의한 값 변경
+      - 연산에 의한 값 변경
+      - 메서드 호출 결과 할당
+      - 객체 상태 변경
 
-2. 변수 사용 규칙
-   - 'Used Variable'에 있는 변수는 중복으로 변수를 선언하지마세요.
-   - 'Service Signature'에 있는 선언된 변수들을 사용하여, 값을 할당하고 초기화하세요.
-   - 필요한 경우에만 변수를 선언하세요.
+   B. 추적 형식
+      "변수명": "시점별 값 변경 내역 -> 다음 변경 내역 -> 최종 상태"
+      예시:    
+         {{
+            "vEmpId": "초기값 NULL -> TB_EMPLOYEE 조회결과(EMP0001) 할당 -> UPDATE 조건절에서 사용",
+            "vStatus": "초기값 'N' -> 사원정보 존재시 'Y' -> 처리완료후 'S'로 최종 설정"
+         }}    
 
-         
-[SECTION 7] 자바 코드 생성시 JSON 문자열 처리 규칙
+
+2. 변수 선언 및 할당 규칙
+   A. 기본 원칙
+      - 'Used Variable' 목록의 변수는 재선언 금지
+      - 'Service Signature'에 있는 필드(변수)는 재선언 금지
+      - 필요한 경우에만 새 변수 선언
+
+   B. 객체 타입 변수 처리
+      올바른 예:    
+         * 초기 할당
+         TpjEmployee vEmployee = new TpjEmployee();
+         * 재할당 필요시
+         vEmployee = tpjEmployeeRepository.findByEmpKey(iEmpKey);      ```
+      
+      잘못된 예:
+         * 이미 선언된 변수를 재선언 (금지)
+         TpjEmployee vEmployee = new TpjEmployee();
+         TpjEmployee vEmployee = tpjEmployeeRepository.findByEmpKey(iEmpKey);      ```
+
+   C. 기본 타입 변수 처리
+      올바른 예:
+         * 기존 변수에 값 할당
+         vEmpName = "홍길동";
+         vCount = 1;
+      잘못된 예:
+         * 이미 선언된 변수를 재선언 (금지)
+         String vEmpName = "홍길동";
+         Integer vCount = 1;
+
+               
+[SECTION 7] 날짜/시간 처리 규칙
+===============================================
+1. 필드명에 Time이 포함된 경우(*Time, *DateTime, *At으로 끝나는 필드)
+   - 해당 필드는 무조건 LocalDateTime 타입이므로, 형변환이 필요하다면 아래
+   
+   * 해당 변수가 선언되었다고 가정 
+   LocalDate vCurrentTime = LocalDate.now();
+   
+   * 잘못된 예
+   vRow.setEndTime(vCurrentTime);  // LocalDate를 LocalDateTime 필드에 직접 할당 불가
+   
+   * 올바른 예
+   vRow.setEndTime(vCurrentTime.atTime(LocalTime.now()));     // 현재 시간 포함
+
+               
+[SECTION 8] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
    - 줄바꿈: \\n
@@ -200,21 +267,17 @@ Stored Procedure Code에서 'SELECT', 'UPDATE', 'INSERT', 'DELETE' 키워드가 
    - 하나의 연속된 문자열로 작성
    - 모든 따옴표 이스케이프 처리 확인
    - JSON 파싱 오류 방지를 위한 철저한 이스케이프 처리     
-      
 
-[ 반드시 지켜야할 필수 사항 ]
-1. 프로시저 호출하는 로직이 식별되면, 반드시 해당 프로시저 이름이 그대로 반영된 메서드를 호출하는 자바 로직으로 생성하고, JPA 쿼리 메서드를 사용하지마세요.
-2. 모든 범위에 대해서 자바 코드를 생성하세요. 'code'의 요소 개수는 반드시 17개여야합니다. 누락없이 모든 범위에 대해서 결과를 생성하세요. 범위가 겹처도 상관없습니다. (예 : 115~116, 115~115, 116~116) 모두 독립적으로 생성해야함
-3. 객체타입의 경우 이미 객체가 할당되어있어도, 재 할당이 필요한 경우 기존 변수를 재할당하세요.
-(예시로 TpjEmployee vEmployee = new TpjEmployee(); 이렇게 할당했으나, 재 할당이 필요한 경우 vEmployee = tpjEmployeeRepository.findByEmpKey(iEmpKey); 즉, 변수를 중복으로 선언하지말고, 기존 변수를 재할당)
-4. 각 범위내에 모든 코드를 자바로 전환하세요. 반드시 제대로된 범위를 식별하세요. 특히 return문 생략하지마세요.
-5. 프로시저 및 함수 호출시, 반드시 호출하는 메서드 이름이 그대로 반영된 형태로 호출하세요. 즉, p,i,o,v 접두어를 제거하지말고, 풀네임으로 호출하세요.
-(예 : p_INPUT(iData) -> pInput(iData))
-6. 'Used Variable'에 있는 변수와 'Service Signature'에 있는 변수는 중복으로 변수를 선언하지마세요. 
-(예 : String vEmpName; 이 이미 선언 되어 있는데 String vEmpName = "홍길동"; 이렇게 선언하지마세요. vEmpName = "홍길동"; 이렇게 할당하세요.)
+    
+[ **IMPORTANT 반드시 지켜야하는 필수 사항  ** ]
+1. 프로시저 호출 로직 식별시 절대로 JPA 쿼리 메서드를 사용하지마세요. 이건 단순히 서비스 클래스 내에 메서드 호출일 뿐입니다:
+   올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
+   잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // JPA 쿼리 메서드를 사용하면 안됨
+
+2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 
 
 
-[SECTION 8] JSON 출력 형식
+[SECTION 9] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음과 같은 dictionary(사전) 형태의 JSON 형식으로 반환하세요:
 {{

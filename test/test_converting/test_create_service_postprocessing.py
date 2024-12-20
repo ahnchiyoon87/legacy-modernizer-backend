@@ -38,15 +38,15 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
         object_names = [
-            "TPX_MAIN",
+            # "TPX_MAIN",
             # "TPX_EMPLOYEE",
             # "TPX_SALARY",
             # "TPX_ATTENDANCE",
-            # "TPX_PROJECT",
-            # "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_PROJECT",
+            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
-            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM_FILE",
             # "TPX_ALARM_RECIPIENT"
         ]

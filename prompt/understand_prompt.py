@@ -55,6 +55,7 @@ prompt = PromptTemplate.from_template(
 3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
    - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
    - 현재 패키지 내부 호출: 'PROCEDURE_NAME' 형식으로 저장
+   - 시퀀스 객체의 NEXTVAL, CURRVAL 참조는 프로시저/함수 호출로 식별하지 마세요
    - 모든 호출을 'calls' 배열에 저장하세요.
 
 4. 코드 내에서 사용된 테이블 식별하세요:

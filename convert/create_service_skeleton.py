@@ -44,14 +44,14 @@ def convert_to_camel_case(snake_str: str) -> str:
 #                       (예: employee_management)
 #   - entity_name_list: 서비스에서 사용할 엔티티 클래스명 목록
 #                       (예: ['Employee', 'Department'])
-#   - global_variables: 전역 변수 목록
+#   - converted_global_variables: 클래스 필드로 변환된 전역 변수 목록
 #   - dir_name: 서비스 클래스가 저장될 디렉토리 이름
 #   - external_call_package_names: 외부 호출된 패키지 이름 목록
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 # 반환값: 
 #   - service_class_template: 생성된 서비스 클래스 코드 문자열
 #   - service_class_name: 생성된 서비스 클래스명 (예: EmployeeManagementService)
-async def create_service_skeleton(object_name: str, entity_name_list: list, global_variables: list, dir_name: str, external_call_package_names: list, exist_command_class: bool) -> str:
+async def create_service_skeleton(object_name: str, entity_name_list: list, converted_global_variables: list, dir_name: str, external_call_package_names: list, exist_command_class: bool) -> str:
     try:
         # * 1. 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
         service_class_name = convert_to_pascal_case(object_name) + "Service"
@@ -59,9 +59,8 @@ async def create_service_skeleton(object_name: str, entity_name_list: list, glob
 
         # * 2. 글로벌 변수를 클래스 필드로 변환
         global_fields = []
-        if global_variables:
-            converted_vars = convert_variables(global_variables)
-            for var in converted_vars["variables"]:
+        if converted_global_variables:
+            for var in converted_global_variables["variables"]:
                 field = f"    private {var['javaType']} {var['javaName']} = {var['value']};"
                 global_fields.append(field)
 
@@ -313,8 +312,12 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
             exist_command_class = bool(proc_data['parameters'])
 
 
+            # * 전역 변수를 클래스 필드로 변환
+            converted_global_variables = convert_variables(global_variables)
+
+
             # * 서비스 클래스의 틀을 생성합니다.
-            service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list, global_variables, dir_name, external_call_package_names, exist_command_class)
+            service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list, converted_global_variables, dir_name, external_call_package_names, exist_command_class)
 
 
             # * 각 프로시저별 커맨드 클래스, 메서드 틀 생성을 진행합니다.
