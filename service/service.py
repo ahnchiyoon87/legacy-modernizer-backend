@@ -33,7 +33,7 @@ from util.exception import AddLineNumError, CompareResultError, ConvertingError,
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLSQL_DIR = os.path.join(BASE_DIR, "src")
 ANALYSIS_DIR = os.path.join(BASE_DIR, "analysis")
-DDL_DIR = os.path.join(BASE_DIR, "ddl")
+DDL_DIR = os.path.join(BASE_DIR, "data", "ddl")
 TARGET_DIR = os.path.join(BASE_DIR, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
 os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
@@ -77,7 +77,7 @@ async def generate_and_execute_cypherQuery(file_names):
             base_name = os.path.splitext(file_name)[0]
             antlr_file_path = os.path.join(ANALYSIS_DIR, f"{base_name}.json")
             ddl_file_name = file_name.replace('TPX_', 'TPJ_')
-            ddl_file_path = os.path.join(DDL_DIR, 'create', ddl_file_name)
+            ddl_file_path = os.path.join(DDL_DIR, ddl_file_name)
             has_ddl_info = False
             ddl_results = None
 

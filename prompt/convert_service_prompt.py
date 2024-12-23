@@ -111,6 +111,7 @@ JPA Method List:
 1. 기본 원칙
    - SELECT, UPDATE, INSERT, DELETE 키워드가 식별된 경우에만 적용
    - jpa_method_list에서 제공된 메서드만 사용
+   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)은 무시 (엔티티의 @GeneratedValue로 자동 처리)
 
 2. SELECT 구문
    - jpa_method_list에서 적절한 조회 메서드 사용
@@ -184,11 +185,11 @@ JPA Method List:
                }} catch (Exception e) {{ 
                      throw new RuntimeException(\"Cannot insert: \" + e.getMessage());
                }}"
-
       
 3. 주의사항
    - try 블록에는 반드시 'CodePlaceHolder' 문자열만 사용
    - EXCEPTION 키워드가 없는 코드는 절대 try-catch로 감싸지 않음
+   - 코드 포맷은 들여쓰기가 적용된 상태로 반환하세요.
 
      
 [SECTION 6] 변수 처리 규칙

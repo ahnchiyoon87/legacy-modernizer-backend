@@ -5,26 +5,45 @@ import aiofiles
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import EntityCreationError, LLMCallError, Neo4jError, TokenCountError
+from util.exception import EntityCreationError, LLMCallError, Neo4jError, SaveFileError, TokenCountError
 
 MAX_TOKENS = 1000
 ENTITY_PATH = 'java/demo/src/main/java/com/example/demo/entity'
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
+# 역할: 시퀀스 파일을 읽어 시퀀스 목록을 반환하는 함수입니다.
+# 매개변수:
+#   - object_name : 패키지 또는 프로시저 이름
+# 반환값:
+#   - 시퀀스 목록
+async def read_sequence_file(object_name: str) -> str:
+    try:
+        seq_file_name = object_name.replace('TPX_', 'SEQ_')
+        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        seq_file_path = os.path.join(current_dir, '..', 'data', 'sequence', f'{seq_file_name}.sql')
+        
+        if os.path.exists(seq_file_path):
+            async with aiofiles.open(seq_file_path, 'r', encoding='utf-8') as f:
+                return await f.read()
+        return ''
+    except Exception:
+        err_msg = "시퀀스 파일을 읽는 도중 오류가 발생했습니다."
+        logging.error(err_msg)
+        raise SaveFileError(err_msg)
+    
+
 # 역할: Neo4j 데이터베이스에서 가져온 테이블 정보를 LLM이 처리할 수 있는 크기로 나누어 Java 엔티티 클래스를 생성합니다.
 # 
 # 매개변수: 
-#   table_data_list (list): 
-#     - Neo4j 데이터베이스에서 가져온 테이블 정보 목록
-#     - 각 테이블은 테이블명과 컬럼 정보를 포함합니다
-#     - 예시: [{'name': 'user_table', 'fields': [('id', 'int'), ('name', 'varchar')]}]
+#   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
+#   sequence_data (str): 시퀀스 정보
 #
 # 반환값:
-#   entity_name_list (list): 
+#   entity_name_list (list): 생성된 Java 엔티티 클래스의 이름 목록
 #     - 생성된 Java 엔티티 클래스의 이름 목록
 #     - 예시: ['UserEntity', 'ProductEntity']
-async def process_table_by_token_limit(table_data_list):
+async def process_table_by_token_limit(table_data_list, sequence_data):
 
     current_tokens = 0        
     table_data_chunk = []   
@@ -39,7 +58,7 @@ async def process_table_by_token_limit(table_data_list):
 
             # * 토큰 수가 초과되었다면, LLM을 이용하여 분석을 진행합니다
             if table_data_chunk and current_tokens + table_tokens >= MAX_TOKENS:
-                entity_names = await create_entity_class(table_data_chunk)
+                entity_names = await create_entity_class(table_data_chunk, sequence_data)
                 entity_name_list.extend(entity_names)
                 table_data_chunk = []     
                 current_tokens = 0         
@@ -49,7 +68,7 @@ async def process_table_by_token_limit(table_data_list):
 
         # * 처리되지 않은 테이블 데이터가 남아있다면 처리합니다
         if table_data_chunk: 
-            result = await create_entity_class(table_data_chunk)
+            result = await create_entity_class(table_data_chunk, sequence_data)
             entity_name_list.extend(result)
         
         return entity_name_list
@@ -65,20 +84,18 @@ async def process_table_by_token_limit(table_data_list):
 # 역할: LLM을 사용하여 테이블 정보를 분석하고, 이를 바탕으로 Java 엔티티 클래스 파일을 생성합니다.
 #
 # 매개변수:
-#   table_data_group (list):
-#     - 처리할 테이블 정보 그룹
-#     - 각 테이블은 이름과 필드 정보를 포함
-#     - 예시: [{'name': 'user_table','fields': [('user_id', 'number'), ('user_name', 'varchar')]}]
+#   table_data_group (list): 처리할 테이블 정보 그룹
+#   sequence_data (str): 시퀀스 정보
 #
 # 반환값:
 #   entity_name_list (list):
 #     - 생성된 엔티티 클래스의 이름 목록
 #     - 예시: ['UserEntity']
-async def create_entity_class(table_data_group):
+async def create_entity_class(table_data_group, sequence_data):
 
     try:
         # * 테이블 데이터를 LLM에게 전달하여, Entity 클래스 생성을 위한 정보를 받습니다
-        analysis_data = convert_entity_code(table_data_group)
+        analysis_data = convert_entity_code(table_data_group, sequence_data)
         entity_name_list = []
 
 
@@ -133,6 +150,8 @@ async def start_entity_processing(object_name):
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 'foreign_keys', 'description', 'reference_tables'}
         table_data_list = []
 
+        # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
+        sequence_data = await read_sequence_file(object_name)
 
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
         for item in table_nodes[0]:
@@ -155,7 +174,7 @@ async def start_entity_processing(object_name):
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list = await process_table_by_token_limit(table_data_list)
+        entity_name_list = await process_table_by_token_limit(table_data_list, sequence_data)
         entity_count = len(entity_name_list)
         logging.info(f"[{object_name}] {entity_count}개의 엔티티가 생성되었습니다.\n")
         return entity_name_list

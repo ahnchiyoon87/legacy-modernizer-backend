@@ -113,7 +113,7 @@ async def download_spring_project():
         parent_dir = os.path.dirname(os.getcwd())
         
         target_path = os.path.join(parent_dir, 'target')
-        zipfile_dir = os.path.join(parent_dir, 'zipfile')
+        zipfile_dir = os.path.join(parent_dir, 'data', 'zipfile')
         
         if not os.path.exists(zipfile_dir):
             os.makedirs(zipfile_dir)
