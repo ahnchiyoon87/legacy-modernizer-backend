@@ -1,64 +1,42 @@
 import os
 import logging
 import textwrap
-import aiofiles
 import tiktoken
 from prompt.convert_variable_prompt import convert_variables
 from prompt.convert_service_skeleton_prompt import convert_method_code
 from prompt.convert_command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, ExtractCodeError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, TraverseCodeError
+from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, TemplateGenerationError
+from util.file_utils import save_file
+from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'java/demo/src/main/java/com/example/demo'
 
-# 역할: 스네이크 케이스 형식의 문자열을 자바 클래스명으로 사용할 수 있는 파스칼 케이스로 변환합니다.
-#      예시) user_profile_service -> UserProfileService
-# 매개변수: 
-#   - snake_case_input: 변환할 스네이크 케이스 문자열
-#                      (예: employee_payroll, user_profile_service)
-# 반환값: 
-#   - 파스칼 케이스로 변환된 문자열
-#     (예: snake_case_input이 'employee_payroll'인 경우 -> 'EmployeePayroll')
-def convert_to_pascal_case(snake_str: str) -> str:
-    return ''.join(word.capitalize() for word in snake_str.split('_'))
-
-
-# 역할: 스네이크 케이스 형식의 문자열을 자바 클래스명으로 사용할 수 있는 카멜 케이스로 변환합니다.
-#      예시) user_profile_service -> userProfileService
-# 매개변수: 
-#   - snake_str: 변환할 스네이크 케이스 문자열
-#                (예: user_profile_service)
-# 반환값: 
-#   - 카멜 케이스로 변환된 문자열
-#     (예: userProfileService)
-def convert_to_camel_case(snake_str: str) -> str:
-    words = snake_str.split('_')
-    return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
-
 
 # 역할: 스프링부트 서비스 클래스의 기본 골격을 생성합니다.
-#      서비스 클래스에는 필요한 리포지토리 의존성과 기본 어노테이션이 포함됩니다.
+#
 # 매개변수: 
 #   - object_name: 서비스 클래스명의 기반이 될 패키지 이름 (스네이크 케이스)
-#                       (예: employee_management)
 #   - entity_name_list: 서비스에서 사용할 엔티티 클래스명 목록
-#                       (예: ['Employee', 'Department'])
 #   - converted_global_variables: 클래스 필드로 변환된 전역 변수 목록
 #   - dir_name: 서비스 클래스가 저장될 디렉토리 이름
 #   - external_call_package_names: 외부 호출된 패키지 이름 목록
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
+#
 # 반환값: 
 #   - service_class_template: 생성된 서비스 클래스 코드 문자열
 #   - service_class_name: 생성된 서비스 클래스명 (예: EmployeeManagementService)
-async def create_service_skeleton(object_name: str, entity_name_list: list, converted_global_variables: list, dir_name: str, external_call_package_names: list, exist_command_class: bool) -> str:
+async def generate_service_skeleton(object_name: str, entity_name_list: list, converted_global_variables: list, dir_name: str, external_call_package_names: list, exist_command_class: bool) -> str:
     try:
+        global_fields = []
+        sections = []
+
         # * 1. 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
         service_class_name = convert_to_pascal_case(object_name) + "Service"
 
 
         # * 2. 글로벌 변수를 클래스 필드로 변환
-        global_fields = []
         if converted_global_variables:
             for var in converted_global_variables["variables"]:
                 field = f"    private {var['javaType']} {var['javaName']} = {var['value']};"
@@ -66,7 +44,6 @@ async def create_service_skeleton(object_name: str, entity_name_list: list, conv
 
 
         # * 3. Autowired 주입 로직 및 필드 생성
-        sections = []
         if global_fields:
             sections.append('\n'.join(global_fields))
         if entity_name_list:
@@ -109,44 +86,40 @@ CodePlaceHolder
 
         return service_class_template, service_class_name
     
-    except (LLMCallError):
-        raise
     except Exception:
         err_msg = "서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise ExtractCodeError(err_msg)
+        logging.error(err_msg)
+        raise TemplateGenerationError(err_msg)
 
 
 # 역할: 프로시저/함수에 대한 커맨드 클래스와 서비스 메서드의 구현 코드를 생성합니다.
+#
 # 매개변수: 
 #   - method_skeleton_data: 메서드 생성에 필요한 상세 정보
-#                 (프로시저명, 지역변수, 반환코드 등을 포함하는 딕셔너리)
 #   - parameter_data: 입력 매개변수 관련 정보
-#                    (파라미터 타입, 이름 등을 포함하는 딕셔너리)
 #   - node_type: 대상 노드의 유형
-#                (FUNCTION/PROCEDURE/CREATE_PROCEDURE_BODY)
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
+#
 # 반환값: 
 #   - command_class_variable: 커맨드 클래스에 정의된 필드 정보 (함수인 경우 None)
 #   - command_class_name: 생성된 커맨드 클래스명 (함수인 경우 None)
 #   - method_skeleton_name: 생성된 서비스 메서드명
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
-async def create_method_and_command(method_skeleton_data, parameter_data, node_type, dir_name):
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str) -> tuple:
 
     try:
         command_class_variable = None
         command_class_name = None
         
+        # * 파라미터가 있는 프로시저인 경우 커맨드 클래스 생성
         if node_type != 'FUNCTION' and parameter_data['parameters']:
-            # * 커맨드 클래스 생성에 필요한 정보를 받습니다.
             analysis_command = convert_command_code(parameter_data, dir_name)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
             command_class_variable = analysis_command['command_class_variable']              
-            
-            # * command 클래스 파일로 생성합니다.
-            await save_java_file(command_class_name, command_class_code, dir_name)
+            await generate_command_class(command_class_name, command_class_code, dir_name)
+
 
         # * 메서드 틀 생성에 필요한 정보를 받습니다.
         analysis_method = convert_method_code(method_skeleton_data, parameter_data)  
@@ -154,75 +127,63 @@ async def create_method_and_command(method_skeleton_data, parameter_data, node_t
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
 
-        return command_class_variable, command_class_name, method_skeleton_name, method_skeleton_code, method_signature
-
-    except (LLMCallError, HandleResultError):
+        return (
+            command_class_variable,
+            command_class_name,
+            method_skeleton_name,
+            method_skeleton_code,
+            method_signature
+        )
+    
+    except ConvertingError:
         raise
     except Exception:
         err_msg = "메서드 틀을 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise ProcessResultError(err_msg)
 
 
 # 역할: 생성된 자바 소스 코드를 지정된 디렉토리에 파일로 저장합니다.
-#      환경(Docker/로컬)에 따라 적절한 저장 경로를 선택합니다.
+#
 # 매개변수: 
 #   - class_name: 저장할 자바 클래스명 (확장자 제외)
 #   - source_code: 저장할 자바 소스 코드 내용
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
-# 반환값: 없음
-async def save_java_file(class_name: str, source_code: str, dir_name: str) -> None:
+async def generate_command_class(class_name: str, source_code: str, dir_name: str) -> None:
 
     try:
-        # * 1. 환경변수에 따른 기본 디렉토리 경로 설정
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        if base_directory:
-            # * Docker 환경인 경우의 경로
-            java_directory = os.path.join(base_directory, 'target', JAVA_PATH, 'command', dir_name)
+        # * 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            base_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', JAVA_PATH, 'command', dir_name)
         else:
-            # * 로컬 환경인 경우의 경로
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            java_directory = os.path.join(parent_workspace_dir, 'target', JAVA_PATH, 'command', dir_name)
-        
-        # * 2. 저장 디렉토리가 없으면 생성
-        os.makedirs(java_directory, exist_ok=True)
-        
-        # * 3. Java 파일 생성 및 코드 작성
-        file_path = os.path.join(java_directory, f"{class_name}.java")
-        async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
-            await file.write(source_code)
+            base_path = os.path.join(parent_workspace_dir, 'target', JAVA_PATH, 'command', dir_name)
+
+        # * 커맨드 클래스 파일로 생성합니다.
+        await save_file(content=source_code, filename=f"{class_name}.java", base_path=base_path)
             
+    except SaveFileError:
+        raise
     except Exception:
-        err_msg = "서비스 골격 및 커맨드 클래스 파일을 저장하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise SaveFileError(err_msg)
+        err_msg = f"커맨드 클래스 [{class_name}] 파일 저장을 위한 경로 설정중 오류가 발생했습니다."
+        logging.error(err_msg)
+        raise FilePathError(err_msg)
+    
 
-# 역할: Neo4j 데이터베이스에서 프로시저 정보를 조회하여 서비스 클래스와 관련 코드를 생성합니다.
-#      프로시저별로 필요한 커맨드 클래스와 서비스 메서드를 생성하고 조합합니다.
+# 역할: 프로시저 노드와 외부 호출 노드를 조회하여 프로시저 그룹을 구성합니다.
+#
 # 매개변수: 
-#   - required_entities: 서비스에서 사용할 엔티티 클래스명 목록
-#                       (예: ['Employee', 'Department'])
-#   - service_base_name: 서비스 클래스명의 기반이 될 객체 이름
-#                       (예: employee_management)
-#   - global_variables: 전역 변수 목록
+#   - connection: Neo4j 연결 객체
+#   - object_name: 프로시저 노드의 객체 이름
+#
 # 반환값: 
-#   - service_components: 생성된 서비스 구성요소 목록 (커맨드 클래스, 메서드 등)
-#   - service_template: 서비스 클래스의 기본 템플릿 코드
-#   - service_class_name: 생성된 서비스 클래스명
-async def start_service_skeleton_processing(entity_name_list, object_name, global_variables):
-
-    connection = Neo4jConnection()  
-    procedure_groups = {}
-    method_creation_info = []
-    dir_name = convert_to_camel_case(object_name)
-    exist_command_class = False
-
-    logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
-
+#   - procedure_groups: 프로시저 그룹 데이터
+#   - external_packages: 외부 호출된 패키지 이름 목록
+async def get_procedure_groups(connection: Neo4jConnection, object_name: str) -> tuple[dict, list]:
     try:
         query = [
-            f"""
-            MATCH (p)
+            # * 프로시저 노드 쿼리
+            f"""MATCH (p)
             WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:FUNCTION)
             AND p.object_name = '{object_name}'
             OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE)
@@ -239,101 +200,132 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
                 WHEN p:CREATE_PROCEDURE_BODY THEN 'CREATE_PROCEDURE_BODY'
             END as node_type
             RETURN p, d, dv, s, sv, node_type
-            ORDER BY p.startLine
-            """,
-            f"""
-            MATCH (p)-[:EXT_CALL]->(ext)
+            ORDER BY p.startLine""",
+            # * 외부 호출 노드 쿼리
+            f"""MATCH (p)-[:EXT_CALL]->(ext)
             WHERE p.object_name = '{object_name}'
             WITH DISTINCT ext.object_name as obj_name, COLLECT(ext)[0] as ext
-            RETURN ext
-            """        
+            RETURN ext"""
         ]
-
-        # * 프로시저 노드와 외부 호출 노드를 조회합니다.
-        nodes = await connection.execute_queries(query)  
-        procedure_nodes = nodes[0]
-        external_call_nodes = nodes[1]
-
-        # * 외부 호출된 패키지 이름을 추출합니다.
-        external_call_package_names = [node['ext']['object_name'] for node in external_call_nodes]
-
-        # * 프로시저별로 데이터 구조화
+        
+        # * 쿼리 실행 및 결과 할당
+        procedure_nodes, external_call_nodes = await connection.execute_queries(query)
+        
+        # * 프로시저 데이터 구조화
+        procedure_groups = {}
         for item in procedure_nodes:
             proc_name = item['p'].get('procedure_name', '')
-
-            # * 새로운 프로시저인 경우 딕셔너리 초기화
+            
+            # * 새 프로시저 초기화
             if proc_name not in procedure_groups:
                 procedure_groups[proc_name] = {
-                    'parameters': [], 
+                    'parameters': [],
                     'local_variables': [],
-                    'declaration': item['s'].get('node_code', '') if item['s'] else '',
+                    'declaration': item['s'].get('node_code', ''),
                     'node_type': item['node_type']
                 }
             
-            # * SPEC과 연결된 변수는 파라미터로 추가
+            # * 파라미터 추가
             if item['sv']:
-                parameter = {
-                    'type': item['sv']['type'],
-                    'name': item['sv']['name'],
-                }
-                if parameter not in procedure_groups[proc_name]['parameters']:
-                    procedure_groups[proc_name]['parameters'].append(parameter)
-
-            # * DECLARE와 연결된 변수는 로컬 변수로 추가
+                new_param = {'type': item['sv']['type'], 'name': item['sv']['name']}
+                if new_param not in procedure_groups[proc_name]['parameters']:
+                    procedure_groups[proc_name]['parameters'].append(new_param)
+            
+            # * 로컬 변수 추가
             if item['dv']:
-                local_var = {
+                new_var = {
                     'type': item['dv']['type'],
                     'name': item['dv']['name'],
                     'value': item['dv']['value']
                 }
-                if local_var not in procedure_groups[proc_name]['local_variables']:
-                    procedure_groups[proc_name]['local_variables'].append(local_var)
+                if new_var not in procedure_groups[proc_name]['local_variables']:
+                    procedure_groups[proc_name]['local_variables'].append(new_var)
+        
+        # * 외부 패키지 목록 추출
+        external_packages = [node['ext']['object_name'] for node in external_call_nodes]
+        
+        return procedure_groups, external_packages
+    
+    except Neo4jError:
+        raise
+    except Exception:
+        err_msg = f"[{object_name}] 프로시저 데이터 조회 중 오류 발생"
+        logging.error(err_msg)
+        raise ExtractNodeInfoError(err_msg)
 
 
-        # * 커맨드 클래스 및 메서드 틀 생성을 위한 데이터를 구성합니다.
+# 역할: Neo4j 데이터베이스에서 프로시저 정보를 조회하여 서비스 클래스와 관련 코드를 생성합니다.
+#
+# 매개변수: 
+#   - required_entities: 서비스에서 사용할 엔티티 클래스명 목록
+#   - service_base_name: 서비스 클래스명의 기반이 될 객체 이름
+#   - global_variables: 전역 변수 목록
+#
+# 반환값: 
+#   - service_components: 생성된 서비스 구성요소 목록 (커맨드 클래스, 메서드 등)
+#   - service_template: 서비스 클래스의 기본 템플릿 코드
+#   - service_class_name: 생성된 서비스 클래스명
+async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list) -> tuple[list, str, str, bool]:
+
+    connection = Neo4jConnection()
+    dir_name = convert_to_camel_case(object_name)
+    method_info_list = []
+    
+    logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
+
+    try:
+        # * 프로시저 데이터 조회 및 구조화
+        procedure_groups, external_packages = await get_procedure_groups(connection, object_name)
+        exist_command_class = any(group['parameters'] for group in procedure_groups.values())
+        
+
+        # * 전역 변수 변환
+        convert_global_variables = convert_variables(global_variables),
+        
+
+        # * 서비스 스켈레톤 생성
+        service_skeleton, service_class_name = await generate_service_skeleton(
+            object_name,
+            entity_name_list,
+            convert_global_variables,
+            dir_name,
+            external_packages,
+            exist_command_class
+        )
+
+        # * 각 프로시저별 메서드 생성
         for proc_name, proc_data in procedure_groups.items():
-            logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성을 시작합니다.")
+            logging.info(f"[{object_name}] {proc_name} 메서드 생성 시작")
             
-            # * 메서드 틀 생성을 위한 데이터 구성
+
+            # * 메서드 생성 데이터 준비
             method_skeleton_data = {
                 'procedure_name': proc_name,
                 'local_variables': proc_data['local_variables'],
-                'declaration': proc_data['declaration'],
+                'declaration': proc_data['declaration']
             }
-
-            # * 커맨드 클래스 생성을 위한 데이터 구성
+            
             parameter_data = {
                 'parameters': proc_data['parameters'],
                 'procedure_name': proc_name
             }
 
-
-            # * 파라미터가 있는 프로시저가 있는지 확인
-            exist_command_class = bool(proc_data['parameters'])
-
-
-            # * 전역 변수를 클래스 필드로 변환
-            converted_global_variables = convert_variables(global_variables)
-
-
-            # * 서비스 클래스의 틀을 생성합니다.
-            service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list, converted_global_variables, dir_name, external_call_package_names, exist_command_class)
-
-
-            # * 각 프로시저별 커맨드 클래스, 메서드 틀 생성을 진행합니다.
-            command_class_variable, command_class_name, method_skeleton_name, method_skeleton_code, method_signature = await create_method_and_command(
-                method_skeleton_data, 
-                parameter_data, 
+            # * 메서드와 커맨드 클래스 생성
+            command_class_variable, command_class_name, method_skeleton_name, method_skeleton_code, method_signature = await process_method_and_command_code(
+                method_skeleton_data,
+                parameter_data,
                 proc_data['node_type'],
                 dir_name
             )
 
-            # * 서비스 틀과 메서드틀을 병합합니다.
+
+            # * 메서드 코드 포맷팅
             method_skeleton_code = textwrap.indent(method_skeleton_code, '    ')
             service_method_skeleton = service_skeleton.replace("CodePlaceHolder", method_skeleton_code)
+            
 
-            # * 결과를 딕셔너리로 구성하여 리스트에 추가
-            method_creation_info.append({
+            # * 메서드 정보 저장
+            method_info_list.append({
                 'command_class_variable': command_class_variable,
                 'command_class_name': command_class_name,
                 'method_skeleton_name': method_skeleton_name,
@@ -343,16 +335,17 @@ async def start_service_skeleton_processing(entity_name_list, object_name, globa
                 'node_type': proc_data['node_type'],
                 'procedure_name': proc_name
             })
-            logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성 완료")
+            logging.info(f"[{object_name}] {proc_name} 메서드 생성 완료")
 
-        logging.info(f"[{object_name}] {len(method_creation_info)}개의 커맨드 클래스 및 메서드 골격을 생성했습니다.\n")
-        return method_creation_info, service_skeleton, service_class_name, exist_command_class
+        logging.info(f"[{object_name}] 메서드 생성 완료\n")
+        return method_info_list, service_skeleton, service_class_name, exist_command_class
 
-    except (ConvertingError, Neo4jError, SaveFileError):
+
+    except ConvertingError:
         raise
     except Exception:
-        err_msg = "서비스 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        err_msg = f"[{object_name}] 서비스 클래스 생성 중 오류 발생"
+        logging.error(err_msg)
         raise SkeletonCreationError(err_msg)
     finally:
         await connection.close()

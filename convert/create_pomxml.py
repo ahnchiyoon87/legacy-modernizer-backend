@@ -1,7 +1,7 @@
 import os
 import logging
-import aiofiles
-from util.exception import PomXmlCreationError
+from util.exception import PomXmlCreationError, SaveFileError
+from util.file_utils import save_file
 
 POM_FILE_NAME = "pom.xml"
 POM_PATH = 'java/demo'
@@ -92,31 +92,32 @@ POM_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 # 역할: Spring Boot 프로젝트의 필수 설정 파일인 pom.xml을 생성합니다.
-#      이 파일은 프로젝트의 의존성과 빌드 설정을 관리합니다.
+#
 # 매개변수: 없음
 # 반환값: 없음
 async def start_pomxml_processing():
-    
     logging.info("pom.xml 생성을 시작합니다.")
     
     try:       
-        # * pom.xml 파일을 저장할 디렉토리를 생성합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        if base_directory:
-            pom_xml_directory = os.path.join(base_directory, POM_PATH)
+        # * 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), POM_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            pom_xml_directory = os.path.join(parent_workspace_dir, 'target', POM_PATH)
-        os.makedirs(pom_xml_directory, exist_ok=True)
+            save_path = os.path.join(parent_workspace_dir, 'target', POM_PATH)
 
+        # * pom.xml 파일 생성
+        await save_file(
+            content=POM_XML_TEMPLATE,
+            filename=POM_FILE_NAME, 
+            base_path=save_path
+        )
+        
+        logging.info("Pom.xml이 생성되었습니다.\n")
 
-        # * pom.xml 파일로 생성합니다.
-        pom_xml_path = os.path.join(pom_xml_directory, POM_FILE_NAME)  
-        async with aiofiles.open(pom_xml_path, 'w', encoding='utf-8') as file:  
-            await file.write(POM_XML_TEMPLATE)  
-            logging.info(f"Pom.xml이 생성되었습니다.\n")
-
+    except SaveFileError:
+        raise
     except Exception:
         err_msg = "스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise PomXmlCreationError(err_msg)

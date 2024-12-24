@@ -101,15 +101,17 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
 # 역할: 컨트롤러 메서드 코드를 생성하는 함수입니다.
 #      LLM을 통해 서비스 메서드 호출 로직을 포함한 
 #      스프링 부트 컨트롤러 메서드를 생성합니다.
+#
 # 매개변수:
 #   - method_signature: 서비스 메서드의 시그니처
 #   - procedure_name: 원본 프로시저/함수 이름
 #   - command_class_variable: Command DTO 필드 목록
 #   - command_class_name: Command 클래스 이름
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
+#
 # 반환값:
 #   - result: LLM이 생성한 컨트롤러 메서드 코드
-def convert_controller_method_code(method_signature, procedure_name, command_class_variable, command_class_name, controller_skeleton):
+def convert_controller_method_code(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str) -> str:
     
     try:
         command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
@@ -124,5 +126,5 @@ def convert_controller_method_code(method_signature, procedure_name, command_cla
         return result
     except Exception:
         err_msg = "컨트롤러 메서드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

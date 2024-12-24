@@ -13,7 +13,7 @@ from compare.create_docker_compose_yml import generate_docker_compose_yml, proce
 from compare.create_junit_test import create_junit_test
 from compare.execute_plsql_sql import execute_plsql, execute_sql
 from compare.result_compare import execute_maven_commands
-from convert.create_controller import create_controller_class_file, start_controller_processing
+from convert.create_controller import save_controller_file, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
 from convert.create_pomxml import start_pomxml_processing
@@ -331,7 +331,7 @@ async def generate_spring_boot_project(file_names):
                     object_name,
                 )
             await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
-            await create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code)            
+            await save_controller_file(controller_skeleton, controller_class_name, merge_controller_method_code)            
             yield f"{file_name}-Step4 completed\n"
 
         # * 5 단계 : pom.xml 생성

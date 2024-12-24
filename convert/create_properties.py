@@ -1,7 +1,7 @@
 import os
 import logging
-import aiofiles
-from util.exception import AplPropertiesCreationError
+from util.exception import AplPropertiesCreationError, SaveFileError
+from util.file_utils import save_file
 
 PROPERTIES_FILE_NAME = "application.properties"
 PROPERTIES_PATH = 'java/demo/src/main/resources'
@@ -20,30 +20,31 @@ spring.datasource.driver-class-name=oracle.jdbc.OracleDriver"""
 
 
 # 역할: Spring Boot 애플리케이션의 설정 파일인 application.properties를 생성합니다.
-#      이 파일은 애플리케이션의 이름, 포트 번호 등 주요 설정을 관리합니다.
+#     
 # 매개변수: 없음
 # 반환값: 없음
 async def start_APLproperties_processing():
-    
     logging.info("application.properties 생성을 시작합니다.")
 
     try:
-        # * properties 파일의 내용과 저장될 경로를 설정합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        if base_directory:
-            application_properties_directory = os.path.join(base_directory, PROPERTIES_PATH)
+        # * 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), PROPERTIES_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            application_properties_directory = os.path.join(parent_workspace_dir, 'target', PROPERTIES_PATH)
-        os.makedirs(application_properties_directory, exist_ok=True)  
+            save_path = os.path.join(parent_workspace_dir, 'target', PROPERTIES_PATH)
 
+        # * application.properties 파일 생성
+        await save_file(
+            content=APPLICATION_PROPERTIES_TEMPLATE,
+            filename=PROPERTIES_FILE_NAME, 
+            base_path=save_path
+        )
+        
+        logging.info("application.properties 파일이 생성되었습니다.\n")
 
-        # * application.properties 파일로 생성합니다.
-        application_properties_file_path = os.path.join(application_properties_directory, PROPERTIES_FILE_NAME)  
-        async with aiofiles.open(application_properties_file_path, 'w', encoding='utf-8') as file:  
-            await file.write(APPLICATION_PROPERTIES_TEMPLATE)  
-            logging.info(f"application.properties 파일이 생성되었습니다.\n")  
-
+    except SaveFileError:
+        raise
     except Exception:
         err_msg = "스프링부트의 application.properties 파일을 생성하는 도중 오류가 발생했습니다."
         logging.error(err_msg)

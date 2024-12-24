@@ -21,15 +21,19 @@ class CommandCreationError(ConvertingError):
         super().__init__(message)
 
 class SkeletonCreationError(ConvertingError):
-    def __init__(self, message="인증에 실패했습니다"):
+    def __init__(self, message="서비스 클래스 골격을 생성하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
 class ServiceCreationError(ConvertingError):
-    def __init__(self, message="인증에 실패했습니다"):
+    def __init__(self, message="서비스 클래스를 생성하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ControllerCreationError(ConvertingError):
+    def __init__(self, message="컨트롤러 클래스를 생성하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
 class ParentSkeletonCreationError(ConvertingError):
-    def __init__(self, message="인증에 실패했습니다"):
+    def __init__(self, message="컨텍스트 사이즈가 큰 클래스 골격을 생성하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
 class PomXmlCreationError(ConvertingError):
@@ -48,6 +52,17 @@ class VariableNodeError(ConvertingError):
     def __init__(self, message="변수 노드를 처리하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
+class TemplateGenerationError(ConvertingError):
+    def __init__(self, message="템플릿을 생성하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExtractNodeInfoError(ConvertingError):
+    def __init__(self, message="노드 정보를 추출하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class FilePathError(ConvertingError):
+    def __init__(self, message="파일 경로를 설정하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
 """----------------------------------------------------------Understanding---------------------------------------------------------"""
 class UnderstandingError(CustomBaseException):
     def __init__(self, message="Understanding 과정에서 오류가 발생했습니다."):
@@ -74,11 +89,6 @@ class CreateNodeError(UnderstandingError):
         super().__init__(message)
 
 """----------------------------------------------------Service---------------------------------------------------------------"""
-class Neo4jError(CustomBaseException):
-    def __init__(self, message="Neo4j에서 그래프 DB에 읽기 쓰기 작업을 하는 도중 오류가 발생했습니다."):
-        super().__init__(message)
-
-
 class Java2dethsError(CustomBaseException):
     def __init__(self, message="2단계 깊이 기준 노드로 자바로 전환하는 도중 오류가 발생했습니다."):
         super().__init__(message)
@@ -114,9 +124,20 @@ class HandleResultError(UnderstandingError, ConvertingError):
         super().__init__(message)
 
 class SaveFileError(UnderstandingError, ConvertingError):
-    def __init__(self, message="파일을 읽고 저장하는 도중 오류가 발생했습니다."):
+    def __init__(self, message="파일을 저장하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
+class ReadFileError(UnderstandingError, ConvertingError):
+    def __init__(self, message="파일을 읽는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class StringConversionError(UnderstandingError, ConvertingError):
+    def __init__(self, message="문자열 변환 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class Neo4jError(UnderstandingError, ConvertingError):
+    def __init__(self, message="Neo4j에서 그래프 DB에 읽기 쓰기 작업을 하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
 
 """----------------------------------------------------------결과비교---------------------------------------------------------"""
 class CompareResultError(CustomBaseException):

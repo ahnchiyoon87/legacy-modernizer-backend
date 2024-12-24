@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_controller import create_controller_class_file, start_controller_processing
+from convert.create_controller import save_controller_file, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_service_skeleton import start_service_skeleton_processing
 
@@ -84,7 +84,7 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
                     )
 
                 # * 컨트롤러 클래스 파일 생성   
-                await create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code)
+                await save_controller_file(controller_skeleton, controller_class_name, merge_controller_method_code)
 
 
             # * 결과를 결과 파일에 저장합니다.
