@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing
+from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing
 
 
 # * 로그 레벨 설정
@@ -38,15 +38,15 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
         object_names = [
-            "TPX_MAIN",
+            # "TPX_MAIN",
             # "TPX_EMPLOYEE",
             # "TPX_SALARY",
             # "TPX_ATTENDANCE",
-            # "TPX_PROJECT",
-            # "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_PROJECT",
+            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
-            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM_FILE",
             # "TPX_ALARM_RECIPIENT"
         ]
@@ -77,7 +77,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                             object_name,
                             merge_method_code
                         )
-                    await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
+                    await generate_service_class(service_skeleton, service_class_name, merge_method_code)            
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

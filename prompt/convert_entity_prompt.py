@@ -29,6 +29,9 @@ prompt = PromptTemplate.from_template(
 테이블 데이터(JSON)입니다:
 {table_json_data}
 
+시퀀스 정보입니다:
+{sequence_data}
+
 
 [SECTION 1] Entity 클래스 생성 규칙
 ===============================================
@@ -64,14 +67,30 @@ prompt = PromptTemplate.from_template(
      * NUMBER(p,s): Double (소수점이 있는 경우)
      * NUMBER without precision: Long (기본값)
    - VARCHAR2, CHAR: String
-   - DATE: LocalDate
-   - TIMESTAMP: LocalDateTime
+   - DATE & TIME: 
+        * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate
    - CLOB: String
    - BLOB: byte[]
    - RAW: byte[]
    - BOOLEAN: Boolean
 
-6. Import 선언
+6. 시퀀스 처리 규칙
+   - 시퀀스 정보가 'SEQ_필드명' 형태로 제공되는 경우:
+     * SEQ_ 접두어를 제거한 필드명과 일치하는 엔티티 필드를 찾음
+     * 해당 필드에 다음 @Column 어노테이션 적용:
+       @Column(name = "필드명", insertable = false, updatable = false,
+              columnDefinition = "NUMBER GENERATED AS IDENTITY START WITH 1 INCREMENT BY 1")
+   
+   예시) 
+   시퀀스: SEQ_TMF_SYNC_JOB_KEY
+   필드명: tmf_sync_job_key
+   적용:
+   @Column(name = "tmf_sync_job_key", insertable = false, updatable = false,
+          columnDefinition = "NUMBER GENERATED AS IDENTITY START WITH 1 INCREMENT BY 1")
+   private Long tmfSyncJobKey;
+
+7. Import 선언
    - 기본 제공되는 import문 유지
    - 추가로 필요한 import문 선언
 
@@ -96,9 +115,13 @@ public class EntityName {{
     private String originalPrimaryKey;
 
     @Column(nullable = false)
-    private String requiredField;
+    private LocalDate requiredField;
     
-    private String optionalField;
+    private LocalDateTime optionalField;
+
+    @Column(name = "SEQ_NUMBER", insertable = false, updatable = false, 
+            columnDefinition = "NUMBER GENERATED AS IDENTITY START WITH 1 INCREMENT BY 1")
+    private Long sequenceNumber;
     ...
 }}
 
@@ -119,13 +142,14 @@ public class EntityName {{
 
 
 # 역할: Neo4j에서 추출한 테이블 메타데이터를 기반으로 JPA Entity 클래스를 생성하는 함수입니다.
-#      LLM을 통해 테이블의 컬럼들을 Java 데이터 타입으로 매핑하고,
-#      클린 아키텍처 원칙을 따르는 스프링 부트 엔티티 클래스를 생성합니다.
+#
 # 매개변수: 
 #   - table_data : 테이블 노드의 메타데이터 정보
+#   - sequence_data : 시퀀스 정보
+#
 # 반환값: 
 #   - result : LLM이 생성한 Entity 클래스 정보
-def convert_entity_code(table_data):
+def convert_entity_code(table_data: dict, sequence_data: dict) -> dict:
     
     try:
         table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
@@ -136,9 +160,9 @@ def convert_entity_code(table_data):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"table_json_data": table_json_data})
+        result = chain.invoke({"table_json_data": table_json_data, "sequence_data": sequence_data})
         return result
     except Exception:
         err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise LLMCallError(err_msg)
