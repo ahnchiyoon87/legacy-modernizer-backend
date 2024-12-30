@@ -11,15 +11,19 @@ from prompt.convert_service_prompt import convert_service_code
 #
 # 매개변수:
 #   - connection : Neo4j 연결 객체
+#   - object_name : 처리할 패키지/프로시저의 식별자
+#   - procedure_name : 처리할 프로시저의 이름
 #
 # 반환값:
 #   - Tuple[bool, List[Dict]] : 조회 결과
-async def get_nodes_without_java_code(connection: Neo4jConnection) -> Tuple[bool, List[Dict]]:
+async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: str, procedure_name: str) -> Tuple[bool, List[Dict]]:
 
     try:
-        query = ["""
+        query = [f"""
         MATCH (n)
         WHERE n.java_code IS NULL
+        AND n.object_name = '{object_name}'
+        AND n.procedure_name = '{procedure_name}'
         AND NOT n:Table 
         AND NOT n:ROOT 
         AND NOT n:PACKAGE_SPEC
@@ -40,13 +44,12 @@ async def get_nodes_without_java_code(connection: Neo4jConnection) -> Tuple[bool
             logging.info(f"java_code가 없는 노드 {len(non_java_code_nodes)}개가 발견되었습니다.")
             return True, non_java_code_nodes
         else:
-            logging.info("모든 노드가 java_code 속성을 가지고 있습니다.")
             return False, []
     
     except Neo4jError:
         raise
-    except Exception:
-        err_msg = "java_code가 없는 노드 조회 중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"java_code가 없는 노드 조회 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise PrepareDataError(err_msg)
 
@@ -102,8 +105,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
         except ConvertingError:
             raise
-        except Exception:
-            err_msg = "서비스 전처리 검증 과정에서 자바로 전환 중 오류가 발생했습니다."
+        except Exception as e:
+            err_msg = f"서비스 전처리 검증 과정에서 자바로 전환 중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
             raise ProcessResultError(err_msg)
 
@@ -137,8 +140,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
         except ConvertingError:
             raise
-        except Exception:
-            err_msg = "서비스 검증 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다."
+        except Exception as e:
+            err_msg = f"서비스 검증 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
             raise HandleResultError(err_msg)
         
@@ -146,7 +149,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
     # ! 메인 로직
     try:
         # * java_code가 없는 노드 확인
-        has_nodes, nodes = await get_nodes_without_java_code(connection)
+        has_nodes, nodes = await get_nodes_without_java_code(connection, object_name, procedure_name)
         if not has_nodes:
             logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.")
             return
@@ -185,8 +188,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "서비스 전처리 검증 과정에서 예상치 못한 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"서비스 전처리 검증 과정에서 예상치 못한 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ServiceCreationError(err_msg)
     finally:

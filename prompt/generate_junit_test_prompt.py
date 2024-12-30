@@ -223,7 +223,7 @@ def generate_test_code(table_names: list, package_name: str, procedure_name: str
         })
         
         return result
-    except Exception:
-        err_msg = "테스트 코드 생성 중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"테스트 코드 생성 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise Exception(err_msg)

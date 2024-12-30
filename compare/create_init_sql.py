@@ -1,12 +1,22 @@
 from datetime import date
+import logging
 from pathlib import Path
 
+from util.exception import ExtractParameterError, GenerateSqlError, InitOracleDBError
+
+
+# 역할 : 01_init_database_config.sql 파일을 생성하는 함수
+#
+# 매개변수 : 
+#   - table_names : 테이블 이름 리스트
+#   - package_names : 패키지 이름 리스트
+#
+# 반환값 : 
+#   - bool : 파일 생성 성공 여부
 async def generate_init_sql(table_names: list[str], package_names: list[str]) -> bool:
-    """
-    01_init_database_config.sql 파일을 생성하는 함수
-    """
+
     try:
-        # 테이블 생성 명령어 생성
+        # * 테이블 생성 명령어 생성
         table_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/ddl/{table}.sql" for table in table_names])
         package_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/procedure/{package}.sql" for package in package_names])
 
@@ -120,14 +130,14 @@ COMMIT;
 
 EXIT;'''
 
-        # 프로젝트 루트 경로 찾기
+        # * 프로젝트 루트 경로 찾기
         current_dir = Path(__file__).parent.parent
         setup_dir = current_dir / 'setup'
         
         # setup 디렉토리가 없으면 생성
         setup_dir.mkdir(exist_ok=True)
         
-        # 01_init_database_config.sql 파일 생성
+        # * 01_init_database_config.sql 파일 생성
         init_sql_path = setup_dir / '01_init_database_config.sql'
         with open(init_sql_path, 'w', encoding='utf-8') as f:
             f.write(template)
@@ -136,21 +146,32 @@ EXIT;'''
         return True
         
     except Exception as e:
-        print(f"01_init_database_config.sql 파일 생성 중 오류 발생: {str(e)}")
-        return False
+        err_msg = f"01_init_database_config.sql 파일 생성 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise InitOracleDBError(err_msg)
     
 
+
+# 역할 : 테이블 데이터 삽입을 위한 INSERT 문 생성 함수
+#
+# 매개변수 : 
+#   - table_fields : 테이블 필드 정보 딕셔너리
+#
+# 반환값 : 
+#   - list : INSERT 문 리스트
 def generate_insert_sql(table_fields: dict) -> list:
     insert_statements = []
     
-    for table_name, fields in table_fields.items():
-        columns = []
-        values = []
+    try:
+        for table_name, fields in table_fields.items():
+            columns = []
+            values = []
         
         for field_name, field_info in fields.items():
             columns.append(field_name)
             
-            # 필드 타입에 따른 값 포맷팅
+
+            # * 필드 타입에 따른 값 포맷팅
             if field_info['type'].startswith(('VARCHAR2', 'CHAR')):
                 values.append(f"'{field_info['value']}'")
             elif field_info['type'].startswith('NUMBER'):
@@ -159,37 +180,58 @@ def generate_insert_sql(table_fields: dict) -> list:
                 values.append(f"TO_DATE('{field_info['value']}', 'YYYY-MM-DD')")
             else:
                 values.append(f"'{field_info['value']}'")
-        
-        # INSERT 문 생성
-        insert_sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(values)})"
-        insert_statements.append(insert_sql)
+                
+
+            # * INSERT 문 생성
+            insert_sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(values)})"
+            insert_statements.append(insert_sql)
+            
+            return insert_statements
     
-    return insert_statements
+    except Exception as e:
+        err_msg = f"INSERT 문 생성 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise GenerateSqlError(err_msg)
+    
 
 
-
+# 역할 : 프로시저 매개변수 추출 함수
+#
+# 매개변수 : 
+#   - procedure : 프로시저 정보 딕셔너리
+#
+# 반환값 : 
+#   - dict : 매개변수 딕셔너리
 def extract_procedure_params(procedure: dict) -> dict:
     params = {}
-    for var_name, var_info in procedure['variables'].items():
-        value = var_info['value']
-        param_type = var_info['type']
+
+    try:
+        for var_name, var_info in procedure['variables'].items():
+            value = var_info['value']
+            param_type = var_info['type']
         
-        # DATE 타입인 경우 date 객체로 변환
+        # * DATE 타입인 경우 date 객체로 변환
         if param_type == 'DATE':
             year, month, day = map(int, value.split('-'))
             value = date(year, month, day)
             
-        # NUMBER 타입인 경우 정수로 변환
+        # * NUMBER 타입인 경우 정수로 변환
         elif param_type == 'NUMBER':
             value = int(value) if value.isdigit() else value
             
-        # VARCHAR2, CHAR 등 문자열 타입은 그대로 사용
+        # * VARCHAR2, CHAR 등 문자열 타입은 그대로 사용
         else:
             value = value
+                
+            params[var_name] = value
             
-        params[var_name] = value
+        return params
     
-    return params
+    except Exception as e:
+        err_msg = f"프로시저 매개변수 추출 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise ExtractParameterError(err_msg)
+
 
 
 

@@ -1,6 +1,6 @@
 import logging
 import tiktoken
-from util.exception import ConvertingError, SkeletonCreationError, TemplateGenerationError
+from util.exception import ConvertingError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
@@ -20,11 +20,11 @@ async def generate_controller_skeleton(object_name: str, exist_command_class: bo
     try:
         # * 1. 컨트롤러 클래스명 생성 
         pascal_name = convert_to_pascal_case(object_name)
-        dir_name = convert_to_camel_case(object_name)
+        camel_name = convert_to_camel_case(object_name)
         controller_class_name = pascal_name + "Controller"
 
         # * 2 파라미터가 있는 경우 커맨드 패키지 임포트 추가
-        command_import = (f"import com.example.demo.command.{dir_name}.*;\n" 
+        command_import = (f"import com.example.demo.command.{camel_name}.*;\n" 
                          if exist_command_class else "")
         
         # * 3. 컨트롤러 클래스 템플릿 생성
@@ -38,19 +38,21 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 
 @RestController
-@RequestMapping("/{dir_name}")
+@RequestMapping("/{camel_name}")
 public class {controller_class_name} {{
 
     @Autowired
-    private {convert_to_pascal_case(object_name)}Service {convert_to_camel_case(object_name)}Service;
+    private {pascal_name}Service {camel_name}Service;
 
 CodePlaceHolder
 }}"""
 
         return controller_class_template ,controller_class_name
     
-    except Exception:
-        err_msg = "컨트롤러 클래스 골격을 생성하는 도중 문제가 발생했습니다."
+    except StringConversionError:
+        raise
+    except Exception as e:
+        err_msg = f"컨트롤러 클래스 골격을 생성하는 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)
         raise TemplateGenerationError(err_msg)
 
@@ -76,9 +78,9 @@ async def start_controller_skeleton_processing(object_name: str, exist_command_c
         logging.info(f"[{object_name}] 컨트롤러 틀 생성 완료\n")
         return controller_skeleton, controller_class_name
 
-    except ConvertingError:
+    except (StringConversionError, TemplateGenerationError):
         raise
-    except Exception:
-        err_msg = "컨트롤러 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"컨트롤러 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생: {str(e)}"
+        logging.error(err_msg)
         raise SkeletonCreationError(err_msg)

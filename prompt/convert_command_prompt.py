@@ -119,7 +119,7 @@ def convert_command_code(command_class_data, dir_name):
         )
         result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name})
         return result
-    except Exception:
-        err_msg = "Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

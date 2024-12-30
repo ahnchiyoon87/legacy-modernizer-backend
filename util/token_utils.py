@@ -18,7 +18,7 @@ def calculate_code_token(code):
         text_json = json.dumps(code, ensure_ascii=False)
         return len(encoder.encode(text_json))
 
-    except Exception:
-        err_msg = "토큰 계산 도중 문제가 발생"
+    except Exception as e:
+        err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)
         raise TokenCountError(err_msg)

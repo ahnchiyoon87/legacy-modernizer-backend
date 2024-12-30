@@ -12,8 +12,8 @@ from util.exception import StringConversionError
 def convert_to_pascal_case(snake_str: str) -> str:
     try:
         return ''.join(word.capitalize() for word in snake_str.split('_'))
-    except Exception:
-        err_msg = "파스칼 케이스 변환 중 오류 발생"
+    except Exception as e:
+        err_msg = f"파스칼 케이스 변환 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise StringConversionError("파스칼 케이스 변환 중 오류 발생")
 
@@ -29,7 +29,7 @@ def convert_to_camel_case(snake_str: str) -> str:
     try:
         words = snake_str.split('_')
         return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
-    except Exception:
-        err_msg = "카멜 케이스 변환 중 오류 발생"
+    except Exception as e:
+        err_msg = f"카멜 케이스 변환 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise StringConversionError("카멜 케이스 변환 중 오류 발생")

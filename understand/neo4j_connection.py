@@ -1,7 +1,6 @@
 import logging
 from neo4j import AsyncGraphDatabase
 import os
-from semantic.vectorizer import vectorize_text
 from util.exception import Neo4jError
 
 class Neo4jConnection:
@@ -40,8 +39,8 @@ class Neo4jConnection:
                     query_data = await query_result.data()
                     results.append(query_data)
             return results
-        except Exception:
-            error_msg = "Cypher Query를 실행하여, 노드 및 관계를 생성하는 도중 오류가 발생"
+        except Exception as e:
+            error_msg = f"Cypher Query를 실행하여, 노드 및 관계를 생성하는 도중 오류가 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
     
@@ -88,8 +87,8 @@ class Neo4jConnection:
                 logging.info("Queries executed successfully")
                 return {"Nodes": nodes_data, "Relationships": relationships_data}
             
-        except Exception:
-            error_msg = "Neo4J에서 그래프 객체 형태로 결과를 반환하는 도중 문제가 발생"
+        except Exception as e:
+            error_msg = f"Neo4J에서 그래프 객체 형태로 결과를 반환하는 도중 문제가 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
         

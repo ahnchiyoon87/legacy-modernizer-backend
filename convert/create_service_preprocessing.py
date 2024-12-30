@@ -72,9 +72,9 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                         used_variables.append(var_info)
                     break
 
-        except Exception:
-            err_msg = "(전처리) 서비스 코드 생성 과정에서 사용된 변수 노드 추출 도중 문제가 발생했습니다."
-            logging.error(err_msg, exc_info=False)
+        except Exception as e:
+            err_msg = f"(전처리) 서비스 코드 생성 과정에서 사용된 변수 노드 추출 도중 문제가 발생했습니다: {str(e)}"
+            logging.error(err_msg)
             raise VariableNodeError(err_msg)
     
 
@@ -104,8 +104,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
         except (Neo4jError, LLMCallError):
             raise
-        except Exception:
-            err_msg = "(전처리) 서비스 코드 생성 과정에서 사이즈가 큰 노드를 처리 도중 문제가 발생했습니다."
+        except Exception as e:
+            err_msg = f"(전처리) 서비스 코드 생성 과정에서 사이즈가 큰 노드를 처리 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
             raise ProcessResultError(err_msg)
 
@@ -141,11 +141,11 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             used_variables.clear()
             used_query_method_dict.clear()
         
-        except ConvertingError: 
+        except (LLMCallError, Neo4jError, HandleResultError): 
             raise
-        except Exception:
-            err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 결정하는 도중 문제가 발생했습니다."
-            logging.error(err_msg, exc_info=False)
+        except Exception as e:
+            err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 결정하는 도중 문제가 발생했습니다: {str(e)}"
+            logging.error(err_msg)
             raise ProcessResultError(err_msg)
 
 
@@ -194,8 +194,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
         except Neo4jError: 
             raise
-        except Exception:
-            err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다."
+        except Exception as e:
+            err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
             raise HandleResultError(err_msg)
     
@@ -340,8 +340,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
     
     except ConvertingError: 
         raise
-    except Exception:
-        err_msg = "(전처리) 서비스 코드 생성 과정에서 노드를 순회하는 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"(전처리) 서비스 코드 생성 과정에서 노드를 순회하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise TraverseCodeError(err_msg)
 
@@ -419,8 +419,8 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
 
     except ConvertingError: 
         raise
-    except Exception:
-        err_msg = "(전처리) 서비스 코드 생성 과정하기 위해 준비하는 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"(전처리) 서비스 코드 생성 과정하기 위해 준비하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ServiceCreationError(err_msg)
     finally:

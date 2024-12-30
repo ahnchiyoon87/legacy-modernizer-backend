@@ -1,11 +1,20 @@
 import logging
 import os
 from prompt.generate_junit_test_prompt import generate_test_code
-from util.exception import CompareResultError
+from util.exception import GenerateJunitError
 
 TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
 
-
+# 역할 : JUnit 테스트 코드를 생성하는 함수
+#
+# 매개변수 : 
+#   - given_when_then_log : 주어진 로그 데이터
+#   - table_names : 테이블 이름 리스트
+#   - package_name : 패키지 이름
+#   - procedure_name : 프로시저 이름
+#
+# 반환값 : 
+#   - str : 생성된 테스트 코드 파일 이름
 async def create_junit_test(given_when_then_log: dict, table_names: list, package_name: str, procedure_name: str):
     try:
         test_result = generate_test_code(
@@ -28,8 +37,8 @@ async def create_junit_test(given_when_then_log: dict, table_names: list, packag
         
         return test_result['className']
     
-    except Exception:
-        err_msg = "Junit 테스트 코드 작성 중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise CompareResultError(err_msg)
+    except Exception as e:
+        err_msg = f"Junit 테스트 코드 작성 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise GenerateJunitError(err_msg)
     

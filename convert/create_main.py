@@ -72,7 +72,7 @@ async def start_main_processing(orm_type: str):
     
     except SaveFileError:
         raise
-    except Exception:
-        err_msg = "스프링부트의 메인 클래스를 생성하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"스프링부트의 메인 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise MainCreationError(err_msg)

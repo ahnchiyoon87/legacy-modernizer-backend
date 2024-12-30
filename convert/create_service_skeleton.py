@@ -6,7 +6,7 @@ from prompt.convert_variable_prompt import convert_variables
 from prompt.convert_service_skeleton_prompt import convert_method_code
 from prompt.convert_command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, TemplateGenerationError
+from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
@@ -85,8 +85,10 @@ CodePlaceHolder
 
         return service_class_template, service_class_name
     
-    except Exception:
-        err_msg = "서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다."
+    except StringConversionError:
+        raise
+    except Exception as e:
+        err_msg = f"서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise TemplateGenerationError(err_msg)
 
@@ -136,8 +138,8 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
     
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "메서드 틀을 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"메서드 틀을 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessResultError(err_msg)
 
@@ -163,8 +165,8 @@ async def generate_command_class(class_name: str, source_code: str, dir_name: st
             
     except SaveFileError:
         raise
-    except Exception:
-        err_msg = f"커맨드 클래스 [{class_name}] 파일 저장을 위한 경로 설정중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"커맨드 클래스 [{class_name}] 파일 저장을 위한 경로 설정중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise FilePathError(err_msg)
     
@@ -251,8 +253,8 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
     
     except Neo4jError:
         raise
-    except Exception:
-        err_msg = f"[{object_name}] 프로시저 데이터 조회 중 오류 발생"
+    except Exception as e:
+        err_msg = f"[{object_name}] 프로시저 데이터 조회 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise ExtractNodeInfoError(err_msg)
 
@@ -347,8 +349,8 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
 
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = f"[{object_name}] 서비스 클래스 생성 중 오류 발생"
+    except Exception as e:
+        err_msg = f"[{object_name}] 서비스 클래스 생성 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise SkeletonCreationError(err_msg)
     finally:

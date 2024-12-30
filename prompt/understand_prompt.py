@@ -118,7 +118,7 @@ def understand_code(sp_code, context_ranges, context_range_count):
         logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content
     
-    except Exception:
-        err_msg = "Understanding 과정에서 분석 관련 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"Understanding 과정에서 분석 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

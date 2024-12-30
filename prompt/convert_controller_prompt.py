@@ -123,7 +123,7 @@ def convert_controller_method_code(method_signature: str, procedure_name: str, c
         )
         result = chain.invoke({"method_signature": method_signature, "procedure_name": procedure_name, "command_class_variable": command_class_variable, "command_class_name": command_class_name, "controller_skeleton": controller_skeleton})
         return result
-    except Exception:
-        err_msg = "컨트롤러 메서드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"컨트롤러 메서드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)

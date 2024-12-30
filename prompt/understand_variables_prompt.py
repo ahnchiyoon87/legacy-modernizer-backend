@@ -110,7 +110,7 @@ def understand_variables(declaration_code, ddl_tables):
         )
         result = chain.invoke({"declaration_code": declaration_code, "ddl_tables": ddl_tables})
         return result
-    except Exception:
-        err_msg = "Understanding 과정에서 변수 관련 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"Understanding 과정에서 변수 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

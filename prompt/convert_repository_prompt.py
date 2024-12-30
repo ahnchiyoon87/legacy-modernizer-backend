@@ -309,7 +309,7 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
         result = chain.invoke(prompt_data)
         return result
     
-    except Exception:
-        err_msg = "리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)

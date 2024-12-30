@@ -103,7 +103,8 @@ def convert_variables(variables):
         )
         result = chain.invoke({"variables": variables})
         return result
-    except Exception:
-        err_msg = "자바 클래스 필드로 전환하는 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    
+    except Exception as e:
+        err_msg = f"자바 클래스 필드로 전환하는 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

@@ -102,7 +102,8 @@ def convert_xml_mapper(entity_name: str, entity_code: str, query_methods: dict) 
         )
         result = chain.invoke(prompt_data)
         return result
-    except Exception:
-        err_msg = "매퍼 XML 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+    
+    except Exception as e:
+        err_msg = f"매퍼 XML 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)

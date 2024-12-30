@@ -115,11 +115,11 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
 )
 
 # 역할: PL/SQL 함수/프로시저의 시그니처를 분석하여 Java 메서드의 기본 구조를 생성하는 함수입니다.
-#      LLM을 통해 PL/SQL 파라미터와 리턴 타입을 Java 데이터 타입으로 매핑하고,
-#      메서드의 기본 구조(시그니처, 예외 처리, 리턴문 등)를 생성합니다.
+#
 # 매개변수: 
 #   - method_skeleton_data : 메서드 기본 구조 생성에 필요한 데이터
 #   - parameter_data : 함수/프로시저의 파라미터 정보
+#
 # 반환값: 
 #   - result : LLM이 생성한 메서드 기본 구조 정보
 def convert_method_code(method_skeleton_data, parameter_data):
@@ -135,7 +135,8 @@ def convert_method_code(method_skeleton_data, parameter_data):
         )
         result = chain.invoke({"method_skeleton_data": method_skeleton_data, "parameter_data": parameter_data})
         return result
-    except Exception:
-        err_msg = "메서드 틀 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    
+    except Exception as e:
+        err_msg = f"메서드 틀 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

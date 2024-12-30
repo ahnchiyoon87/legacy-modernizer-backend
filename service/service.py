@@ -30,7 +30,7 @@ from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError
+from util.exception import AddLineNumError, ConvertingError, FeedbackLoopError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
 from util.file_utils import read_sequence_file
 
 
@@ -45,8 +45,10 @@ os.makedirs(DDL_DIR, exist_ok=True)
 
 
 # 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
+#
 # 매개변수: 
 #   - plsql : 원본 PL/SQL 코드 (라인 단위 리스트)
+#
 # 반환값: 
 #   - numbered_plsql : 각 라인 앞에 번호가 추가된 PL/SQL 코드
 def add_line_numbers(plsql):
@@ -55,17 +57,18 @@ def add_line_numbers(plsql):
         numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
         numbered_plsql = "".join(numbered_lines)
         return numbered_plsql
-    except Exception:
-        err_msg = "전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise AddLineNumError(err_msg)
 
 
 
 # 역할: Neo4j에서 노드와 관계를 조회하여 그래프 데이터를 스트림 형태로 반환합니다.
-#      코드 분석 결과를 실시간으로 시각화하기 위한 데이터를 제공합니다.
+#
 # 매개변수:
 #   - file_names : 분석할 파일 이름과 객체 이름 튜플의 리스트
+#
 # 반환값: 
 #   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
 # TODO 어떤 파일을 understanding 중인지 표시가 필요, ddl 처리 또한 표시 필요 
@@ -141,9 +144,10 @@ async def generate_and_execute_cypherQuery(file_names):
             await analysis_task
         yield "end_of_stream" # * 스트림 종료 신호
 
-
-    except Exception:
-        error_msg = "사이퍼쿼리를 생성 및 실행하고 스트림으로 반환하는 과정에서 오류가 발생했습니다"
+    except UnderstandingError as e:
+        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
+    except Exception as e:
+        error_msg = f"사이퍼쿼리를 생성 및 실행하고 스트림으로 반환하는 과정에서 오류가 발생했습니다: {str(e)}"
         logging.exception(error_msg)
         yield json.dumps({"error": error_msg}).encode('utf-8') + b"send_stream"
     finally:
@@ -151,10 +155,12 @@ async def generate_and_execute_cypherQuery(file_names):
 
 
 # 역할: DDL 파일을 읽어서 테이블 구조를 분석하고 Neo4j 그래프 데이터베이스에 저장합니다
+#
 # 매개변수:
 #   - ddl_file_path: DDL 파일의 경로
 #   - connection: Neo4j 데이터베이스 연결 객체
 #   - object_name: 프로시저 이름
+#
 # 반환값:
 #   - ddl_result: 분석된 테이블 구조 정보 (테이블명, 컬럼, 키 정보 등)
 async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection, object_name):
@@ -200,17 +206,20 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
             await connection.execute_queries(cypher_queries)
             logging.info(f"DDL 파일 처리 완료: {object_name}")
             return ddl_result
-            
-    except Exception:
-        err_msg = f"DDL 파일 처리 중 오류가 발생했습니다"
-        logging.error(err_msg, exc_info=False)
+    
+    except UnderstandingError as e:
+        raise
+    except Exception as e:
+        err_msg = f"DDL 파일 처리 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise ProcessResultError(err_msg)
     
 
 # 역할: 특정 노드를 중심으로 2단계 깊이까지의 연관 노드와 관계를 조회합니다.
-#      선택된 노드의 주변 컨텍스트를 파악하기 위한 서브그래프를 제공합니다.
+#
 # 매개변수: 
 #   - node_info : 중심이 되는 노드의 식별 정보
+#
 # 반환값: 
 #   - graph_object_result : 2단계 깊이까지의 서브그래프 데이터
 async def generate_two_depth_match(node_info):
@@ -230,20 +239,21 @@ async def generate_two_depth_match(node_info):
     
     except Neo4jError:
         raise
-    except Exception:
-        err_msg = "2단계 깊이 기준 노드를 조회하는 사이퍼쿼리를 준비 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"2단계 깊이 기준 노드를 조회하는 사이퍼쿼리를 준비 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise Java2dethsError(err_msg)
     finally:
         await connection.close()
 
 
 # 역할: 사이퍼 쿼리와 사용자 요구사항을 기반으로 Java 코드를 생성합니다.
-#      생성된 코드는 실시간으로 스트리밍됩니다.
+#
 # 매개변수:
 #   - cypher_query : Neo4j 사이퍼 쿼리
 #   - previous_history : 이전 코드 생성 히스토리
 #   - requirements_chat : 사용자의 추가 요구사항
+#
 # 반환값: 
 #   - 스트림 : 생성된 Java 코드
 async def generate_simple_java_code(cypher_query=None, previous_history=None, requirements_chat=None):
@@ -255,31 +265,10 @@ async def generate_simple_java_code(cypher_query=None, previous_history=None, re
         
     except LLMCallError:
         yield "stream-error"
-    except Exception:
-        err_msg = "2단계 깊이 기준으로 전환된 자바 코드를 스트림으로 전달하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"2단계 깊이 기준으로 전환된 자바 코드를 스트림으로 전달하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         yield "stream-error" 
-
-
-# 역할: PL/SQL 파일 이름을 Java 네이밍 컨벤션에 맞게 변환합니다.
-#      파스칼 케이스와 소문자 형식으로 변환된 이름을 제공합니다.
-# 매개변수: 
-#   - sp_fileName : 원본 PL/SQL 파일 이름
-# 반환값: 
-#   - pascal_file_name : 파스칼 케이스로 변환된 이름
-#   - lower_file_name : 소문자로 변환된 이름
-async def transform_file_name(sp_fileName):
-    try:
-        # * 파일 이름에서 _를 제거하고, 각각의 표기법으로 전환합니다.
-        words = sp_fileName.split('_')
-        pascal_file_name = ''.join(x.title() for x in words)
-        lower_file_name = sp_fileName.replace('_', '').lower()
-        return pascal_file_name, lower_file_name
-    except Exception:
-        err_msg = "스토어드 프로시저 파일 이름을 파스칼, 소문자로 구성된 이름으로 변환 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        raise OSError(err_msg)
-
 
 
 # 역할: PL/SQL 프로시저를 스프링 부트 프로젝트로 변환하는 전체 프로세스를 관리합니다.
@@ -297,6 +286,8 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
             merge_controller_method_code = ""
 
             yield f"Start converting {object_name}\n"
+            print(f"Start converting {object_name}\n")
+            print(f"orm type {orm_type}")
 
 
             # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
@@ -390,12 +381,12 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
         yield "All files have been converted successfully.\n"
 
-    except (ConvertingError, Neo4jError):
-        yield "convert-error"
-    except Exception:
-        err_msg = "스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
-        yield "convert-error"
+    except ConvertingError as e:
+        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
+    except Exception as e:
+        err_msg = f"스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
 
 
 # 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축합니다.
@@ -417,9 +408,9 @@ async def process_project_zipping(source_directory, output_zip_path):
                     zipf.write(file_path, arcname)
         logging.info("Zipping completed successfully.")
 
-    except Exception:
-        err_msg = "스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise OSError(err_msg)
     
 
@@ -441,16 +432,20 @@ async def delete_all_temp_data(delete_paths: dict):
         delete_query = ["MATCH (n) DETACH DELETE n"] 
         await neo4j.execute_queries(delete_query)
         logging.info(f"Neo4J 데이터 초기화 완료")
-        
+    
+    except Neo4jError:
+        raise
     except Exception as e:
-        logging.exception(f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}")
-        raise OSError("임시 파일 삭제 및 그래프 데이터 삭제 중 오류가 발생했습니다.")
+        err_msg = f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}"
+        logging.exception(err_msg)
+        raise OSError(err_msg)
     
 
 # 역할: 주어진 PL/SQL 파일을 기반으로 JUnit 테스트 코드를 생성하고, 필요한 데이터를 Neo4j에서 가져옵니다.
 # 매개변수:
 #   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_UPDATE_SALARY.sql")
 # 반환값: 없음
+# TODO 리팩토링 필요 
 async def process_comparison_result(test_cases: list):
     try:
         # * 모든 테스트 케이스에서 사용된 테이블 이름을 추출하여 집합으로 저장
@@ -516,12 +511,17 @@ async def process_comparison_result(test_cases: list):
         async for result in execute_maven_commands(test_class_names):
             yield result
 
-    except Exception:
-        err_msg = "결과 검증 및 비교하는 도중 오류가 발생했습니다."
+    except FeedbackLoopError as e:
+        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
+    except Exception as e:
+        err_msg = f"결과 검증 및 비교하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         yield json.dumps({"type": "error","message": err_msg}).encode('utf-8') + b"send_stream"
 
 
+# 역할 : Neo4j에서 테스트 검증을 위한 초기 노드 정보를 조회하여 반환합니다
+# 매개변수 : 없음
+# 반환값 : 노드 정보 데이터
 async def get_node_info_from_neo4j():
     try:
         neo4j = Neo4jConnection()
@@ -568,7 +568,9 @@ async def get_node_info_from_neo4j():
             "root": results[1][0]['roots'],
             "procedure": results[2][0]['procedures']
         }
-    except Exception:
-        raise Neo4jError("Neo4j에서 노드 정보를 가져오는데 실패했습니다.")
+    except Exception as e:
+        err_msg = f"Neo4j에서 노드 정보를 가져오는데 실패했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise Neo4jError(err_msg)
     finally:
         await neo4j.close()

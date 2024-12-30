@@ -9,23 +9,29 @@ import base64
 from decimal import Decimal
 from datetime import date, datetime
 
-from util.exception import ProcessResultError
+from util.exception import CompareResultError, DecodeLogError, ExtractLogError, ProcessResultError, SaveFileError
 from collections import OrderedDict
 
 # 현재 파일(capture_log.py)의 위치를 기준으로 경로 설정
-CURRENT_DIR = Path(__file__).parent  # compare
-PROJECT_ROOT = CURRENT_DIR.parent    # legacy-modernizer-back
-LOGS_DIR = PROJECT_ROOT / 'logs'     # logs 디렉토리
+CURRENT_DIR = Path(__file__).parent  
+PROJECT_ROOT = CURRENT_DIR.parent    
+LOGS_DIR = PROJECT_ROOT / 'logs'     
 
 # 로그 파일 경로
 JAVA_LOG_PATH = LOGS_DIR / 'java_logs.jsonl'
 PLSQL_LOG_PATH = LOGS_DIR / 'plsql_logs.jsonl'
 
 
-
+# 역할 : 결과 비교 함수
+#
+# 매개변수 : 
+#   - case_number : 케이스 번호
+#
+# 반환값 : 
+#   - dict : 결과 딕셔너리
 async def compare_then_results(case_number: int):
     try:
-        # 파일 읽기
+        # * 파일 읽기
         async with aiofiles.open(LOGS_DIR / f"result_plsql_given_when_then_case{case_number}.json", 'r', encoding='utf-8') as f1, \
                   aiofiles.open(LOGS_DIR / f"result_java_given_when_then_case{case_number}.json", 'r', encoding='utf-8') as f2:
             plsql_data = json.loads(await f1.read())
@@ -41,7 +47,7 @@ async def compare_then_results(case_number: int):
                 if k.upper() != 'ID'
             }
 
-        # then 데이터 정규화
+        # * then 데이터 정규화
         plsql_then = {
             f"{item['operation']}_{item['table']}": normalize_data(item['data'])
             for item in plsql_data["then"]
@@ -52,7 +58,7 @@ async def compare_then_results(case_number: int):
             for item in java_data["then"]
         }
 
-        # 차이점 분석
+        # * 차이점 분석
         differences = {}
         has_differences = False
 
@@ -80,7 +86,7 @@ async def compare_then_results(case_number: int):
                         }
                     }
 
-        # 결과 생성
+        # * 결과 생성
         result = (differences if has_differences else {
             "status": "identical",
             "message": "모든 결과가 동일합니다.",
@@ -89,28 +95,37 @@ async def compare_then_results(case_number: int):
 
         logging.info(f"Case {case_number}: {'차이점이 발견되었습니다.' if has_differences else '모든 결과가 동일합니다.'}")
 
-        # 결과를 파일로 저장
+        # * 결과를 파일로 저장
         async with aiofiles.open(LOGS_DIR / f"compare_result_case{case_number}.json", 'w', encoding='utf-8') as f:
             await f.write(json.dumps(result, indent=4, ensure_ascii=False))
 
         return result
 
     except Exception as e:
-        logging.error(f"결과 비교 중 오류가 발생했습니다: {str(e)}")
-        raise ProcessResultError(f"결과 비교 중 오류가 발생했습니다: {str(e)}")
+        err_msg = f"결과 비교 로그 생성 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise CompareResultError(err_msg)
     
 
 
+# 역할 : Java Given-When-Then 로그 추출 함수
+#
+# 매개변수 : 
+#   - case_number : 케이스 번호
+#
+# 반환값 : 
+#   - dict : 추출된 로그 딕셔너리   
 async def extract_java_given_when_then(case_number: int):
     try:
         time.sleep(10)
 
-        # 파일 읽기
+        # * 파일 읽기
         async with aiofiles.open(LOGS_DIR / f"result_plsql_given_when_then_case{case_number}.json", 'r', encoding='utf-8') as f1, \
                   aiofiles.open(JAVA_LOG_PATH, encoding='utf-8') as f2:
             plsql_data = json.loads(await f1.read())
             java_entries = [json.loads(line) for line in (await f2.read()).split('\n') if line.strip()]
 
+        # * 데이터 정규화
         def normalize(data: dict) -> dict:
             """데이터 정규화: ID 제외, 키 변환, 값 처리를 한번에 수행"""
             return {
@@ -123,18 +138,18 @@ async def extract_java_given_when_then(case_number: int):
                 if k.upper() != 'ID'
             }
 
-        # PLSQL given 데이터 정규화
+        # * PLSQL given 데이터 정규화
         given_keys = {entry['table']: normalize(entry['data']) for entry in plsql_data['given']}
         
         given_data = []
         then_data = []
         
-        # 데이터 처리 및 분류
+        # * 데이터 처리 및 분류
         for entry in (e for e in java_entries if e['payload'].get('after')):
             table = entry['payload']['source']['table']
             type_info = {f['field']: f.get('name') for f in entry['schema']['fields'][1]['fields']}
             
-            # 데이터 디코딩 및 처리
+            # * 데이터 디코딩 및 처리
             decoded_data = {
                 k: (int(v) if str(v).isdigit() else 
                     v.split(' ')[0] if isinstance(v, str) and ' ' in v and ':' in v 
@@ -143,7 +158,7 @@ async def extract_java_given_when_then(case_number: int):
                            for key, value in entry['payload']['after'].items())
             }
             
-            # 데이터 분류
+            # * 데이터 분류
             if table in given_keys and normalize(decoded_data) == given_keys[table]:
                 given_data.append({
                     "operation": entry['payload']['op'],
@@ -157,7 +172,7 @@ async def extract_java_given_when_then(case_number: int):
                     "data": decoded_data
                 })
 
-        # OrderedDict로 순서 보장
+        # * OrderedDict로 순서 보장
         result = OrderedDict([
             ("given", given_data),
             ("when", plsql_data["when"]),
@@ -166,18 +181,30 @@ async def extract_java_given_when_then(case_number: int):
 
         await save_json_to_file(result, f"result_java_given_when_then_case{case_number}.json")
         return result
-
+    
+    except (SaveFileError, DecodeLogError):
+        raise
     except Exception as e:
-        logging.error(f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}")
-        raise ProcessResultError(f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}")
+        err_msg = f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise ExtractLogError(err_msg)
     
 
-
+# 역할 : PLSQL Given-When-Then 로그 추출 함수
+#
+# 매개변수 : 
+#   - case_number : 케이스 번호
+#   - procedure : 프로시저 정보
+#   - params : 프로시저 매개변수
+#   - table_fields : 테이블 필드 정보
+#
+# 반환값 : 
+#   - dict : 추출된 로그 딕셔너리
 async def generate_given_when_then(case_number: int, procedure: dict, params: dict, table_fields: dict):
     try:
         time.sleep(10)
 
-        # GIVEN 생성 - 숫자는 숫자 타입으로 변환
+        # * GIVEN 생성 - 숫자는 숫자 타입으로 변환
         given_data = [
             {
                 "operation": "c",
@@ -191,7 +218,7 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
         ]
 
 
-        # date 객체를 문자열로 변환하는 처리를 추가
+        # * date 객체를 문자열로 변환하는 처리를 추가
         formatted_params = {}
         for key, value in params.items():
             if isinstance(value, date):  # date 객체인 경우
@@ -205,7 +232,7 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
         }
 
 
-        # THEN 생성 - 모든 JSON 라인 처리
+        # * THEN 생성 - 모든 JSON 라인 처리
         async with aiofiles.open(PLSQL_LOG_PATH, encoding='utf-8') as f:
             content = await f.read()
             
@@ -228,16 +255,23 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
             await save_json_to_file(result, f"result_plsql_given_when_then_case{case_number}.json")
             return result
 
-
+    except (SaveFileError, DecodeLogError):
+        raise
     except Exception as e:
         err_msg = f"Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise ExtractLogError(err_msg)
     
     
-
+# 역할 : 개별 값을 해당 타입에 맞게 디코딩
+#
+# 매개변수 : 
+#   - value : 디코딩할 값
+#   - type_ : 타입
+#
+# 반환값 : 
+#   - str : 디코딩된 값
 def decode_value(value, type_):
-    """개별 값을 해당 타입에 맞게 디코딩"""
     if value is None:
         return value
 
@@ -257,11 +291,14 @@ def decode_value(value, type_):
             return datetime.fromtimestamp(epoch_millis / 1000).strftime('%Y-%m-%d %H:%M:%S')
 
         return value
-    except Exception:
-        return value
+    
+    except Exception as e:
+        err_msg = f"로그 데이터 디코딩 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise DecodeLogError(err_msg)
 
 
-
+# TODO : utils로 이동
 async def save_json_to_file(data, file_name):
     """JSON 데이터를 파일로 저장"""
     logs_dir = LOGS_DIR
@@ -278,15 +315,22 @@ async def save_json_to_file(data, file_name):
         print(f"파일 저장 중 오류 발생: {str(e)}")
 
 
+# 역할 : 로그 파일 비우기
+#
+# 매개변수 : 
+#   - log_type : 로그 타입
+#
+# 반환값 : 
+#   - bool : 로그 파일 비우기 성공 여부
 async def clear_log_file(log_type: str):
 
     try:
             
-        # PLSQL 로그 타입일 경우 딜레이
+        # * PLSQL 로그 타입일 경우 딜레이
         if log_type == 'plsql':
             time.sleep(10)
         
-        # 두 파일 동시 처리
+        # * 두 파일 동시 처리
         async with aiofiles.open(PLSQL_LOG_PATH, 'w', encoding='utf-8') as f1, \
                   aiofiles.open(JAVA_LOG_PATH, 'w', encoding='utf-8') as f2:
             await asyncio.gather(
@@ -297,5 +341,6 @@ async def clear_log_file(log_type: str):
         print(f"{log_type} 로그 파일 비우기 완료")
             
     except Exception as e:
-        logging.error(f"{log_type} 로그 파일 비우기 실패: {str(e)}")
-        raise ProcessResultError(f"{log_type} 로그 파일 비우기 실패")
+        err_msg = f"{log_type} 로그 파일 비우기 실패: {str(e)}"
+        logging.error(err_msg)
+        raise ExtractLogError(err_msg)

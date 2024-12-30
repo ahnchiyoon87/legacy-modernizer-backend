@@ -71,7 +71,7 @@ def convert_summarized_code(summarized_code):
         result = chain.invoke({"summarized_code": summarized_code})
         return result
     
-    except Exception:
-        err_msg = "서비스 클래스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"서비스 클래스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

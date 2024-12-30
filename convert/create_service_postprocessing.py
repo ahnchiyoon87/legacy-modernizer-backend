@@ -54,8 +54,8 @@ async def process_big_size_node(node_startLine:int, summarized_java_code:str, co
     
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "Service 클래스 생성과정에서 크기가 매우 큰 노드에 대한 처리를 하는 도중 문제가 발생했습니다"
+    except Exception as e:
+        err_msg = f"Service 클래스 생성과정에서 크기가 매우 큰 노드에 대한 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessResultError(err_msg)
 
@@ -140,8 +140,8 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
     
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "(후처리) Service 클래스 생성을 위해 노드를 순회하는 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"(후처리) Service 클래스 생성을 위해 노드를 순회하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise TraverseCodeError(err_msg)
 
@@ -177,8 +177,8 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
 
     except SaveFileError:
         raise
-    except Exception:
-        err_msg = "서비스 클래스 파일 생성 중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"서비스 클래스 파일 생성 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise FilePathError(err_msg)
 
@@ -236,8 +236,8 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
 
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "(후처리) 서비스 클래스를 생성을 위한 준비 및 시작 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"(후처리) 서비스 클래스를 생성을 위한 준비 및 시작 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ServiceCreationError(err_msg)
     finally:

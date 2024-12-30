@@ -1,18 +1,23 @@
+import logging
 import os
 from pathlib import Path
 import subprocess
-import time
+
+from util.exception import DockerComposeError, DockerPrepareError, DockerRunError
 
 
+# 역할 : docker-compose.yml 파일을 생성하는 함수
+#
+# 매개변수 : 
+#   - table_names : 테이블 이름 리스트
 async def generate_docker_compose_yml(table_names):
-    """
-    docker-compose.yml 파일을 생성하는 함수
-    """
+
     try:
-        # 테이블 이름들을 공백으로 구분된 문자열로 변환
+        # * 테이블 이름들을 공백으로 구분된 문자열로 변환
         table_names_str = " ".join(table_names)
 
-        # docker-compose.yml 템플릿
+
+        # * docker-compose.yml 템플릿
         template = f'''version: '3'
 services:
   zookeeper:
@@ -224,40 +229,49 @@ services:
       /kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --whitelist 'server2.C__DEBEZIUM.*' --from-beginning >> /kafka/logs/java_logs.jsonl
       "'''
 
-        # 프로젝트 루트 경로 찾기
+
+        # * 프로젝트 루트 경로 찾기
         current_dir = Path(__file__).parent.parent
         setup_dir = current_dir / 'setup'
         
-        # setup 디렉토리가 없으면 생성
+
+        # * setup 디렉토리가 없으면 생성
         setup_dir.mkdir(exist_ok=True)
         
-        # docker-compose.yml 파일 생성
+
+        # * docker-compose.yml 파일 생성
         docker_compose_path = setup_dir / 'docker-compose.yml'
         with open(docker_compose_path, 'w', encoding='utf-8') as f:
             f.write(template)
             
+
         print(f"docker-compose.yml 파일이 생성되었습니다: {docker_compose_path}")
         return True
         
     except Exception as e:
-        print(f"docker-compose.yml 파일 생성 중 오류 발생: {str(e)}")
-        return False
+        err_msg = f"docker-compose.yml 파일 생성 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise DockerComposeError(err_msg)
 
 
 
+# 역할 : docker-compose.yml 파일을 실행하는 함수
+#
+# 반환값 : 
+#   - bool : 도커 실행 성공 여부
 async def start_docker_compose_yml():
-    """
-    docker-compose.yml 파일을 실행하고 일정 시간 대기하는 함수
-    """
+
     try:
-        # 프로젝트 루트 경로 찾기
+        # * 프로젝트 루트 경로 찾기
         current_dir = Path(__file__).parent.parent
         setup_dir = current_dir / 'setup'
         
-        # setup 디렉토리로 이동
+
+        # * setup 디렉토리로 이동
         os.chdir(setup_dir)
         
-        # docker-compose up 명령 실행
+
+        # * docker-compose up 명령 실행
         result = subprocess.run(
             ['docker-compose', 'up', '-d'],
             capture_output=True,
@@ -272,29 +286,32 @@ async def start_docker_compose_yml():
         return True
         
     except subprocess.CalledProcessError as e:
-        print(f"Docker Compose 실행 실패: {e.stderr}")
-        return False
+        err_msg = f"Docker Compose 실행 실패: {str(e)}"
+        logging.error(err_msg)
+        raise DockerRunError(err_msg)
     except Exception as e:
-        print(f"예상치 못한 에러 발생: {str(e)}")
-        return False
+        err_msg = f"Docker Compose 실행 준비 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise DockerRunError(err_msg)
 
 
+
+# 역할 : docker-compose.yml 생성, 도커 실행을 순차적으로 처리하는 메인 함수
+#
+# 매개변수 : 
+#   - table_names : 처리할 테이블 이름 리스트
+#
+# 반환값 : 
+#   - bool : 모든 과정 성공 여부
 async def process_docker_compose_yml(table_names: list) -> bool:
-    """
-    docker-compose.yml 생성, 도커 실행을 순차적으로 처리하는 메인 함수
-    
-    Args:
-        table_names: 처리할 테이블 이름 리스트
-    Returns:
-        bool: 모든 과정 성공 여부
-    """
+
     try:
-        # 1. docker-compose.yml 생성
+        # * 1. docker-compose.yml 생성
         if not await generate_docker_compose_yml(table_names):
             print("docker-compose.yml 생성 실패")
             return False
 
-        # 2. 도커 실행
+        # * 2. 도커 실행
         if not await start_docker_compose_yml():
             print("Docker Compose 실행 실패")
             return False
@@ -303,5 +320,6 @@ async def process_docker_compose_yml(table_names: list) -> bool:
         return True
 
     except Exception as e:
-        print(f"환경 설정 중 오류 발생: {str(e)}")
-        return False
+        err_msg = f"환경 설정 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise DockerPrepareError(err_msg)

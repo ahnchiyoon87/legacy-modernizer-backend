@@ -28,8 +28,8 @@ async def understand_data(request: Request):
         if not file_names:
             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
         
-    except Exception:
-        raise HTTPException(status_code=500, detail="Understanding에 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Understanding에 실패했습니다: {str(e)}")
 
     return StreamingResponse(generate_and_execute_cypherQuery(file_names))
 
@@ -49,8 +49,8 @@ async def convert_simple_java(request: Request):
         logging.info("Received Node Info for Java: %s", node_info)  
         cypher_query_for_java = await generate_two_depth_match(node_info)
 
-    except Exception:
-        raise HTTPException(status_code=500, detail="테이블 노드 기준으로 자바 코드 생성에 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"테이블 노드 기준으로 자바 코드 생성에 실패했습니다: {str(e)}")
 
     return StreamingResponse(generate_simple_java_code(cypher_query_for_java))
     
@@ -72,8 +72,8 @@ async def receive_chat(request: Request):
         userInput = chat_info['userInput']
         prevHistory = chat_info['prevHistory']
 
-    except Exception:
-        raise HTTPException(status_code=500, detail="자바 코드 생성을 위해 전달된 데이터가 잘못되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"자바 코드 생성을 위해 전달된 데이터가 잘못되었습니다: {str(e)}")
 
     return StreamingResponse(generate_simple_java_code(None, prevHistory, userInput))
 
@@ -92,13 +92,13 @@ async def covnert_spring_project(request: Request):
         file_data = await request.json()
         logging.info("Received File Info for Convert Spring Boot: %s", file_data)
         file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
-        orm_type = file_data.get('ormType', 'jpa').lower()
+        orm_type = file_data.get('selectedORM', 'jpa').lower()
 
         if not file_names:
             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
 
-    except Exception:
-        raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다: {str(e)}")
 
     return StreamingResponse(generate_spring_boot_project(file_names, orm_type), media_type="text/plain")
 
@@ -128,8 +128,8 @@ async def download_spring_project():
             filename="project.zip", 
             media_type='application/octet-stream'
         )
-    except Exception:
-        raise HTTPException(status_code=500, detail="스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}")
     
 
 
@@ -179,8 +179,8 @@ async def get_compare_result(request: Request):
             raise HTTPException(status_code=400, detail="테스트 케이스 정보가 없습니다.")
             
         return StreamingResponse(process_comparison_result(test_cases))
-    except Exception:
-        raise HTTPException(status_code=500, detail="비교 결과를 가져오는데 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"비교 결과를 가져오는데 실패했습니다: {str(e)}")
 
 
 # 역할: Neo4j에서 모든 노드 정보를 조회하여 반환합니다
@@ -192,5 +192,5 @@ async def get_node_info():
         # Neo4j에서 모든 노드 정보를 조회하는 로직 구현 필요
         result = await get_node_info_from_neo4j()
         return result
-    except Exception:
-        raise HTTPException(status_code=500, detail="노드 정보를 가져오는데 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"노드 정보를 가져오는데 실패했습니다: {str(e)}")

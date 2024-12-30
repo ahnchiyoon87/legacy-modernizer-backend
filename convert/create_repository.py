@@ -5,7 +5,7 @@ import textwrap
 from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_variable_nodes
-from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, TemplateGenerationError, TokenCountError, TraverseCodeError, VariableNodeError
+from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TokenCountError, TraverseCodeError, VariableNodeError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
@@ -93,10 +93,10 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
                 base_path=save_path
             )
     
-    except SaveFileError:
+    except (SaveFileError, StringConversionError):
         raise
-    except Exception:
-        err_msg = "리포지토리 인터페이스 파일 저장 중 오류가 발생"
+    except Exception as e:
+        err_msg = f"리포지토리 인터페이스 파일 저장 중 오류가 발생: {str(e)}"
         logging.error(err_msg)
         raise TemplateGenerationError(err_msg)
 
@@ -165,10 +165,10 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                 used_variable_nodes.clear()
                 current_tokens = 0
             
-            except LLMCallError:
+            except (LLMCallError, StringConversionError):
                 raise
-            except Exception:
-                err_msg = "리포지토리 인터페이스 생성을 위한 LLM 결과 처리 도중 문제가 발생했습니다."
+            except Exception as e:
+                err_msg = f"리포지토리 인터페이스 생성을 위한 LLM 결과 처리 도중 문제가 발생했습니다: {str(e)}"
                 logging.error(err_msg)
                 raise ProcessResultError(err_msg)
 
@@ -209,8 +209,8 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = "리포지토리 인터페이스 처리 중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"리포지토리 인터페이스 처리 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise TraverseCodeError(err_msg)
 
@@ -277,8 +277,8 @@ async def start_repository_processing(object_name, sequence_data, orm_type):
     
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = f"[{object_name}] Repository Interface를 생성하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"[{object_name}] Repository Interface를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise RepositoryCreationError(err_msg)
     finally:

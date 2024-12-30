@@ -316,7 +316,7 @@ Context Range:
 {context_range}
 
 JPA Method List:
-{jpa_method_list}
+{query_method_list}
 
 Sequence Method List:
 {sequence_methods}
@@ -395,10 +395,10 @@ Sequence Method List:
 =============================================== 
 1. 기본 원칙
    - SELECT, UPDATE, INSERT, DELETE 키워드가 식별된 경우에만 적용
-   - jpa_method_list에서 제공된 메서드만 사용
+   - JPA Method List에서 제공된 메서드만 사용
 
 2. SELECT 구문
-   - jpa_method_list에서 적절한 조회 메서드 사용
+   - JPA Method List에서 적절한 조회 메서드 사용
    - 결과는 엔티티 객체나 컬렉션으로 받음
    - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
    - 조회 결과를 새로운 변수 및 객체를 생성해서 저장하지말고, 기존에 선언된 객체에 재할당하세요.
@@ -409,7 +409,7 @@ Sequence Method List:
       }}
 
 3. UPDATE/MERGE 구문 변환
-   - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
+   - JPA Method List에서 수정할 엔티티 먼저 조회하는 메서드 사용
    - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
    - 만약 엔티티의 모든 필드를 업데이트 해야한다면, BeanUtils.copyProperties를 사용하세요.
    - save() 메서드로 변경사항 저장
@@ -421,7 +421,7 @@ Sequence Method List:
 4. INSERT 구문 변환
    - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
    - INSERT INTO ... SELECT FROM 구조인 경우:
-      * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
+      * SELECT 부분만 JPA Method List의 조회 메서드로 변환
       * 조회된 데이터로 새 엔티티 생성 후 save() 수행
    예시:
    List<SourceEntity> sourceList = sourceRepository.findByCondition(param);
@@ -649,7 +649,7 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
       json_parsed_content = json5.loads(result.content)
       return json_parsed_content
 
-   except Exception:
-      err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-      logging.error(err_msg, exc_info=False)
+   except Exception as e:
+      err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"
+      logging.error(err_msg)
       raise LLMCallError(err_msg)

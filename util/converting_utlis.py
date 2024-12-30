@@ -1,6 +1,6 @@
 from collections import defaultdict
 import logging
-from util.exception import TokenCountError, VariableNodeError
+from util.exception import QueryMethodError, TokenCountError, VariableNodeError
 from util.token_utils import calculate_code_token
 
 
@@ -40,8 +40,8 @@ async def extract_used_variable_nodes(startLine: int, local_variable_nodes: list
     
     except TokenCountError:
         raise
-    except Exception:
-        err_msg = "사용된 변수 노드를 추출하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"사용된 변수 노드를 추출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise VariableNodeError(err_msg)
     
@@ -58,13 +58,20 @@ async def extract_used_variable_nodes(startLine: int, local_variable_nodes: list
 # 반환값:
 #   - used_jpa_method_dict : 사용된 JPA 메서드를 저장한 딕셔너리
 async def extract_used_query_methods(start_line:int, end_line:int, jpa_method_list: list[dict], used_jpa_method_dict: dict) -> dict:
-    for range_key, method in jpa_method_list.items():
+    try:
+        for range_key, method in jpa_method_list.items():
+            method_start, method_end = map(int, range_key.split('~'))
+            
+            # * 현재 범위 내에 있는 JPA 메서드 추출
+            if start_line <= method_start <= end_line and start_line <= method_end <= end_line:
+                used_jpa_method_dict[range_key] = method
+                break
 
-        method_start, method_end = map(int, range_key.split('~'))
+        return used_jpa_method_dict
         
-        # * 현재 범위 내에 있는 JPA 메서드 추출
-        if start_line <= method_start <= end_line and start_line <= method_end <= end_line:
-            used_jpa_method_dict[range_key] = method
-            break
-
-    return used_jpa_method_dict
+    except TokenCountError:
+        raise
+    except Exception as e:
+        err_msg = f"JPA 쿼리 메서드를 추출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise QueryMethodError(err_msg)

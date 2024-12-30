@@ -36,8 +36,8 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 
     except SaveFileError:
         raise
-    except Exception:   
-        err_msg = "컨트롤러 클래스 파일 경로를 설정하는 도중 오류가 발생했습니다."
+    except Exception as e:   
+        err_msg = f"컨트롤러 클래스 파일 경로를 설정하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise FilePathError(err_msg)
     
@@ -68,25 +68,26 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
         method_skeleton_code = analysis_method['method']
         return method_skeleton_code
 
-    except (LLMCallError):
+    except LLMCallError:
         raise
-    except Exception:
-        err_msg = "컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
+    except Exception as e:
+        err_msg = f"컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessResultError(err_msg)
 
 
 # 역할: 컨트롤러 메서드 생성 프로세스를 시작하고 관리하는 함수입니다.
-#      컨트롤러 메서드 생성에 필요한 모든 단계를 조율하고 실행합니다.
+#
 # 매개변수:
 #   - method_signature: 서비스 메서드의 시그니처
 #   - procedure_name: 원본 프로시저/함수 이름
 #   - command_class_variable: Command DTO 필드 목록
 #   - command_class_name: Command 클래스 이름
+#   - node_type: 대상 노드 타입
 #   - merge_controller_method_code: 병합될 컨트롤러 메서드 코드
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
 #   - object_name: 대상 객체 이름 (로깅용)
-#   - node_type: 대상 노드 타입
+#
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
 async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str) -> str:
@@ -111,9 +112,9 @@ async def start_controller_processing(method_signature: str, procedure_name: str
 
         return merge_controller_method_code
 
-    except ConvertingError:
+    except (LLMCallError, ProcessResultError):
         raise
-    except Exception:
-        err_msg = "컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+    except Exception as e:
+        err_msg = f"컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
         raise ControllerCreationError(err_msg)

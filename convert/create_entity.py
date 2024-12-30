@@ -3,7 +3,7 @@ import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, EntityCreationError, ProcessResultError, SaveFileError, TokenCountError
+from util.exception import ConvertingError, EntityCreationError, FilePathError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
 from util.token_utils import calculate_code_token
 
@@ -50,10 +50,10 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
                 current_tokens = 0
                 
             
-            except ConvertingError:
+            except (FilePathError, SaveFileError):
                 raise
-            except Exception:
-                err_msg = "LLM을 통한 엔티티 분석 중 오류가 발생"
+            except Exception as e:
+                err_msg = f"LLM을 통한 엔티티 분석 중 오류가 발생: {str(e)}"
                 logging.error(err_msg)
                 raise ProcessResultError(err_msg)
 
@@ -79,10 +79,10 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
 
         return entity_name_list, entity_code_dict
 
-    except ConvertingError:
+    except (FilePathError, SaveFileError, ProcessResultError):
         raise
-    except Exception:
-        err_msg = "테이블 데이터 처리 중 토큰 계산 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"테이블 데이터 처리 중 토큰 계산 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise TokenCountError(err_msg)
 
@@ -110,10 +110,10 @@ async def generate_entity_class(entity_name: str, entity_code: str) -> None:
     
     except SaveFileError:
         raise
-    except Exception:
-        err_msg = "엔티티 클래스 파일 생성 중 오류가 발생"
+    except Exception as e:
+        err_msg = f"엔티티 클래스 파일 생성 중 오류가 발생: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise FilePathError(err_msg)
 
 
 # 역할: 전체 엔티티 생성 프로세스를 관리하는 메인 함수입니다.
@@ -167,8 +167,8 @@ async def start_entity_processing(object_name: str, orm_type: str) -> list[str]:
     
     except ConvertingError:
         raise
-    except Exception:
-        err_msg = f"[{object_name}] 엔티티 클래스를 생성하는 도중 오류가 발생했습니다."
+    except Exception as e:
+        err_msg = f"[{object_name}] 엔티티 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise EntityCreationError(err_msg)
     finally:

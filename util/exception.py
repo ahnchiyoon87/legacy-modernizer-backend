@@ -60,9 +60,18 @@ class ExtractNodeInfoError(ConvertingError):
     def __init__(self, message="노드 정보를 추출하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
+class QueryMethodError(ConvertingError):
+    def __init__(self, message="쿼리 메서드를 추출하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
 class FilePathError(ConvertingError):
     def __init__(self, message="파일 경로를 설정하는 도중 오류가 발생했습니다."):
         super().__init__(message)
+        
+class Java2dethsError(CustomBaseException):
+    def __init__(self, message="2단계 깊이 기준 노드로 자바로 전환하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
 """----------------------------------------------------------Understanding---------------------------------------------------------"""
 class UnderstandingError(CustomBaseException):
     def __init__(self, message="Understanding 과정에서 오류가 발생했습니다."):
@@ -87,12 +96,6 @@ class EventRsRqError(UnderstandingError):
 class CreateNodeError(UnderstandingError):
     def __init__(self, message="노드를 생성을 위한 사이퍼쿼리 생성 및 실행 도중 오류가 발생했습니다."):
         super().__init__(message)
-
-"""----------------------------------------------------Service---------------------------------------------------------------"""
-class Java2dethsError(CustomBaseException):
-    def __init__(self, message="2단계 깊이 기준 노드로 자바로 전환하는 도중 오류가 발생했습니다."):
-        super().__init__(message)
-
 
 class AddLineNumError(CustomBaseException):
     def __init__(self, message="스토어드 프로시저 코드에 라인 번호를 추가하는 도중 오류가 발생했습니다."):
@@ -143,7 +146,67 @@ class Neo4jError(UnderstandingError, ConvertingError):
     def __init__(self, message="Neo4j에서 그래프 DB에 읽기 쓰기 작업을 하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
-"""----------------------------------------------------------결과비교---------------------------------------------------------"""
-class CompareResultError(CustomBaseException):
+"""----------------------------------------------------------피드백 루프---------------------------------------------------------"""
+class FeedbackLoopError(CustomBaseException):
+    def __init__(self, message="피드백 루프 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class GenerateJunitError(FeedbackLoopError):
+    def __init__(self, message="JUnit 테스트 코드 생성 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class CompareResultError(FeedbackLoopError):
     def __init__(self, message="결과 검증 및 비교하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class VectorizeError(FeedbackLoopError):
+    def __init__(self, message="텍스트 벡터화 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class DockerComposeError(FeedbackLoopError):
+    def __init__(self, message="도커 컴포즈 실행 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class DockerRunError(FeedbackLoopError):
+    def __init__(self, message="도커 실행 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class DockerPrepareError(FeedbackLoopError):
+    def __init__(self, message="도커 실행 준비 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class InitOracleDBError(FeedbackLoopError):
+    def __init__(self, message="오라클 DB 초기 설정 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExecuteSqlError(FeedbackLoopError):
+    def __init__(self, message="SQL 실행 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class GenerateLogError(FeedbackLoopError):
+    def __init__(self, message="로그 데이터 생성 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExtractLogError(FeedbackLoopError):
+    def __init__(self, message="로그 데이터 추출 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class GenerateSqlError(FeedbackLoopError):
+    def __init__(self, message="SQL 생성 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExecuteSqlError(FeedbackLoopError):
+    def __init__(self, message="SQL 실행 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExtractParameterError(FeedbackLoopError):
+    def __init__(self, message="프로시저 매개변수 추출 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class ExecutePlsqlError(FeedbackLoopError):
+    def __init__(self, message="PLSQL 프로시저 실행 중 오류가 발생했습니다."):
+        super().__init__(message)
+
+class DecodeLogError(FeedbackLoopError):
+    def __init__(self, message="로그 데이터 디코딩 중 오류가 발생했습니다."):
         super().__init__(message)
