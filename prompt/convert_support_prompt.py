@@ -20,7 +20,6 @@ xml_prompt = PromptTemplate.from_template("""
 엔티티 이름: {entity_name}
 엔티티 코드: {entity_code}
 쿼리 메소드 정보: {query_methods}
-시퀀스 정보: {sequence_data}
 
                                           
 [SECTION 1] Mapper XML 생성 규칙
@@ -41,9 +40,6 @@ xml_prompt = PromptTemplate.from_template("""
    - 동적 쿼리는 필요한 경우 조건절 사용
    - 페이징 처리가 필요한 경우 LIMIT, OFFSET 구문 추가
 
-4. 시퀀스 처리
-   - 시퀀스가 있는 경우 INSERT 문에서 시퀀스.NEXTVAL 사용
-   - 시퀀스명은 제공된 시퀀스 정보에서 참조
 
 [SECTION 2] Mapper XML 기본 템플릿
 ===============================================
@@ -62,19 +58,9 @@ xml_prompt = PromptTemplate.from_template("""
     <select id="findById" resultMap="baseResultMap">
         SELECT * FROM users WHERE user_id = #{{userId}}
     </select>
-
-    <!-- 시퀀스를 사용하는 등록 쿼리 예시 -->
-    <insert id="save">
-        INSERT INTO users (
-            user_id,
-            user_name,
-            reg_date
-        ) VALUES (
-            SEQ_USER.NEXTVAL,
-            #{{userName}},
-            SYSDATE
-        )
-    </insert>
+                                    
+    <!-- 나머지 CRUD 쿼리들 -->
+    // ... existing template code ...
 </mapper>
                                           
 
@@ -97,17 +83,15 @@ xml_prompt = PromptTemplate.from_template("""
 #   - entity_name: 엔티티 이름
 #   - entity_code: 엔티티 코드
 #   - query_methods: 쿼리 메서드 정보
-#   - sequence_data: 시퀀스 정보
 #
 # 반환값: 
 #   - 생성된 MyBatis Mapper XML 파일 내용
-def convert_xml_mapper(entity_name: str, entity_code: str, query_methods: dict, sequence_data: dict) -> dict:
+def convert_xml_mapper(entity_name: str, entity_code: str, query_methods: dict) -> dict:
     try:
         prompt_data = {
             "entity_name": entity_name,
             "entity_code": entity_code,
             "query_methods": json.dumps(query_methods, ensure_ascii=False, indent=2),
-            "sequence_data": json.dumps(sequence_data, ensure_ascii=False, indent=2)
         }
 
         chain = (

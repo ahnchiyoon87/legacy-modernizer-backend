@@ -11,8 +11,7 @@ MAPPER_PATH = 'java/demo/src/main/resources/mapper'
 # 매개변수 : 
 #   - entity_code : 엔티티 정보를 담은 딕셔너리
 #   - query_methods : 리포지토리 메서드 정보를 담은 딕셔너리
-#   - sequence_data : 시퀀스 정보를 담은 딕셔너리
-async def start_mybatis_mapper_processing(entity_infos: dict, all_query_methods: dict, sequence_data: str) -> None:
+async def start_mybatis_mapper_processing(entity_infos: dict, all_query_methods: dict) -> None:
     try:
 
         # * 저장 경로 설정
@@ -25,16 +24,18 @@ async def start_mybatis_mapper_processing(entity_infos: dict, all_query_methods:
 
         # * 각 테이블별로 Mapper XML 생성
         for entity_name, entity_code in entity_infos.items():
-            analysis_mapper = await convert_xml_mapper(entity_name, entity_code, all_query_methods[entity_name], sequence_data)
-            entity_name = analysis_mapper['mapperName']
-            entity_code = analysis_mapper['code']
+            analysis_mapper = convert_xml_mapper(entity_name, entity_code, all_query_methods[entity_name])
+            
+            for mapper_info in analysis_mapper['analysis']:
+                mapper_name = mapper_info['mapperName']
+                mapper_code = mapper_info['code']
 
-            # * 파일 저장
-            await save_file(
-                content=entity_code,
-                filename=f"{entity_name}Mapper.xml",
-                base_path=save_path
-            )
+                # * 파일 저장
+                await save_file(
+                    content=mapper_code,
+                    filename=f"{mapper_name}.xml",
+                    base_path=save_path
+                )
             
     except Exception as e:
         err_msg = f"MyBatis Mapper 생성 중 오류 발생: {str(e)}"

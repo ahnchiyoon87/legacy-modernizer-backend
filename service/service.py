@@ -304,18 +304,18 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, entity_code_dict = await start_entity_processing(object_name, sequence_data, orm_type) 
+            entity_name_list, entity_code_dict = await start_entity_processing(object_name, orm_type) 
             yield f"{file_name}-Step1 completed\n"
             
 
             # * 2 단계 : 리포지토리 인터페이스 생성
-            used_query_methods, global_variables, all_query_methods = await start_repository_processing(object_name, sequence_data, orm_type) 
+            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type) 
             yield f"{file_name}-Step2 completed\n"
             
 
             # * 2.5 단계 : MyBatis XML 매퍼 생성 (MyBatis 전용)
             if orm_type == 'mybatis':
-                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods, sequence_data)
+                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods)
 
 
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
@@ -333,6 +333,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     service_data['procedure_name'],
                     used_query_methods, 
                     object_name,
+                    sequence_methods,
                     orm_type
                 )
 
@@ -343,6 +344,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     service_data['procedure_name'],
                     used_query_methods, 
                     object_name,
+                    sequence_methods,
                     orm_type
                 )
 
@@ -382,7 +384,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing()
+        await start_main_processing(orm_type)
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
 
@@ -516,7 +518,7 @@ async def process_comparison_result(test_cases: list):
 
     except Exception:
         err_msg = "결과 검증 및 비교하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=True)
+        logging.error(err_msg)
         yield json.dumps({"type": "error","message": err_msg}).encode('utf-8') + b"send_stream"
 
 

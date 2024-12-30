@@ -16,11 +16,10 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # 
 # 매개변수: 
 #   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
-#   sequence_data (str): 시퀀스 정보
 #
 # 반환값:
 #   entity_name_list (list): 생성된 Java 엔티티 클래스의 이름 목록
-async def process_table_by_token_limit(table_data_list: list, sequence_data: str, orm_type: str) -> list[str]:
+async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> list[str]:
  
     try:
         current_tokens = 0
@@ -34,7 +33,7 @@ async def process_table_by_token_limit(table_data_list: list, sequence_data: str
 
             try:
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
-                analysis_data = convert_entity_code(table_data_chunk, sequence_data, orm_type)
+                analysis_data = convert_entity_code(table_data_chunk, orm_type)
                 
                 # * 각 엔티티별로 파일 생성
                 for entity in analysis_data['analysis']:
@@ -122,12 +121,11 @@ async def generate_entity_class(entity_name: str, entity_code: str) -> None:
 #
 # 매개변수:
 #   object_name (str): 처리할 객체(패키지/프로시저)의 이름
-#   sequence_data (str): 시퀀스 정보
 #   orm_type (str): 사용할 ORM 유형 (JPA, MyBatis 등)
 #
 # 반환값:
 #   entity_name_list (list): 생성된 모든 Java 엔티티 클래스의 이름 목록
-async def start_entity_processing(object_name: str, sequence_data: str, orm_type: str) -> list[str]:
+async def start_entity_processing(object_name: str, orm_type: str) -> list[str]:
 
     connection = Neo4jConnection()
     logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
@@ -162,7 +160,7 @@ async def start_entity_processing(object_name: str, sequence_data: str, orm_type
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, sequence_data, orm_type)
+        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, orm_type)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
         return entity_name_list, entity_code_dict

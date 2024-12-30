@@ -24,7 +24,7 @@ spring.datasource.driver-class-name=oracle.jdbc.OracleDriver"""
 MYBATIS_PROPERTIES_TEMPLATE = """spring.application.name=demo
 server.port=8082
 
-mybatis.type-aliases-package=com.example.demo.model
+mybatis.type-aliases-package=com.example.demo.entity
 mybatis.mapper-locations=classpath:mapper/**/*.xml
 mybatis.configuration.map-underscore-to-camel-case=true
 

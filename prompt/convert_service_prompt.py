@@ -1,15 +1,12 @@
 import json
 import logging
 import os
-import re
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from util.exception import LLMCallError
-from langchain_core.output_parsers import JsonOutputParser
 import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -40,6 +37,9 @@ Context Range:
 Mapper Method List:
 {query_method_list}
 
+Sequence Method List:
+{sequence_methods}
+
 
 [SECTION 1] 입력 데이터 설명
 ===============================================
@@ -49,6 +49,7 @@ Mapper Method List:
    - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
    - Context Range: 변환 대상 코드의 시작/종료 라인 정보
    - Mapper Method List: 현재 범위에서 사용 가능한 Mapper 인터페이스 메서드 목록
+   - Sequence Method List: 사용 가능한 시퀀스 메서드 목록
 
 주요 작업
    - 'Service Signature'을 참고하여, CodePlaceHolder 위치에 들어갈 코드를 구현하세요.
@@ -86,7 +87,7 @@ Mapper Method List:
 ===============================================   
 1. 기본 원칙
    - 프로시저 호출이 발견되면 무조건 메서드 호출로 변환
-   - Mapper 메서드 사용 금지
+   - Mapper 메서드 사용 금지, (findById(), save(), delete() 같은 메서드는 절대 사용하지 않습니다.)
 
 2. 외부 프로시저 호출
    형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
@@ -114,34 +115,30 @@ Mapper Method List:
 1. 기본 원칙
    - SELECT, UPDATE, INSERT, DELETE 키워드가 식별된 경우에만 적용
    - Mapper Method List에서 제공된 메서드만 사용
-   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)은 무시 (Mapper 메서드에서 알아서 처리됩니다)
 
 2. SELECT 구문
    - Mapper Method List에서 적절한 조회 메서드 사용
    - 결과는 엔티티 객체나 컬렉션으로 받음
    - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
-      예시: 
-      UserDto user = userMapper.findById(id);
+   - 조회 결과를 새로운 변수 및 객체를 생성해서 저장하지말고, 기존에 선언된 객체에 재할당하세요.
+   * 예시: 
+      User user = userMapper.findById(id);
       if (user == null) {{
          throw new EntityNotFoundException("User not found with id: " + id);
       }}
 
 3. UPDATE/MERGE 구문 변환
    - Mapper Method List에서 적절한 수정 메서드 사용
-   예시:
-   userMapper.updateUser(userDto);
+   * 예시: userMapper.updateUser(user);
    
 4. INSERT 구문 변환
    - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
    - Mapper Method List의 등록 메서드 사용
-
-   예시:
-   userMapper.save(userDto);
+   * 예시: userMapper.save(user);
   
 5. DELETE 구문
    - 삭제 전 데이터 존재 여부 확인
-   예시:
-   userMapper.deleteById(id);
+   * 예시: userMapper.deleteById(id);
   
    
 [SECTION 5] 예외 처리 규칙
@@ -206,14 +203,14 @@ Mapper Method List:
    B. 객체 타입 변수 처리
       올바른 예:    
          * 초기 할당
-         UserDto vUser = new UserDto();
+         User user = new User();
          * 재할당 필요시
-         vUser = userMapper.findById(iUserId);
+         user = userMapper.findById(iUserId);
       
       잘못된 예:
          * 이미 선언된 변수를 재선언 (금지)
-         UserDto vUser = new UserDto();
-         UserDto vUser = userMapper.findById(iUserId);
+         User user = new User();
+         User user = userMapper.findById(iUserId);
 
    C. 기본 타입 변수 처리
       올바른 예:
@@ -240,8 +237,19 @@ Mapper Method List:
    * 올바른 예
    vRow.setEndTime(vCurrentTime.atTime(LocalTime.now()));     // 현재 시간 포함
 
+   
+[SECTION 8] SQL 구문 처리 규칙
+=============================================== 
+1. 시퀀스 처리
+   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)이 식별되면 Sequence Method List 확인
+   - Sequence Method List에 해당 시퀀스 필드가 존재하는 경우, 해당 시퀀스 메서드를 사용
+
+   * 예시:
+   - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
+   - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
+
                
-[SECTION 8] 자바 코드 생성시 JSON 문자열 처리 규칙
+[SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
    - 줄바꿈: \\n
@@ -258,8 +266,10 @@ Mapper Method List:
     
 [ **IMPORTANT 반드시 지켜야하는 필수 사항  ** ]
 1. 프로시저 호출 로직 식별시 절대로 Mapper 메서드를 사용하지마세요. 이건 단순히 서비스 클래스 내에 메서드 호출일 뿐입니다:
-   올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
-   잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // Mapper 메서드를 사용하면 안됨
+   - 올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
+   - 잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // Mapper 메서드를 사용하면 안됨
+   프로시저 호출시 이름이 GET_ROW, INPUT, DELETE 등의 이름이 포함되어 있어도, 그냥 메서드 호출 로직으로만 전환하고, Mapper 메서드는 절대 사용하지 않습니다.
+   * 예 : p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환, INPUT(vRow) -> input(vRow) // 프로시저 호출을 단순 메서드 호출 형태로 전환
 
 2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 반드시 'analysis'의 'code' 요소의 개수가 일치한지 검토하세요. 단 한 개의 누락 및 생략이 있어서는 안됩니다.
 
@@ -268,7 +278,7 @@ Mapper Method List:
 4. 'CHR(10)'가 식별되는 경우 줄바꿈 '\n'으로 처리하지 말고 무시하세요.
 
 
-[SECTION 9] JSON 출력 형식
+[SECTION 10] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음과 같은 dictionary(사전) 형태의 JSON 형식으로 반환하세요:
 {{
@@ -308,6 +318,9 @@ Context Range:
 JPA Method List:
 {jpa_method_list}
 
+Sequence Method List:
+{sequence_methods}
+
 
 [SECTION 1] 입력 데이터 설명
 ===============================================
@@ -317,6 +330,7 @@ JPA Method List:
    - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
    - Context Range: 변환 대상 코드의 시작/종료 라인 정보
    - JPA Method List: 현재 범위에서 사용 가능한 JPA 쿼리 메서드 목록
+   - Sequence Method List: 사용 가능한 시퀀스 메서드 목록
 
 주요 작업
    - 'Service Signature'을 참고하여, CodePlaceHolder 위치에 들어갈 코드를 구현하세요.
@@ -354,7 +368,7 @@ JPA Method List:
 ===============================================   
 1. 기본 원칙
    - 프로시저 호출이 발견되면 무조건 메서드 호출로 변환
-   - JPA 쿼리 메서드 사용 금지
+   - JPA 쿼리 메서드 사용 금지 (findById(), save(), delete() 같은 메서드는 절대 사용하지 않습니다.)
 
 2. 외부 프로시저 호출
    형식: {{스키마명}}.{{프로시저명}}({{파라미터}})
@@ -382,19 +396,19 @@ JPA Method List:
 1. 기본 원칙
    - SELECT, UPDATE, INSERT, DELETE 키워드가 식별된 경우에만 적용
    - jpa_method_list에서 제공된 메서드만 사용
-   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)은 무시 (엔티티의 @GeneratedValue로 자동 처리)
 
 2. SELECT 구문
    - jpa_method_list에서 적절한 조회 메서드 사용
    - 결과는 엔티티 객체나 컬렉션으로 받음
    - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
+   - 조회 결과를 새로운 변수 및 객체를 생성해서 저장하지말고, 기존에 선언된 객체에 재할당하세요.
       예시: 
       Employee employee = employeeRepository.findById(id);
       if (employee == null) {{
             throw new EntityNotFoundException("Employee not found with id: " + id);
       }}
 
-2. UPDATE/MERGE 구문 변환
+3. UPDATE/MERGE 구문 변환
    - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
    - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
    - 만약 엔티티의 모든 필드를 업데이트 해야한다면, BeanUtils.copyProperties를 사용하세요.
@@ -404,7 +418,7 @@ JPA Method List:
    employee.setStatus(newStatus);
    employeeRepository.save(employee);
    
-3. INSERT 구문 변환
+4. INSERT 구문 변환
    - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
    - INSERT INTO ... SELECT FROM 구조인 경우:
       * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
@@ -425,7 +439,7 @@ JPA Method List:
       entity.setField(value);
       repository.save(entity);
 
-4. DELETE 구문
+5. DELETE 구문
    - 적절한 삭제 메서드 사용
 
   
@@ -481,7 +495,6 @@ JPA Method List:
             "vStatus": "초기값 'N' -> 사원정보 존재시 'Y' -> 처리완료후 'S'로 최종 설정"
          }}    
 
-
 2. 변수 선언 및 할당 규칙
    A. 기본 원칙
       - 'Used Variable' 목록의 변수는 재선언 금지
@@ -525,8 +538,19 @@ JPA Method List:
    * 올바른 예
    vRow.setEndTime(vCurrentTime.atTime(LocalTime.now()));     // 현재 시간 포함
 
+   
+[SECTION 8] SQL 구문 처리 규칙
+=============================================== 
+1. 시퀀스 처리
+   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)이 식별되면 Sequence Method List 확인
+   - Sequence Method List에 해당 시퀀스 필드가 존재하는 경우, 해당 시퀀스 메서드를 사용
+
+   * 예시:
+   - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
+   - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
+
                
-[SECTION 8] 자바 코드 생성시 JSON 문자열 처리 규칙
+[SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
    - 줄바꿈: \\n
@@ -545,6 +569,8 @@ JPA Method List:
 1. 프로시저 호출 로직 식별시 절대로 JPA 쿼리 메서드를 사용하지마세요. 이건 단순히 서비스 클래스 내에 메서드 호출일 뿐입니다:
    올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
    잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // JPA 쿼리 메서드를 사용하면 안됨
+   프로시저 호출시 이름이 GET_ROW, INPUT, DELETE 등의 이름이 포함되어 있어도, 그냥 메서드 호출 로직으로만 전환하고, Mapper 메서드는 절대 사용하지 않습니다.
+   * 예 : p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환, INPUT(vRow) -> input(vRow) // 프로시저 호출을 단순 메서드 호출 형태로 전환
 
 2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 반드시 'analysis'의 'code' 요소의 개수가 일치한지 검토하세요. 단 한 개의 누락 및 생략이 있어서는 안됩니다.
 
@@ -553,7 +579,7 @@ JPA Method List:
 4. 'CHR(10)'가 식별되는 경우 줄바꿈 '\n'으로 처리하지 말고 무시하세요.
 
 
-[SECTION 9] JSON 출력 형식
+[SECTION 10] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음과 같은 dictionary(사전) 형태의 JSON 형식으로 반환하세요:
 {{
@@ -581,40 +607,31 @@ JPA Method List:
 #  - context_range : 코드 변환 범위 정보
 #  - count : context_range의 범위 개수
 #  - query_method_list : 사용 가능한 쿼리 메서드 목록
+#  - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #  - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #
 # 반환값: 
 #  - json_parsed_content : LLM이 생성한 서비스 메서드 정보
-def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, orm_type: str) -> dict:
+def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, sequence_methods:list, orm_type: str) -> dict:
    
    try:  
       context_range_json = json.dumps(context_range, indent=2)
       command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
-        
-      # * 프레임워크별 프롬프트 및 데이터 설정
-      if orm_type.lower() == "jpa":
-         selected_prompt = jpa_prompt
-         prompt_data = {
-               "code": convert_sp_code,
-               "service_skeleton": service_skeleton,
-               "variable": variable_list,
-               "command_variables": command_class_variable,
-               "context_range": context_range_json,
-               "count": count,
-               "jpa_method_list": query_method_list
-         }
-      else:
-         selected_prompt = myBatis_prompt
-         prompt_data = {
-               "code": convert_sp_code,
-               "service_skeleton": service_skeleton,
-               "variable": variable_list,
-               "command_variables": command_class_variable,
-               "context_range": context_range_json,
-               "count": count,
-               "mapper_method_list": query_method_list
-         }
+      prompt_data = {
+         "code": convert_sp_code,
+         "service_skeleton": service_skeleton,
+         "variable": variable_list,
+         "command_variables": command_class_variable,
+         "context_range": context_range_json,
+         "count": count,
+         "query_method_list": query_method_list,
+         "sequence_methods": sequence_methods
+      }
 
+
+      # * 프레임워크별 프롬프트 선택
+      selected_prompt = jpa_prompt if orm_type == "jpa" else myBatis_prompt    
+  
 
       chain = (
          RunnablePassthrough()

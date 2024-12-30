@@ -5,9 +5,9 @@ import os
 import logging
 import unittest
 
-from util.file_utils import read_sequence_file
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from convert.create_entity import start_entity_processing
+from util.file_utils import read_sequence_file
 
 
 # * 로그 레벨 설정
@@ -68,11 +68,9 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
             entity_results = {}
             entity_codes = {}
             for object_name in object_names:
-                seq_data = await read_sequence_file(object_name)
                 entity_names, code_dict = await start_entity_processing(
                     object_name,
-                    seq_data,
-                    orm_type="JPA"
+                    orm_type="mybatis"
                 )
                 entity_results[object_name] = entity_names
                 entity_codes[object_name] = code_dict
