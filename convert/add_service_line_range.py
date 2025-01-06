@@ -18,9 +18,10 @@ async def find_service_line_ranges(object_name: str, service_class_name: str) ->
         # * 파일 내용 읽기
         file_content = read_target_file(service_class_name, "service")
         file_lines = file_content.splitlines()
+        connection = Neo4jConnection()
         
         # * Neo4j에서 Java 코드 조회
-        java_nodes = await get_java_node(object_name)
+        java_nodes = await get_java_node(object_name, connection)
         
         # * Cypher 쿼리를 저장할 리스트
         update_queries = []
@@ -72,7 +73,10 @@ async def find_service_line_ranges(object_name: str, service_class_name: str) ->
                     update_queries.append(query)
                     break
         
-        if not update_queries:
+        if update_queries:
+            await connection.execute_queries(update_queries)
+            logging.info(f"{len(update_queries)}개의 노드가 업데이트되었습니다.")
+        else:
             logging.info(f"일치하는 Java 코드를 찾을 수 없습니다: {service_class_name}")
             
         return update_queries       
@@ -81,7 +85,8 @@ async def find_service_line_ranges(object_name: str, service_class_name: str) ->
         error_msg = f"일치하는 Java 코드를 찾을 수 없습니다: {service_class_name}, 에러: {e}"
         logging.error(error_msg)
         raise ExtractJavaLineError(error_msg)
-    
+    finally:
+        await connection.close()
 
 
 # 역할 : Neo4j에서 Java 코드 조회
@@ -91,9 +96,8 @@ async def find_service_line_ranges(object_name: str, service_class_name: str) ->
 #
 # 반환값 :
 #   - dict: Java 코드와 라인 정보가 포함된 노드
-async def get_java_node(object_name: str) -> list[dict]:
+async def get_java_node(object_name: str, connection: Neo4jConnection) -> list[dict]:
     try:
-        connection = Neo4jConnection()
         query = [f"""
             MATCH (n)
             WHERE n.object_name = '{object_name}'
@@ -109,5 +113,3 @@ async def get_java_node(object_name: str) -> list[dict]:
         error_msg = f"Neo4j에서 Java 코드를 조회하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(error_msg)
         raise Neo4jError(error_msg)
-    finally:
-        await connection.close()
