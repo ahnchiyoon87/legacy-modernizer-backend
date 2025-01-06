@@ -28,6 +28,10 @@ prompt = PromptTemplate.from_template(
 {ranges}
 
 
+분석할 Procedure의 이름:
+{procedure_name}
+
+
 반드시 지켜야할 주의사항:
 1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
 2. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
@@ -36,11 +40,17 @@ prompt = PromptTemplate.from_template(
 
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
-1. 코드의 역할과 동작을 2-3줄로 상세하게 설명하세요:
-   - 어떤 비즈니스 로직을 수행하는지
-   - 어떤 데이터를 처리하고 어떤 결과를 생성하는지
-   - 주요 처리 단계나 중요한 로직은 무엇인지
-   - 주석이 있다면 주석을 참고하여 작성하세요.
+1. 코드의 역할과 동작을 상세하게 설명하세요:
+   - 주어진 코드 범위의 전체 맥락을 파악하여 다음 내용을 포함하여 설명하세요:
+   - 해당 코드가 속한 프로시저 이름을 반드시 명시
+   - 각 변수 할당의 목적과 의미를 설명 (예: "vcount에 10을 할당하여 최대 반복 횟수를 설정")
+   - 조건문(IF, CASE 등)의 판단 기준과 각 분기의 목적을 설명
+   - 반복문(FOR, WHILE 등)의 반복 조건과 수행 목적을 설명
+   - SQL 작업(INSERT/UPDATE/DELETE/SELECT)의 대상 테이블과 처리 목적을 설명
+   - 해당 코드 범위가 전체 프로시저에서 수행하는 역할과 목적을 설명
+   예시) "{procedure_name}에서 v_process_date에 현재 날짜를 할당하여 처리 기준일을 설정하고,
+         v_count가 임계값(10)을 초과하는지 확인하여 처리량을 제한합니다.
+         CUSTOMER 테이블에서 활성 고객만을 SELECT하여, ORDER_HISTORY 테이블에 집계 데이터를 생성합니다."
 
 2. 각 범위에서 사용된 모든 변수들을 식별하세요. 변수는 다음과 같은 유형을 모두 포함합니다:
    - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
@@ -90,18 +100,17 @@ prompt = PromptTemplate.from_template(
 """)
 
 # 역할: PL/SQL 프로시저 코드를 심층 분석하여 Neo4j 사이퍼 쿼리 생성에 필요한 정보를 추출하는 함수입니다.
-#      LLM을 통해 프로시저의 구조, 테이블 관계, 변수 사용, 프로시저 호출 등을 분석하고,
-#      코드의 각 부분이 어떤 비즈니스 로직을 수행하는지 파악합니다.
+#
 # 매개변수: 
 #   - sp_code : 분석 대상 PL/SQL 프로시저의 전체 코드
 #   - context_ranges : 분석이 필요한 코드 범위 목록
-#      (특정 라인 범위만 분석하기 위한 정보)
 #   - context_range_count : 분석해야 할 코드 범위의 총 개수
-#      (LLM 분석 결과의 일관성 유지를 위한 검증용)
+#   - procedure_name : 프로시저 이름
+#
 # 반환값: 
 #   - parsed_content : LLM의 코드 분석 결과
 #      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
-def understand_code(sp_code, context_ranges, context_range_count):
+def understand_code(sp_code, context_ranges, context_range_count, procedure_name):
     try:
         ranges_json = json.dumps(context_ranges)
 
@@ -112,8 +121,8 @@ def understand_code(sp_code, context_ranges, context_range_count):
         )
 
         json_parser = JsonOutputParser()
-        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
         # TODO 여기서 최대 출력 토큰만 4096이 넘은 경우 처리가 필요
+        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "procedure_name": procedure_name})
         json_parsed_content = json_parser.parse(result.content)
         logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content

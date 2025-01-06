@@ -13,7 +13,7 @@ from util.exception import (TokenCountError, ExtractCodeError, SummarizeCodeErro
 
 encoder = tiktoken.get_encoding("cl100k_base")
 
-STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PROCEDURE_SPEC", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION"]
+STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PROCEDURE_SPEC", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION", "TRY"]
 DML_TYPES = ["UPDATE", "INSERT", "DELETE", "MERGE"]
 PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"]
 NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PROCEDURE_SPEC", "FUNCTION_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
@@ -286,9 +286,15 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
-            analysis_result = understand_code(extract_code, context_range, context_range_count)        
+            analysis_result = understand_code(extract_code, context_range, context_range_count, procedure_name)        
             cypher_queries = await handle_analysis_result(analysis_result)
             
+
+            # * 분석 결과 개수가 일치하는지 확인합니다.
+            actual_count = len(analysis_result["analysis"])
+            if actual_count != context_range_count:
+                logging.error(f"분석 결과 개수가 일치하지 않습니다. 예상: {context_range_count}, 실제: {actual_count}")
+
 
             # * 프로시저 형태의 경우, 요약 정보를 추출하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:

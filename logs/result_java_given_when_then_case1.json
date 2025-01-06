@@ -2,20 +2,9 @@
     "given": [
         {
             "operation": "c",
-            "table": "TPJ_ATTENDANCE",
-            "data": {
-                "STATUS": "AB",
-                "WORKDATE": "2024-12-11",
-                "ID": 1,
-                "EMPKEY": "EMP001",
-                "ATTKEY": "ATT001"
-            }
-        },
-        {
-            "operation": "c",
             "table": "TPJ_SALARY",
             "data": {
-                "PAYDATE": "2024-12-31",
+                "PAYDATE": "2024-12-13",
                 "AMOUNT": 1000000,
                 "ID": 1,
                 "EMPKEY": "EMP001",
@@ -24,13 +13,24 @@
         },
         {
             "operation": "c",
+            "table": "TPJ_ATTENDANCE",
+            "data": {
+                "WORK_DATE": "2024-12-03",
+                "STATUS": "AB",
+                "ID": 1,
+                "EMP_KEY": "EMP001",
+                "ATT_KEY": "ATT001"
+            }
+        },
+        {
+            "operation": "c",
             "table": "TPJ_EMPLOYEE",
             "data": {
+                "REGULAR_YN": "Y",
                 "ID": 1,
-                "DEPTCODE": "DEV001",
-                "EMPKEY": "EMP001",
-                "EMPNAME": "김정규",
-                "REGULARYN": "Y"
+                "DEPT_CODE": "DEV001",
+                "EMP_KEY": "EMP001",
+                "EMP_NAME": "이정규"
             }
         }
     ],
@@ -38,10 +38,10 @@
         "procedure": "TPX_UPDATE_SALARY.TPX_UPDATE_SALARY",
         "parameters": {
             "pEmpKey": "EMP001",
-            "pEmpName": "김정규",
+            "pEmpName": "이정규",
             "pDeptCode": "DEV001",
             "pBaseAmount": 1000000,
-            "pPayDate": "2024-12-31",
+            "pPayDate": "2024-12-13",
             "pRegularYn": "Y"
         }
     },
@@ -50,7 +50,7 @@
             "operation": "u",
             "table": "TPJ_SALARY",
             "data": {
-                "PAYDATE": "2024-12-31",
+                "PAYDATE": "2024-12-13",
                 "AMOUNT": 500000,
                 "ID": 1,
                 "EMPKEY": "EMP001",

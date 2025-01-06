@@ -5,16 +5,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from compare.result_compare import execute_maven_commands
 
 async def test_execute_maven_commands():
-    # # 환경 변수 설정 (필요한 경우)
-    # os.environ['DOCKER_COMPOSE_CONTEXT'] = '/path/to/docker/context'
 
-    # # pom_directory 설정
-    # pom_directory = '/path/to/your/pom/directory'
-
-    # 테스트할 클래스 이름 리스트 정의
+    # 테스트할 클래스 이름 리스트 정의 (실제 테스트 클래스 이름과 동일)
     test_classes = [
-        "TpxUpdateSalaryDeduct100AmountTest",
-        "TpjSalaryDeduct100AmountTest"
+        "TpjSalaryDeduct100KAmountTest"
     ]
 
     # execute_maven_commands 함수 호출

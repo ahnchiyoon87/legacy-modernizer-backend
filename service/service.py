@@ -14,6 +14,7 @@ from compare.create_docker_compose_yml import generate_docker_compose_yml, proce
 from compare.create_junit_test import create_junit_test
 from compare.execute_plsql_sql import execute_plsql, execute_sql
 from compare.result_compare import execute_maven_commands
+from convert.add_service_line_range import find_service_line_ranges
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
@@ -30,8 +31,9 @@ from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import AddLineNumError, ConvertingError, FeedbackLoopError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
+from util.exception import ConvertingError, FeedbackLoopError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
 from util.file_utils import read_sequence_file
+from util.string_utils import add_line_numbers
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,26 +44,6 @@ TARGET_DIR = os.path.join(BASE_DIR, 'target', 'java', 'demo', 'src', 'main', 'ja
 os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
 os.makedirs(DDL_DIR, exist_ok=True)
-
-
-# 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
-#
-# 매개변수: 
-#   - plsql : 원본 PL/SQL 코드 (라인 단위 리스트)
-#
-# 반환값: 
-#   - numbered_plsql : 각 라인 앞에 번호가 추가된 PL/SQL 코드
-def add_line_numbers(plsql):
-    try: 
-        # * 각 라인에 번호를 추가합니다.
-        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
-        numbered_plsql = "".join(numbered_lines)
-        return numbered_plsql
-    except Exception as e:
-        err_msg = f"전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise AddLineNumError(err_msg)
-
 
 
 # 역할: Neo4j에서 노드와 관계를 조회하여 그래프 데이터를 스트림 형태로 반환합니다.
@@ -361,6 +343,9 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
             # * 서비스 및 컨트롤러 클래스 생성
             await generate_service_class(service_skeleton, service_class_name, merge_method_code)            
             await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code)            
+            
+            # * 서비스 클래스 라인 범위 추출하여 노드에 할당
+            await find_service_line_ranges(object_name, service_class_name)
             yield f"{file_name}-Step4 completed\n"
 
 
@@ -462,7 +447,7 @@ async def process_comparison_result(test_cases: list):
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
         # ! 패키지 간의 의존 관계 파악 필요
         # await generate_init_sql(table_names, package_names)
-        await process_docker_compose_yml(table_names)
+        # await process_docker_compose_yml(table_names)
 
         # * 각 테스트 케이스에 처리 진행 
         for test_case in test_cases:
@@ -508,7 +493,7 @@ async def process_comparison_result(test_cases: list):
             await execute_sql(delete_statements)
 
         # * 테스트 코드 실행하는 메서드 호출
-        async for result in execute_maven_commands(test_class_names):
+        async for result in execute_maven_commands(test_class_names, given_when_then_log):
             yield result
 
     except FeedbackLoopError as e:
