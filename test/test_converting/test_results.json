@@ -14,13 +14,13 @@
   "entity_codes": {
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
-      "TpjEmployee": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(name = \"REGULAR_YN\", nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(name = \"EMP_NAME\", nullable = false, length = 50)\n    private String empName;\n    \n    @Column(name = \"DEPT_CODE\", nullable = false, length = 10)\n    private String deptCode;\n    \n    @Column(name = \"EMP_KEY\", nullable = false, length = 10, unique = true)\n    private String empKey;\n}"
+      "TpjEmployee": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false)\n    private String empKey;\n    \n    @Column(nullable = false)\n    private String regularYn;\n    \n    @Column(nullable = false)\n    private String empName;\n    \n    @Column(nullable = false)\n    private String deptCode;\n}"
     },
     "TPX_SALARY": {
       "TpjSalary": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    @Column(length = 10)\n    private String empKey;\n}"
     },
     "TPX_ATTENDANCE": {
-      "TpjAttendance": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(name = \"ATT_KEY\", nullable = false, length = 50, unique = true)\n    private String attKey;\n    \n    @Column(name = \"EMP_KEY\", length = 10)\n    private String empKey;\n    \n    @Column(name = \"WORK_DATE\")\n    private LocalDate workDate;\n}"
+      "TpjAttendance": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(nullable = false, length = 50, unique = true)\n    private String attKey;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}"
     }
   },
   "repository_methods": {
@@ -30,9 +30,9 @@
       "64~67": "@Query(\"SELECT e.regularYn FROM TpjEmployee e WHERE e.empKey = :empKey\")\nString findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
     },
     "TPX_SALARY": {
-      "55~59": "@Query(\"SELECT COUNT(s) FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nLong countByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
+      "55~59": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
       "102~106": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
-      "178~181": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findForUpdateByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
+      "178~181": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDateForUpdate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
     },
     "TPX_ATTENDANCE": {
       "80~85": "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countByEmpKeyAndWorkDateBetweenAndStatus(@Param(\"empKey\") String empKey, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);"
@@ -54,9 +54,8 @@
     },
     "TPX_SALARY": {
       "TpjSalary": [
-        "@Query(\"SELECT COUNT(s) FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nLong countByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
         "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
-        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findForUpdateByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
+        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDateForUpdate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
       ]
     },
     "TPX_ATTENDANCE": {

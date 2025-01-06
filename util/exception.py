@@ -68,10 +68,13 @@ class FilePathError(ConvertingError):
     def __init__(self, message="파일 경로를 설정하는 도중 오류가 발생했습니다."):
         super().__init__(message)
         
-class Java2dethsError(CustomBaseException):
+class Java2dethsError(ConvertingError):
     def __init__(self, message="2단계 깊이 기준 노드로 자바로 전환하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
+class ExtractJavaLineError(ConvertingError):
+    def __init__(self, message="서비스 파일에서 Java 코드 블록의 시작과 끝 라인을 찾는 도중 오류가 발생했습니다."):
+        super().__init__(message)
 """----------------------------------------------------------Understanding---------------------------------------------------------"""
 class UnderstandingError(CustomBaseException):
     def __init__(self, message="Understanding 과정에서 오류가 발생했습니다."):
@@ -97,7 +100,7 @@ class CreateNodeError(UnderstandingError):
     def __init__(self, message="노드를 생성을 위한 사이퍼쿼리 생성 및 실행 도중 오류가 발생했습니다."):
         super().__init__(message)
 
-class AddLineNumError(CustomBaseException):
+class AddLineNumError(UnderstandingError):
     def __init__(self, message="스토어드 프로시저 코드에 라인 번호를 추가하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 

@@ -7,6 +7,7 @@ from openai import OpenAI
 import difflib
 
 from compare.extract_log_info import clear_log_file, compare_then_results, extract_java_given_when_then
+from prompt.generate_compare_text_prompt import generate_compare_text
 from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 
@@ -113,7 +114,7 @@ def read_log_files_in_directory(directory_path, prefix):
         logging.error(f"로그 파일 읽기 중 오류 발생: {str(e)}")
         raise
 
-async def execute_maven_commands(test_class_names: list):
+async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list):
     logging.info(f"Maven 테스트 실행 시작")
     test_failed = False
     failed_test_index = []
@@ -170,13 +171,13 @@ async def execute_maven_commands(test_class_names: list):
                     failed_test_index.append(i)
             
             logging.info(f"{test_class_name} 테스트 클래스 실행 완료")
-            given_when_then_log = await extract_java_given_when_then(i)
+            java_gwt_log = await extract_java_given_when_then(i)
             compare_log, difference_text = await compare_then_results(i)
             await clear_log_file('java')
 
             yield json.dumps({
                 "type": "java",
-                "log": given_when_then_log
+                "log": java_gwt_log
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
             
 
@@ -197,8 +198,10 @@ async def execute_maven_commands(test_class_names: list):
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
             # 차이점 벡터화 
+            compare_result = generate_compare_text(java_gwt_log, plsql_gwt_log, compare_log)
+            compare_text = compare_result["compare_text"]
             plsql_java_pairs = []
-            vector_log = vectorize_text(difference_text)
+            vector_log = vectorize_text(compare_text)
             similar_node = await conn.search_similar_nodes(vector_log)
             for node in similar_node:
                 plsql_java_pairs.append({

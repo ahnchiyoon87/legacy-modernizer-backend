@@ -1,5 +1,5 @@
 import logging
-from util.exception import StringConversionError
+from util.exception import AddLineNumError, StringConversionError
 
 
 # 역할: 스네이크 케이스 형식의 문자열을 자바 클래스명으로 사용할 수 있는 파스칼 케이스로 변환합니다.
@@ -36,3 +36,23 @@ def convert_to_camel_case(snake_str: str) -> str:
         err_msg = f"카멜 케이스 변환 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise StringConversionError("카멜 케이스 변환 중 오류 발생")
+    
+
+
+# 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
+#
+# 매개변수: 
+#   - plsql : 원본 PL/SQL 코드 (라인 단위 리스트)
+#
+# 반환값: 
+#   - numbered_plsql : 각 라인 앞에 번호가 추가된 PL/SQL 코드
+def add_line_numbers(plsql):
+    try: 
+        # * 각 라인에 번호를 추가합니다.
+        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
+        numbered_plsql = "".join(numbered_lines)
+        return numbered_plsql
+    except Exception as e:
+        err_msg = f"전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise AddLineNumError(err_msg)
