@@ -16,7 +16,8 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
 prompt = PromptTemplate.from_template(
 """
-당신은 Java 컴파일 오류 로그를 분석하는 전문가입니다. 컴파일 오류 로그를 분석하여 오류의 원인을 정확히 설명하는 텍스트를 생성해야 합니다.
+당신은 Java 컴파일 오류 로그를 분석하는 전문가입니다. 컴파일 오류 로그를 분석하여 오류의 원인과 오류가 발생한 위치를 정확히 파악하여 설명하는 텍스트를 생성해야 합니다.
+오류가 발생한 위치를 찾도록 하는 것이 중요합니다.
 
 [분석할 데이터]
 1. Java 컴파일 오류 로그:

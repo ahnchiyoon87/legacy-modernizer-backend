@@ -92,7 +92,40 @@ class Neo4jConnection:
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
         
+    # 역할: 특정 노드의 java_code를 업데이트합니다.
+    # 매개변수:
+    #   - original_java_code: 원본 자바 코드
+    #   - modified_java_code: 수정된 자바 코드
+    #   - file_path: 자바 파일 경로
+    async def update_node_code(self, original_java_code, modified_java_code, file_path):
+        # 파일 경로에서 파일명만 추출
+        file_name = file_path.split('/')[-1]
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.java_code = $original_java_code AND n.java_file = $file_name
+            SET n.java_code = $modified_java_code
+            RETURN n
+            """
+            
+            async with self.__driver.session(database=self.database_name) as session:
+                result = await session.run(query, 
+                                           original_java_code=original_java_code,
+                                           modified_java_code=modified_java_code,
+                                           file_name=file_name)
+                updated_nodes = await result.data()
+                
+                if updated_nodes:
+                    logging.info(f"Updated {len(updated_nodes)} nodes with new java_code.")
+                else:
+                    logging.warning("No nodes were updated. Check if the original_java_code and file_path are correct.")
+                
+                return updated_nodes
 
+        except Exception as e:
+            error_msg = f"노드 코드 업데이트 중 오류 발생: {str(e)}"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)
 
     # 역할: 텍스트 유사도 기반으로 노드를 검색합니다.
     # 매개변수: 
@@ -101,7 +134,7 @@ class Neo4jConnection:
     #   - limit: 반환할 최대 결과 수 (기본값: 5)
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
-    async def search_similar_nodes(self, search_vector, similarity_threshold=0.3, limit=15):
+    async def search_similar_nodes(self, search_vector, similarity_threshold=0.3, limit=30):
         try:
             query = """
             MATCH (n)
