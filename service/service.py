@@ -318,18 +318,18 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, entity_code_dict = await start_entity_processing(object_name, orm_type, user_id) 
+            entity_name_list, table_entity_info = await start_entity_processing(object_name, orm_type, user_id) 
             yield f"{file_name}-Step1 completed\n"
             
 
             # * 2 단계 : 리포지토리 인터페이스 생성
-            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type, user_id) 
+            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type, user_id, table_entity_info) 
             yield f"{file_name}-Step2 completed\n"
             
 
             # * 2.5 단계 : MyBatis XML 매퍼 생성 (MyBatis 전용)
             if orm_type == 'mybatis':
-                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods, user_id)
+                await start_mybatis_mapper_processing(table_entity_info, all_query_methods, user_id)
 
 
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
@@ -446,10 +446,8 @@ async def process_project_zipping(source_directory, output_zip_path):
 # 역할: 임시 생성된 모든 파일과 Neo4j 데이터를 정리합니다.
 #
 # 매개변수: 
-#   - delete_paths : 삭제할 디렉토리 경로들이 담긴 딕셔너리
-#       - docker 환경: {'java_dir': 경로, 'zip_dir': 경로}
-#       - 로컬 환경: {'target_dir': 경로, 'zip_dir': 경로}
-async def delete_all_temp_data(delete_paths: dict, user_id:str):
+#   - user_id : 사용자 ID   
+async def delete_all_temp_data(user_id:str):
     neo4j = Neo4jConnection()
     
     try:
@@ -488,8 +486,9 @@ async def delete_all_temp_data(delete_paths: dict, user_id:str):
 # 매개변수:
 #   - test_cases: 테스트 케이스 목록
 #   - user_id: 사용자 ID
+#   - orm_type: 사용할 ORM 유형
 # TODO 리팩토링 필요 
-async def process_comparison_result(test_cases: list, user_id: str):
+async def process_comparison_result(test_cases: list, user_id: str, orm_type: str):
     try:
         # * 모든 테스트 케이스에서 사용된 테이블 이름을 추출하여 집합으로 저장
         table_names = list({table for case in test_cases for table in case['tableFields'].keys()})
@@ -506,7 +505,7 @@ async def process_comparison_result(test_cases: list, user_id: str):
 
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
         package_names = await get_package_dependencies(user_id)
-        await generate_init_sql(table_names, package_names)
+        await generate_init_sql(table_names, package_names, orm_type)
         await process_docker_compose_yml(table_names)
 
 
@@ -547,7 +546,7 @@ async def process_comparison_result(test_cases: list, user_id: str):
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
             # * Junit 테스트 코드 작성 
-            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name)
+            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name, orm_type)
             test_class_names.append(test_class_name)
 
             # * 테스트 데이터 삭제

@@ -247,6 +247,7 @@ async def get_compare_result(request: Request):
         compare_data = await request.json()
         logging.info("Received Compare Data")
         test_cases = compare_data.get('cases', [])
+        orm_type = compare_data.get('orm_type', 'jpa')
         
         
         # * 테스트 케이스 정보 검증
@@ -255,7 +256,7 @@ async def get_compare_result(request: Request):
             
 
         # * 비교 테스트 및 피드백 루프 처리
-        return StreamingResponse(process_comparison_result(test_cases, user_id))
+        return StreamingResponse(process_comparison_result(test_cases, user_id, orm_type))
     
     except Exception as e:
         error_message = f"비교 결과를 가져오는데 실패했습니다: {str(e)}"

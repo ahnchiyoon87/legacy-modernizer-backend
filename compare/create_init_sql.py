@@ -10,16 +10,40 @@ from util.exception import DependencyProcedureError, ExtractParameterError, Gene
 # 매개변수 : 
 #   - table_names : 테이블 이름 리스트
 #   - package_names : 패키지 이름 리스트
+#   - orm_type : 사용할 ORM 유형
 #
 # 반환값 : 
 #   - bool : 파일 생성 성공 여부
-async def generate_init_sql(table_names: list[str], package_names: list[str]) -> bool:
+async def generate_init_sql(table_names: list[str], package_names: list[str], orm_type: str) -> bool:
 
     try:
         # * 테이블 생성 명령어 생성
         table_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/ddl/{table}.sql" for table in table_names])
         package_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/procedure/{package}.sql" for package in package_names])
+        
+        
+        # * orm_type에 따른 DB 설정 부분
+        plsqldb_setup = f"""
+ALTER SESSION SET CONTAINER = plsqldb;
+ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
+{table_creation_plsql}
+{package_creation_plsql}"""
 
+
+        # * mybatis인 경우 javadb 설정도 추가
+        javadb_setup = f"""
+ALTER SESSION SET CONTAINER = javadb;
+ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
+{table_creation_plsql}"""
+
+
+        # * orm_type에 따라 다른 설정 적용
+        db_setup = plsqldb_setup
+        if orm_type == 'mybatis':
+            db_setup = f"{plsqldb_setup}\n{javadb_setup}"
+        
+        
+        # * 템플릿 생성
         template = f'''SHUTDOWN IMMEDIATE;
 STARTUP MOUNT;
 ALTER DATABASE ARCHIVELOG;
@@ -79,11 +103,7 @@ BEGIN
 END;
 /
 
-
-ALTER SESSION SET CONTAINER = plsqldb;
-ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
-{table_creation_plsql}
-{package_creation_plsql}
+{db_setup}
 ALTER SESSION SET CONTAINER = CDB$ROOT;
 
 DECLARE
@@ -130,13 +150,16 @@ COMMIT;
 
 EXIT;'''
 
+
         # * 프로젝트 루트 경로 찾기
         current_dir = Path(__file__).parent.parent
         setup_dir = current_dir / 'setup'
         
-        # setup 디렉토리가 없으면 생성
+
+        # * setup 디렉토리가 없으면 생성
         setup_dir.mkdir(exist_ok=True)
         
+
         # * 01_init_database_config.sql 파일 생성
         init_sql_path = setup_dir / '01_init_database_config.sql'
         with open(init_sql_path, 'w', encoding='utf-8') as f:

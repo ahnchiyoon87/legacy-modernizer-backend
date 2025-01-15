@@ -14,6 +14,52 @@ db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
 
+# MyBatis Mapper 인터페이스에 save 쿼리 메서드 저장 프롬프트
+myBatis_save_prompt = PromptTemplate.from_template(
+"""
+당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
+주어진 데이터를 기반으로 MyBatis Mapper 인터페이스의 save 메서드를 생성하는 작업을 맡았습니다.
+
+
+Table Entity Info:
+{table_json_data}
+
+
+[SECTION 1] Save 메서드 생성 지침
+===============================================
+1. 기본 규칙
+   - @Insert 어노테이션 사용
+   - 메서드명은 save로 통일
+   - 반환 타입은 void
+   - 매개변수는 엔티티 객체
+
+2. SQL 작성 규칙
+   - 테이블명은 Table Info의 name 필드 사용
+   - 모든 컬럼에 대해 INSERT 구문 생성
+   - 값 바인딩은 #{{필드명}} 형식 사용
+   - 필드명은 엔티티 클래스의 필드명과 동일하게 사용
+
+
+[SECTION 2] Save 메서드 작성 예시
+===============================================
+@Insert("INSERT INTO EMPLOYEE (EMP_NO, NAME, DEPARTMENT) VALUES (#{{empNo}}, #{{name}}, #{{department}})")
+void save(Employee employee);
+
+
+[SECTION 3] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+{{
+    "analysis": [
+        {{
+            "tableName": "테이블명",
+            "method": "@Insert(\"INSERT INTO table (col1, col2) VALUES (#{{field1}}, #{{field2}})\")\nvoid save(Entity entity);",
+        }}
+    ]
+}}
+"""
+)
+
 
 # MyBatis Mapper 인터페이스 생성 프롬프트
 myBatis_prompt = PromptTemplate.from_template(
@@ -314,5 +360,38 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
     
     except Exception as e:
         err_msg = f"리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise LLMCallError(err_msg)
+    
+
+# 역할 : 엔티티 클래스와 테이블 정보를 기반으로 save 메서드를 생성하는 함수입니다.
+#
+# 매개변수:
+#   - table_info : 테이블 및 엔티티 클래스 정보
+#
+# 반환값:
+#   - result : LLM이 생성한 save 메서드 정보
+def convert_save_method(table_info: dict) -> dict:
+    try:
+        # * JSON 데이터 준비
+        table_info_json = json.dumps(table_info, ensure_ascii=False, indent=2)
+        
+        prompt_data = {
+            "table_json_data": table_info_json
+        }
+
+        # * LangChain 체인 구성 및 실행
+        chain = (
+            RunnablePassthrough()
+            | myBatis_save_prompt
+            | llm
+            | JsonOutputParser()
+        )
+        
+        result = chain.invoke(prompt_data)
+        return result
+
+    except Exception as e:
+        err_msg = f"save 메서드 생성을 위한 LLM 호출 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)

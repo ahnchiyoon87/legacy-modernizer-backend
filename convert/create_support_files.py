@@ -9,10 +9,10 @@ MAPPER_PATH = 'demo/src/main/resources/mapper'
 # 역할 : MyBatis Mapper XML 파일을 생성합니다.
 #
 # 매개변수 : 
-#   - entity_code : 엔티티 정보를 담은 딕셔너리
-#   - query_methods : 리포지토리 메서드 정보를 담은 딕셔너리
+#   - table_entity_info : 엔티티와 테이블 정보를 담은 딕셔너리
+#   - all_query_methods : 리포지토리 메서드 정보를 담은 딕셔너리
 #   - user_id : 사용자 ID
-async def start_mybatis_mapper_processing(entity_infos: dict, all_query_methods: dict, user_id: str) -> None:
+async def start_mybatis_mapper_processing(table_entity_info: dict, all_query_methods: dict, user_id: str) -> None:
     try:
 
         # * 저장 경로 설정
@@ -24,8 +24,8 @@ async def start_mybatis_mapper_processing(entity_infos: dict, all_query_methods:
 
 
         # * 각 테이블별로 Mapper XML 생성
-        for entity_name, entity_code in entity_infos.items():
-            analysis_mapper = convert_xml_mapper(entity_name, entity_code, all_query_methods[entity_name])
+        for entity_name, table_entity_code in table_entity_info.items():
+            analysis_mapper = convert_xml_mapper(entity_name, table_entity_code, all_query_methods[entity_name])
             
             # * 매퍼 정보 순회
             for mapper_info in analysis_mapper['analysis']:

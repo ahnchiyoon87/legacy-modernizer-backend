@@ -15,14 +15,17 @@ TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
 #   - table_names : 테이블 이름 리스트
 #   - package_name : 패키지 이름
 #   - procedure_name : 프로시저 이름
+#   - orm_type : 사용할 ORM 유형
 #
 # 반환값 : 
 #   - str : 생성된 테스트 코드 파일 이름
-async def create_junit_test(given_when_then_log: dict, table_names: list, package_name: str, procedure_name: str):
+async def create_junit_test(given_when_then_log: dict, table_names: list, package_name: str, procedure_name: str, orm_type: str):
     try:
-
+        # * Repository 메서드 추출
         repository_codes = await get_repository_codes(given_when_then_log)
 
+
+        # * junit 테스트 코드 생성하는 LLM 호출
         test_result = generate_test_code(
             table_names,
             package_name,
@@ -30,7 +33,8 @@ async def create_junit_test(given_when_then_log: dict, table_names: list, packag
             repository_codes,
             procedure_info=given_when_then_log.get("when"),
             given_log=given_when_then_log.get("given"),
-            then_log=given_when_then_log.get("then")
+            then_log=given_when_then_log.get("then"),
+            orm_type=orm_type
         )
         
 
@@ -38,6 +42,8 @@ async def create_junit_test(given_when_then_log: dict, table_names: list, packag
         parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         test_file_path = os.path.join(parent_workspace_dir, TEST_PATH, f"{test_result['className']}.java")
         
+
+        # * Junit 테스트 코드 파일 생성
         os.makedirs(os.path.dirname(test_file_path), exist_ok=True)
         with open(test_file_path, "w", encoding="utf-8") as f:
             f.write(test_result['testCode'])

@@ -5,6 +5,7 @@ from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, FilePathError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
+from util.string_utils import convert_to_pascal_case
 from util.token_utils import calculate_code_token
 
 MAX_TOKENS = 1000
@@ -27,26 +28,39 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str, use
         current_tokens = 0
         table_data_chunk = []
         entity_name_list = []
-        entity_code_dict = {}
+        table_entity_info = {}
 
         # 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
         async def process_entity_class_code() -> None:
-            nonlocal entity_name_list, entity_code_dict, current_tokens, table_data_chunk
+            nonlocal entity_name_list, table_entity_info, current_tokens, table_data_chunk
 
             try:
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
                 analysis_data = convert_entity_code(table_data_chunk, orm_type)
                 
+
+                # * 테이블 정보를 이름으로 빠르게 찾기 위한 딕셔너리
+                table_map = {
+                    convert_to_pascal_case(table['name']): table 
+                    for table in table_data_chunk
+                }
                 
+
                 # * 각 엔티티별로 파일 생성
                 for entity in analysis_data['analysis']:
                     entity_name = entity['entityName']
                     entity_code = entity['code']
                     
+                    # * 엔티티 클래스 파일 생성
                     await generate_entity_class(entity_name, entity_code, user_id)
                     entity_name_list.append(entity_name)
-                    entity_code_dict[entity_name] = entity_code
-                
+                    
+                    # * 엔티티 클래스 정보 저장
+                    table_entity_info[entity_name] = {
+                        'code': entity['code'],
+                        'table_info': table_map.get(entity_name)
+                    }                
+
 
                 # * 다음 사이클을 위한 상태 초기화
                 table_data_chunk = []
@@ -81,7 +95,7 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str, use
             await process_entity_class_code()
 
 
-        return entity_name_list, entity_code_dict
+        return entity_name_list, table_entity_info
 
     except (FilePathError, SaveFileError, ProcessResultError):
         raise
@@ -167,10 +181,10 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, orm_type, user_id)
+        entity_name_list, table_entity_info = await process_table_by_token_limit(table_data_list, orm_type, user_id)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
-        return entity_name_list, entity_code_dict
+        return entity_name_list, table_entity_info
     
     except ConvertingError:
         raise
