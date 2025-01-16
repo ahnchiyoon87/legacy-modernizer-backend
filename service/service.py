@@ -1,5 +1,4 @@
 import asyncio
-from datetime import date
 import json
 import logging
 import shutil
@@ -8,7 +7,7 @@ import zipfile
 import aiofiles
 import os
 from compare.create_init_sql import extract_procedure_params, generate_init_sql, generate_insert_sql, get_package_dependencies
-from compare.extract_log_info import clear_log_file, generate_given_when_then
+from compare.extract_log_info import clear_log_files, generate_given_when_then
 from compare.create_docker_compose_yml import check_docker_services_running, process_docker_compose_yml
 from compare.create_init_sql import generate_init_sql
 from compare.create_junit_test import create_junit_test
@@ -316,7 +315,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, table_entity_info, table_name_list = await start_entity_processing(object_name, orm_type, user_id) 
+            entity_name_list, table_entity_info = await start_entity_processing(object_name, orm_type, user_id) 
             yield f"{file_name}-Step1 completed\n"
             
 
@@ -495,7 +494,13 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
 
         # * 테스트 데이터 삭제
         await execute_sql(delete_statements, orm_type, True)
-        await clear_log_file()
+        
+
+        # * 로그 파일 비우기
+        if orm_type == 'mybatis':
+            await clear_log_files('plsql', 'java')
+        else:
+            await clear_log_files('plsql')
 
 
         # * docker-compose.yml 파일 생성 및 실행 상태 전송
@@ -503,12 +508,6 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
             "type": "status",
             "message": "Docker 환경 구성 시작"
         }, ensure_ascii=False).encode('utf-8') + b"send_stream"
-
-
-        # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
-        package_names = await get_package_dependencies(user_id)
-        await generate_init_sql(table_names, package_names, orm_type)
-        await process_docker_compose_yml(table_names)
 
 
         # * 각 테스트 케이스에 처리 진행 
@@ -532,7 +531,7 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
             await execute_sql(insert_statements)
 
             # * Given 로그 파일 비우기
-            await clear_log_file()
+            await clear_log_files('plsql')
 
             # * 테스트 데이터 생성을 위한 프로시저 파라미터 추출
             procedure_params = extract_procedure_params(procedure)

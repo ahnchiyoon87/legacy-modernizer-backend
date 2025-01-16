@@ -175,14 +175,12 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 
                           'foreign_keys', 'description', 'reference_tables'}
         table_data_list = []
-        table_name_list = []
 
 
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
         for node in table_nodes:
             node_data = node['n']
             table_name = node_data['name']
-            table_name_list.append(table_name)
 
             table_info = {
                 'name': table_name,
@@ -203,7 +201,7 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         entity_name_list, table_entity_info = await process_table_by_token_limit(table_data_list, object_name, orm_type, user_id, connection)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
-        return entity_name_list, table_entity_info, table_name_list
+        return entity_name_list, table_entity_info
     
     except ConvertingError:
         raise

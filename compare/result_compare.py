@@ -6,7 +6,7 @@ import json
 from openai import OpenAI
 import difflib
 
-from compare.extract_log_info import clear_log_file, compare_then_results, extract_java_given_when_then
+from compare.extract_log_info import clear_log_files, compare_then_results, extract_java_given_when_then
 from prompt.generate_compare_text_prompt import generate_compare_text
 from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
@@ -173,7 +173,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, us
             logging.info(f"{test_class_name} 테스트 클래스 실행 완료")
             java_gwt_log = await extract_java_given_when_then(i)
             compare_log, difference_text = await compare_then_results(i)
-            await clear_log_file('java')
+            await clear_log_files('java', 'plsql')
 
             yield json.dumps({
                 "type": "java",
