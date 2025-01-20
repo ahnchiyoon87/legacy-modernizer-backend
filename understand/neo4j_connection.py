@@ -7,7 +7,7 @@ from util.exception import Neo4jError
 
 class Neo4jConnection:
 
-    database_name = "note"
+    database_name = "neo4j"
 
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
     #
@@ -18,7 +18,7 @@ class Neo4jConnection:
     def __init__(self):
         uri = os.getenv("NEO4J_URI", "bolt://localhost:7691")
         user = os.getenv("NEO4J_USER", "neo4j")
-        password = os.getenv("NEO4J_PASSWORD", "an1021402")
+        password = os.getenv("NEO4J_PASSWORD", "jhyg1234")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
 
@@ -120,7 +120,40 @@ class Neo4jConnection:
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
         
+    # 역할: 특정 노드의 java_code를 업데이트합니다.
+    # 매개변수:
+    #   - original_java_code: 원본 자바 코드
+    #   - modified_java_code: 수정된 자바 코드
+    #   - file_path: 자바 파일 경로
+    async def update_node_code(self, original_java_code, modified_java_code, file_path):
+        # 파일 경로에서 파일명만 추출
+        file_name = file_path.split('/')[-1]
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.java_code = $original_java_code AND n.java_file = $file_name
+            SET n.java_code = $modified_java_code
+            RETURN n
+            """
+            
+            async with self.__driver.session(database=self.database_name) as session:
+                result = await session.run(query, 
+                                           original_java_code=original_java_code,
+                                           modified_java_code=modified_java_code,
+                                           file_name=file_name)
+                updated_nodes = await result.data()
+                
+                if updated_nodes:
+                    logging.info(f"Updated {len(updated_nodes)} nodes with new java_code.")
+                else:
+                    logging.warning("No nodes were updated. Check if the original_java_code and file_path are correct.")
+                
+                return updated_nodes
 
+        except Exception as e:
+            error_msg = f"노드 코드 업데이트 중 오류 발생: {str(e)}"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)
 
     # 역할: 텍스트 유사도 기반으로 노드를 검색합니다.
     #
@@ -131,7 +164,11 @@ class Neo4jConnection:
     #
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
+<<<<<<< HEAD
     async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 15) -> list:
+=======
+    async def search_similar_nodes(self, search_vector, similarity_threshold=0.3, limit=30):
+>>>>>>> f4073120c7f8e3500092ef6915e9e3f6555ae856
         try:
             query = """
             MATCH (n)
