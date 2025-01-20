@@ -261,15 +261,16 @@ async def get_compare_result(request: Request):
         return StreamingResponse(process_comparison_result(test_cases, user_id, orm_type))
     
     except Exception as e:
-<<<<<<< HEAD
         error_message = f"비교 결과를 가져오는데 실패했습니다: {str(e)}"
         logger.exception(error_message)
         raise HTTPException(status_code=500, detail=error_message)
-=======
-        raise HTTPException(status_code=500, detail=f"비교 결과를 가져오는데 실패했습니다: {str(e)}")
-    
+
+
+# 역할: 비교 결과 생성 중단 요청을 처리합니다
+# 매개변수: 없음
+# 반환값: 중지 메시지
 @router.post("/stop_feedback_loop/")
-async def stop_feedback_loop(request: Request):
+async def stop_feedback_loop():
     try:
         # 중지 이벤트 설정
         stop_execution()
@@ -277,8 +278,9 @@ async def stop_feedback_loop(request: Request):
         
         return {"message": "Execution stopped successfully."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Execution stop failed: {str(e)}")
->>>>>>> f4073120c7f8e3500092ef6915e9e3f6555ae856
+        error_message = f"Execution stop failed: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 # 역할: 테스트 입력값을 위해 노드 정보를 조회하여 반환합니다

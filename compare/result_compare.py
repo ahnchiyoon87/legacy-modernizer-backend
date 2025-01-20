@@ -101,6 +101,7 @@ def read_single_log_file(directory_path, file_name):
         logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
         raise
 
+# TODO : user_id(세션 아이디)를 받아서 폴더를 구분하고 있음 -> update도 경로 수정이 필요
 async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list):
     global global_test_class_names, global_plsql_gwt_log, stop_execution_flag
     
