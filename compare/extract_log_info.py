@@ -9,7 +9,7 @@ import base64
 from decimal import Decimal
 from datetime import date, datetime
 
-from util.exception import CompareResultError, DecodeLogError, ExtractLogError, LogStabilizationError, ProcessResultError, SaveFileError
+from util.exception import ClearLogFileError, CompareResultError, DecodeLogError, ExtractLogError, LogStabilizationError, ProcessResultError, SaveFileError
 from collections import OrderedDict
 
 # 현재 파일(capture_log.py)의 위치를 기준으로 경로 설정
@@ -344,7 +344,6 @@ async def save_json_to_file(data, file_name):
 # 반환값 : 
 #   - bool : 로그 파일 비우기 성공 여부
 async def clear_log_files(*log_types: str):
-
     try:
         # * 로그 타입에 따른 파일 경로 매핑
         log_paths = []
@@ -368,22 +367,21 @@ async def clear_log_files(*log_types: str):
         logging.info("모든 로그 파일이 안정화되었습니다.")
 
 
-        # * 안정화된 파일들 비우기
-        async with asyncio.TaskGroup() as tg:
-            for file_path in log_paths:
-                if await aiofiles.os.path.exists(file_path):
-                    async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-                        await f.write('')
-                    logging.info(f"로그 파일 비우기 완료: {file_path}")
-                else:
-                    logging.warning(f"로그 파일이 존재하지 않습니다: {file_path}")
+        # * 안정화된 파일들 비우기 - TaskGroup 대신 일반 반복문 사용
+        for file_path in log_paths:
+            if os.path.exists(file_path):  # aiofiles.os 대신 일반 os 모듈 사용
+                async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                    await f.write('')
+                logging.info(f"로그 파일 비우기 완료: {file_path}")
+            else:
+                logging.warning(f"로그 파일이 존재하지 않습니다: {file_path}")
             
     except LogStabilizationError:
         raise
     except Exception as e:
         err_msg = f"로그 파일 비우기 실패: {str(e)}"
         logging.error(err_msg)
-        raise ExtractLogError(err_msg)
+        raise ClearLogFileError(err_msg)
     
 
 # 역할 : 로그 파일의 크기 변화를 모니터링하여 안정화될 때까지 대기합니다.

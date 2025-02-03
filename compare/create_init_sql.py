@@ -110,7 +110,7 @@ DECLARE
   v_count NUMBER;
 BEGIN
   SELECT COUNT(*) INTO v_count FROM dba_users WHERE username = 'C##DEBEZIUM';
-  IF v_count = 0 THEN
+  IF v_count = 1 THEN
 
     -- LOGMNR 관련 권한
     EXECUTE IMMEDIATE 'GRANT SELECT ANY DICTIONARY TO c##debezium CONTAINER=ALL';

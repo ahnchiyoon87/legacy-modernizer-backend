@@ -50,10 +50,13 @@ class TestProcessComparisonResult(unittest.IsolatedAsyncioTestCase):
                 }
             }
 
+            user_id = "3c667f5b-6bde-4c1f-b3e9-bfb0a5396d52"
+            orm_type = "jpa"
+
             test_cases = [test_case]
             
             # 단순히 결과 확인
-            async for result in process_comparison_result(test_cases):
+            async for result in process_comparison_result(test_cases, user_id, orm_type):
                 print(f"결과: {result}")
                 
         except Exception as e:

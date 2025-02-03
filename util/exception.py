@@ -221,3 +221,7 @@ class DependencyProcedureError(FeedbackLoopError):
 class LogStabilizationError(FeedbackLoopError):
     def __init__(self, message="로그 파일 안정화 대기 중 오류가 발생했습니다."):
         super().__init__(message)
+
+class ClearLogFileError(FeedbackLoopError):
+    def __init__(self, message="로그 파일 비우기 중 오류가 발생했습니다."):
+        super().__init__(message)

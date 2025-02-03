@@ -11,7 +11,11 @@ from util.exception import DockerComposeError, DockerPrepareError, DockerRunErro
 #
 # 매개변수 : 
 #   - table_names : 테이블 이름 리스트
-async def generate_docker_compose_yml(table_names):
+#   - user_id : 사용자 ID
+#
+# 반환값 : 
+#   - bool : docker-compose.yml 파일 생성 성공 여부
+async def generate_docker_compose_yml(table_names: list, user_id: str) -> bool:
 
     try:
         # * 테이블 이름들을 공백으로 구분된 문자열로 변환
@@ -67,8 +71,8 @@ services:
      - ORACLE_CHARACTERSET=AL32UTF8
     volumes:
      - ./01_init_database_config.sql:/opt/oracle/scripts/startup/01_init_database_config.sql
-     - ../../data/ddl/:/opt/oracle/scripts/sql/ddl/
-     - ../../src/:/opt/oracle/scripts/sql/procedure/
+     - ../../data/{user_id}/ddl/:/opt/oracle/scripts/sql/ddl/
+     - ../../data/{user_id}/src/:/opt/oracle/scripts/sql/procedure/
      - ./healthcheck.sql:/opt/oracle/healthcheck.sql
     command: ["/bin/sh", "-c", "exec /opt/oracle/runOracle.sh"]
     healthcheck:
@@ -301,14 +305,15 @@ async def start_docker_compose_yml():
 #
 # 매개변수 : 
 #   - table_names : 처리할 테이블 이름 리스트
+#   - user_id : 사용자 ID
 #
 # 반환값 : 
 #   - bool : 모든 과정 성공 여부
-async def process_docker_compose_yml(table_names: list) -> bool:
+async def process_docker_compose_yml(table_names: list, user_id: str) -> bool:
 
     try:
         # * 1. docker-compose.yml 생성
-        if not await generate_docker_compose_yml(table_names):
+        if not await generate_docker_compose_yml(table_names, user_id):
             print("docker-compose.yml 생성 실패")
             return False
 
@@ -332,7 +337,7 @@ async def process_docker_compose_yml(table_names: list) -> bool:
 #   - bool : 도커 서비스 실행 여부
 async def check_docker_services_running() -> bool:
     try:
-        # docker-compose.yml에 정의된 서비스 목록
+        # * docker-compose.yml에 정의된 서비스 목록
         required_services = [
             'zookeeper',
             'kafka',
@@ -342,7 +347,8 @@ async def check_docker_services_running() -> bool:
             'watcher-java'
         ]
         
-        # docker ps 명령어 실행하여 실행 중인 컨테이너 확인
+
+        # * docker ps 명령어 실행하여 실행 중인 컨테이너 확인
         process = await asyncio.create_subprocess_shell(
             'docker ps --format "{{.Names}}"',
             stdout=asyncio.subprocess.PIPE,
@@ -352,10 +358,24 @@ async def check_docker_services_running() -> bool:
         stdout, _ = await process.communicate()
         running_containers = stdout.decode().strip().split('\n')
         
-        # 모든 필수 서비스가 실행 중인지 확인
+
+        # * 실행 중인 컨테이너가 없는 경우 처리
+        if running_containers == ['']:
+            logging.info("실행 중인 Docker 컨테이너가 없습니다.")
+            return False
+            
+
+        # * 현재 실행 중인 모든 컨테이너 출력
+        logging.info("현재 실행 중인 Docker 컨테이너 목록:")
+        for container in running_containers:
+            if container:  # 빈 문자열이 아닌 경우만 출력
+                logging.info(f"- {container}")
+        
+
+        # * 필요한 서비스들의 상태 확인
         for service in required_services:
             if service not in running_containers:
-                logging.info(f"서비스 '{service}'가 실행되고 있지 않습니다.")
+                logging.info(f"필수 서비스 '{service}'가 실행되고 있지 않습니다.")
                 return False
                 
         logging.info("모든 필수 Docker 서비스가 실행 중입니다.")

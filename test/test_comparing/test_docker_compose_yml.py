@@ -4,37 +4,28 @@ import os
 import logging
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from compare.create_docker_compose_yml import process_docker_compose_yml
-from compare.create_init_sql import generate_init_sql
-
+from service.service import initialize_docker_environment
 
 # 로그 레벨을 INFO로 설정
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 class TestDockerComposeYml(unittest.IsolatedAsyncioTestCase):
     
-    async def test_generate_docker_compose_yml(self):
+    async def test_initialize_docker_environment(self):
         try:
-            # 테스트용 테이블 이름 리스트 및 패키지 이름 리스트
-            table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
+            # 테스트용 데이터
+            user_id = "3c667f5b-6bde-4c1f-b3e9-bfb0a5396d52"
+            orm_type = "jpa"
             package_names = ["TPX_EMPLOYEE", "TPX_SALARY", "TPX_ATTENDANCE", "TPX_MAIN"]
-
-            logging.info("docker-compose.yml 생성 시작")
             
-            # process_docker_compose_yml 함수 실행 전 상태 로깅
-            logging.info(f"처리할 테이블: {table_names}")
+            # 함수 실행
+            await initialize_docker_environment(user_id, orm_type, package_names)
             
-            result = await process_docker_compose_yml(table_names)
-            
-            # 결과 상태 로깅
-            logging.info(f"process_docker_compose_yml 결과: {result}")
-            
-            self.assertTrue(result, "docker-compose.yml 생성에 실패했습니다")
+            # 오류가 발생하지 않았다면 테스트 성공
+            self.assertTrue(True)
                 
         except Exception as e:
-            logging.error(f"상세 오류 내용: {str(e)}")
-            logging.error(f"오류 타입: {type(e)}")
-            self.fail(f"docker-compose.yml 파일 생성 중 예외 발생: {str(e)}")
+            self.fail(f"도커 환경 초기화 중 예외 발생: {str(e)}")
 
 if __name__ == '__main__':
     unittest.main()

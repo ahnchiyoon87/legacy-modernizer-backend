@@ -8,7 +8,7 @@ async def test_execute_maven_commands():
 
     # 테스트할 클래스 이름 리스트 정의 (실제 테스트 클래스 이름과 동일)
     test_classes = [
-        "TpjSalaryDeduct100KAmountTest"
+        "TpxUpdateSalaryDeduct100kTest"
     ]
 
     # execute_maven_commands 함수 호출

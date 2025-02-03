@@ -548,7 +548,7 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
             # * Junit 테스트 코드 작성 
-            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name, orm_type)
+            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name, orm_type, user_id)
             test_class_names.append(test_class_name)
 
 
@@ -651,17 +651,18 @@ async def initialize_docker_environment(user_id: str, orm_type: str, package_nam
 
         # * 테이블 이름 리스트 조회 쿼리 실행
         result = await connection.execute_queries(query)
-        table_name_list = result[0]['table_names']
+        table_name_list = result[0][0]['table_names']
         
         
         # * 도커 서비스 실행 여부 확인
         is_docker_running = await check_docker_services_running()
         if not is_docker_running:
+            logging.info("도커 서비스 실행 시작")
             package_names = await get_package_dependencies(user_id)
             await generate_init_sql(table_name_list, package_names, orm_type)
-            await process_docker_compose_yml(table_name_list)
-            
-        logging.info("Docker environment initialization completed successfully")
+            await process_docker_compose_yml(table_name_list, user_id)
+        else:
+            logging.info("도커 서비스 이미 실행 중")
         
     except Exception as e:
         logging.error(f"도커 환경 초기화 중 오류 발생: {str(e)}")

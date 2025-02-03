@@ -314,6 +314,7 @@ async def init_docker_environment(request: Request):
         data = await request.json()
         orm_type = data.get('orm_type', 'jpa').lower()
         package_names = data.get('package_names', [])
+        print(package_names)
 
         
         # * 도커 환경 초기화 시작 (비동기 백그라운드)

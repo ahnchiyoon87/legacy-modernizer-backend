@@ -113,7 +113,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, us
     logging.info(f"Maven 테스트 실행 시작")
     test_failed = False
     failed_test_index = []
-    maven_project_root = os.path.join(base_directory, 'target', 'java', 'demo')
+    maven_project_root = os.path.join(base_directory, 'target', 'java', user_id, 'demo')
     logging.info(f"Maven 프로젝트 경로: {maven_project_root}")
     conn = Neo4jConnection()
         
@@ -155,7 +155,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, us
                     yield json.dumps({"type": "update_feedbackLoop_status", "status": "java_compile_error"}).encode('utf-8') + b"send_stream"
                     error_output = test_result.stdout
                     logging.error(f"오류 내용: {error_output}")
-                    java_files = get_all_files_in_directory(os.path.join(base_directory, 'target'))
+                    java_files = get_all_files_in_directory(os.path.join(base_directory, 'target', 'java', user_id))
                     plsql_java_pairs = []
                     error_result = generate_error_log(error_output)
                     error_text = error_result["error_text"]
@@ -200,7 +200,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, us
         }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
         if test_failed:
-            java_files = get_all_java_files_in_directory(os.path.join(base_directory, 'target'))
+            java_files = get_all_java_files_in_directory(os.path.join(base_directory, 'target', 'java', user_id))
             logs_directory = 'logs'
             plsql_log_files = []
             java_log_files = []

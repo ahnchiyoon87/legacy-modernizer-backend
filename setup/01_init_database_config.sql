@@ -7,9 +7,6 @@ ALTER PLUGGABLE DATABASE ALL OPEN;
 ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;
 ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 
-ALTER DATABASE FORCE LOGGING;
-ALTER SYSTEM ARCHIVE LOG CURRENT;
-
 DECLARE
   v_count NUMBER;
 BEGIN
@@ -33,6 +30,7 @@ BEGIN
   END IF;
 END;
 /
+
 
 DECLARE
   v_count NUMBER;
@@ -59,11 +57,12 @@ BEGIN
 END;
 /
 
+
 ALTER SESSION SET CONTAINER = plsqldb;
 ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
+@/opt/oracle/scripts/sql/ddl/TPJ_ATTENDANCE.sql
 @/opt/oracle/scripts/sql/ddl/TPJ_EMPLOYEE.sql
 @/opt/oracle/scripts/sql/ddl/TPJ_SALARY.sql
-@/opt/oracle/scripts/sql/ddl/TPJ_ATTENDANCE.sql
 @/opt/oracle/scripts/sql/procedure/TPX_EMPLOYEE.sql
 @/opt/oracle/scripts/sql/procedure/TPX_ATTENDANCE.sql
 @/opt/oracle/scripts/sql/procedure/TPX_SALARY.sql
@@ -74,7 +73,7 @@ DECLARE
   v_count NUMBER;
 BEGIN
   SELECT COUNT(*) INTO v_count FROM dba_users WHERE username = 'C##DEBEZIUM';
-  IF v_count > 0 THEN
+  IF v_count = 1 THEN
 
     -- LOGMNR 관련 권한
     EXECUTE IMMEDIATE 'GRANT SELECT ANY DICTIONARY TO c##debezium CONTAINER=ALL';
@@ -108,6 +107,7 @@ BEGIN
   END IF;
 END;
 /
+
 
 COMMIT;
 

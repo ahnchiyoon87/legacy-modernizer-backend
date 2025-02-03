@@ -6,7 +6,7 @@ from util.exception import GenerateJunitError, QueryMethodError, ReadFileError, 
 from util.file_utils import read_target_file
 from util.string_utils import convert_to_pascal_case
 
-TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
+TEST_PATH = 'demo/src/test/java/com/example/demo'
 
 # 역할 : JUnit 테스트 코드를 생성하는 함수
 #
@@ -16,13 +16,14 @@ TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
 #   - package_name : 패키지 이름
 #   - procedure_name : 프로시저 이름
 #   - orm_type : 사용할 ORM 유형
+#   - user_id : 사용자 ID
 #
 # 반환값 : 
 #   - str : 생성된 테스트 코드 파일 이름
-async def create_junit_test(given_when_then_log: dict, table_names: list, package_name: str, procedure_name: str, orm_type: str):
+async def create_junit_test(given_when_then_log: dict, table_names: list, package_name: str, procedure_name: str, orm_type: str, user_id: str):
     try:
         # * Repository 메서드 추출
-        repository_codes = await get_repository_codes(given_when_then_log)
+        repository_codes = await get_repository_codes(given_when_then_log, user_id)
 
 
         # * junit 테스트 코드 생성하는 LLM 호출
@@ -40,7 +41,7 @@ async def create_junit_test(given_when_then_log: dict, table_names: list, packag
 
         # * 생성된 테스트 코드를 파일로 저장
         parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        test_file_path = os.path.join(parent_workspace_dir, TEST_PATH, f"{test_result['className']}.java")
+        test_file_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, TEST_PATH, f"{test_result['className']}.java")
         
 
         # * Junit 테스트 코드 파일 생성
@@ -60,10 +61,11 @@ async def create_junit_test(given_when_then_log: dict, table_names: list, packag
 #
 # 매개변수 :
 #   - given_when_then_log: 주어진 로그 데이터
+#   - user_id: 사용자 ID
 #
 # 반환값 :
 #   - dict: 테이블 이름을 키로 하고, 해당 테이블의 SQL 메서드를 값으로 하는 딕셔너리
-async def get_repository_codes(given_when_then_log: dict):
+async def get_repository_codes(given_when_then_log: dict, user_id: str):
     try:
         # * then 섹션에서 테이블 이름 추출
         then_tables = [entry['table'] for entry in given_when_then_log.get('then', [])]
@@ -78,7 +80,7 @@ async def get_repository_codes(given_when_then_log: dict):
             repository_name = f"{pascal_name}Repository"
             
             # * repository 파일 읽기
-            repository_code = read_target_file(repository_name, "repository")
+            repository_code = read_target_file(repository_name, "repository", user_id)
             
             # * JPA 쿼리 메서드 추출
             pattern = r'(@Query|@Select|@Insert|@Update|@Delete)\([^)]*\)\s*[\w\s<>,@()]*;'

@@ -11,7 +11,7 @@ services:
       test: ["CMD", "/zookeeper/bin/zkServer.sh", "status"]
       interval: 5s
       timeout: 5s
-      retries: 0
+      retries: 999
       start_period: 3s
 
   kafka:
@@ -32,7 +32,7 @@ services:
       test: ["CMD-SHELL", "/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 > /dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 0
+      retries: 999
       start_period: 6s
 
   oracle:
@@ -46,15 +46,15 @@ services:
      - ORACLE_CHARACTERSET=AL32UTF8
     volumes:
      - ./01_init_database_config.sql:/opt/oracle/scripts/startup/01_init_database_config.sql
-     - ../../data/ddl/:/opt/oracle/scripts/sql/ddl/
-     - ../../src/:/opt/oracle/scripts/sql/procedure/
+     - ../../data/3c667f5b-6bde-4c1f-b3e9-bfb0a5396d52/ddl/:/opt/oracle/scripts/sql/ddl/
+     - ../../data/3c667f5b-6bde-4c1f-b3e9-bfb0a5396d52/src/:/opt/oracle/scripts/sql/procedure/
      - ./healthcheck.sql:/opt/oracle/healthcheck.sql
     command: ["/bin/sh", "-c", "exec /opt/oracle/runOracle.sh"]
     healthcheck:
       test: ["CMD", "sqlplus", "-S", "/ as sysdba", "@/opt/oracle/healthcheck.sql"]
       interval: 10s
       timeout: 5s
-      retries: 0
+      retries: 999
       start_period: 120s
   
   connect:
@@ -78,7 +78,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
       timeout: 5s
-      retries: 0
+      retries: 999
       start_period: 10s
     entrypoint: ["/docker-entrypoint.sh", "start"]
 
@@ -91,7 +91,7 @@ services:
       connect:
         condition: service_healthy  
     environment:
-      - TABLE_NAMES=TPJ_EMPLOYEE TPJ_SALARY TPJ_ATTENDANCE
+      - TABLE_NAMES=TPJ_ATTENDANCE TPJ_EMPLOYEE TPJ_SALARY
     command: >
       sh -c "
       /kafka/bin/kafka-topics.sh --create --topic \"server1\" --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists &&
