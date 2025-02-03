@@ -288,7 +288,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             # * 프로시저 노드의 경우, Summary를 요약 및 벡터화 하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
-                summary = understand_summary(summary_dict)
+                summary = understand_summary(summary_dict, procedure_name, object_name)
                 summary_vector = vectorize_text(summary['summary'])
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})

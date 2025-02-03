@@ -5,6 +5,7 @@ import tiktoken
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, FilePathError, ProcessResultError, SaveFileError, ServiceCreationError, TraverseCodeError
 from util.file_utils import save_file
+from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
@@ -230,6 +231,7 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         # * 노드 조회 및 Java 코드 병합
         results = await connection.execute_queries(query)
         all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name, user_id)
+        service_file_name = f"{convert_to_pascal_case(object_name)}Service.java"
         
 
         # * 서비스 클래스 정보를 노드에 저장
@@ -240,6 +242,7 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         AND p.user_id = '{user_id}'
         AND (p:PROCEDURE OR p:FUNCTION)
         SET p.java_code = '{all_java_code}'
+        SET p.java_file = '{service_file_name}'
         """]
         await connection.execute_queries(service_query)
 

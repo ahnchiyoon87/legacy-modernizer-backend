@@ -68,7 +68,8 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
                         MATCH (n:Table {{name: '{table_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
                         SET n.java_code = '{entity_code}', 
                             n.summary = '{entity_summary}', 
-                            n.summary_vector = {summary_vector.tolist()}
+                            n.summary_vector = {summary_vector.tolist()},
+                            n.java_file = '{entity_name}.java'
                         """
                     ]
                     await connection.execute_queries(entity_query)

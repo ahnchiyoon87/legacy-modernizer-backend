@@ -135,7 +135,7 @@ class Neo4jConnection:
         try:
             query = """
             MATCH (n)
-            WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND n.java_range IS NOT NULL AND NOT n:EXCEPTION
+            WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND NOT n:EXCEPTION
             WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
             WHERE similarity >= $threshold
             RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, n.java_file as java_file, similarity
@@ -154,7 +154,7 @@ class Neo4jConnection:
                 if not nodes:
                     query = """
                     MATCH (n)
-                    WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND n.java_range IS NOT NULL AND NOT n:EXCEPTION
+                    WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND NOT n:EXCEPTION
                     WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
                     RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, n.java_file as java_file, similarity
                     ORDER BY similarity DESC

@@ -277,7 +277,12 @@ Sequence Info:
    - TRUNC 함수 사용 금지
    - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
    - BETWEEN 절을 통한 기간 필터링
-   
+
+5. 메서드 설명 작성 규칙
+   - 반드시 다음 형식으로 작성:
+     * "[메서드명] 메서드는 [주요 기능]을 수행합니다. 매개변수로 [매개변수명(타입)]을 입력받아 [반환타입]을 반환합니다."
+   예시) "findByEmployeeId 메서드는 직원 ID를 기준으로 직원 정보를 조회하며, 매개변수로 employeeId(String), startDate(LocalDate), endDate(LocalDate)를 입력받아 Employee를 반환합니다."
+
 
 [SECTION 3] JPA Query Methods 작성 예시
 ===============================================
@@ -300,6 +305,7 @@ Sequence Info:
         {{
             "tableName": "테이블명",
             "method": "@Query(\"SELECT e FROM Entity e WHERE e.column = :param\")\nType methodName(@Param(\"param\") Type param);"
+            "summary": "메서드 설명"
             "range": [
                {{
                   "startLine": 시작라인번호,

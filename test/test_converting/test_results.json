@@ -15,7 +15,7 @@
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
       "TpjEmployee": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n/**\n * TPJ_EMPLOYEE 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * empKey(String, NOT NULL, Unique)는 원본 테이블의 기본키입니다.\n * empName(String, NOT NULL), deptCode(String, NOT NULL) 필드와 함께\n * regularYn(String, NOT NULL) 필드로 구성됩니다.\n */\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false, length = 10)\n    private String empKey;\n    \n    @Column(nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(nullable = false, length = 50)\n    private String empName;\n    \n    @Column(nullable = false, length = 10)\n    private String deptCode;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(name = \"REGULAR_YN\", nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(name = \"EMP_NAME\", nullable = false, length = 50)\n    private String empName;\n    \n    @Column(name = \"USER_ID\")\n    private String userId;\n    \n    @Column(name = \"DEPT_CODE\", nullable = false, length = 10)\n    private String deptCode;\n    \n    @Column(name = \"EMP_KEY\", nullable = false, length = 10, unique = true)\n    private String empKey;\n}",
         "table_info": {
           "name": "TPJ_EMPLOYEE",
           "fields": [
@@ -28,12 +28,12 @@
               "EMP_NAME§VARCHAR2(50)§nullable:false"
             ],
             [
-              "DEPT_CODE",
-              "DEPT_CODE§VARCHAR2(10)§nullable:false"
-            ],
-            [
               "user_id",
               "525f343f-006e-455d-9e52-9825170c2088"
+            ],
+            [
+              "DEPT_CODE",
+              "DEPT_CODE§VARCHAR2(10)§nullable:false"
             ],
             [
               "EMP_KEY",
@@ -46,10 +46,14 @@
     },
     "TPX_SALARY": {
       "TpjSalary": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n/**\n * TPJ_SALARY 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * salKey(String, NOT NULL)는 유니크 제약조건이 적용됩니다.\n * amount(Long, NOT NULL), empKey(String), payDate(LocalDate, NOT NULL) 필드를 가집니다.\n * userId(String) 필드는 사용자 식별을 위한 UUID 값을 저장합니다.\n */\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    private String userId;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    private UUID userId;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n}",
         "table_info": {
           "name": "TPJ_SALARY",
           "fields": [
+            [
+              "user_id",
+              "525f343f-006e-455d-9e52-9825170c2088"
+            ],
             [
               "AMOUNT",
               "AMOUNT§NUMBER(10)§nullable:false"
@@ -57,10 +61,6 @@
             [
               "SAL_KEY",
               "SAL_KEY§VARCHAR2(50)§nullable:false"
-            ],
-            [
-              "user_id",
-              "525f343f-006e-455d-9e52-9825170c2088"
             ],
             [
               "PAY_DATE",
@@ -77,7 +77,7 @@
     },
     "TPX_ATTENDANCE": {
       "TpjAttendance": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n/**\n * TPJ_ATTENDANCE 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * attKey(String, NOT NULL)는 원본 테이블의 기본키였으며 unique 제약조건이 적용됩니다.\n * status(String, NOT NULL), userId(String), empKey(String) 필드를 가지며,\n * workDate(LocalDate) 필드로 근무일자를 관리합니다.\n */\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private String status;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false)\n    private String attKey;\n    \n    private String empKey;\n    \n    private LocalDate workDate;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String attKey;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(length = 36)\n    private String userId;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}",
         "table_info": {
           "name": "TPJ_ATTENDANCE",
           "fields": [
@@ -111,15 +111,15 @@
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
       "44~47": "@Query(\"SELECT COUNT(e) FROM TpjEmployee e WHERE e.empKey = :empKey\")\nLong countByEmpKey(@Param(\"empKey\") String empKey);",
-      "64~67": "@Query(\"SELECT e.regularYn FROM TpjEmployee e WHERE e.empKey = :empKey\")\nString findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
+      "64~67": "@Query(\"SELECT e FROM TpjEmployee e WHERE e.empKey = :empKey\")\nTpjEmployee findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
     },
     "TPX_SALARY": {
-      "55~59": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
+      "55~59": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nLong countByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
       "102~106": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
-      "178~181": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDateForUpdate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
+      "178~181": "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
     },
     "TPX_ATTENDANCE": {
-      "80~85": "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countByEmpKeyAndWorkDateBetweenAndStatus(@Param(\"empKey\") String empKey, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);"
+      "80~85": "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countAbsentDays(@Param(\"empKey\") String empKey, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);"
     }
   },
   "global_variables": {
@@ -133,18 +133,18 @@
     "TPX_EMPLOYEE": {
       "TpjEmployee": [
         "@Query(\"SELECT COUNT(e) FROM TpjEmployee e WHERE e.empKey = :empKey\")\nLong countByEmpKey(@Param(\"empKey\") String empKey);",
-        "@Query(\"SELECT e.regularYn FROM TpjEmployee e WHERE e.empKey = :empKey\")\nString findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
+        "@Query(\"SELECT e FROM TpjEmployee e WHERE e.empKey = :empKey\")\nTpjEmployee findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
       ]
     },
     "TPX_SALARY": {
       "TpjSalary": [
-        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
-        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDateForUpdate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
+        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nLong countByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);",
+        "@Query(\"SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate\")\nTpjSalary findByEmpKeyAndPayDate(@Param(\"empKey\") String empKey, @Param(\"payDate\") LocalDate payDate);"
       ]
     },
     "TPX_ATTENDANCE": {
       "TpjAttendance": [
-        "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countByEmpKeyAndWorkDateBetweenAndStatus(@Param(\"empKey\") String empKey, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);"
+        "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countAbsentDays(@Param(\"empKey\") String empKey, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);"
       ]
     }
   },
@@ -323,8 +323,8 @@
             "procedure_name": "TPX_UPDATE_SALARY",
             "role": "변수 선언및 초기화",
             "13_13": "Used",
-            "13_23": "Used",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "13_23": "Used",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -338,8 +338,8 @@
             "procedure_name": "TPX_UPDATE_SALARY",
             "18_18": "Used",
             "role": "변수 선언및 초기화",
-            "13_23": "Used",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "13_23": "Used",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vSalaryExists",
@@ -493,8 +493,8 @@
             "procedure_name": "INS_SALARY",
             "role": "변수 선언및 초기화",
             "125_125": "Used",
-            "126_128": "Used",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "126_128": "Used",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -536,8 +536,8 @@
         },
         {
           "v": {
-            "178_181": "Used",
             "159_181": "Used",
+            "178_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
@@ -573,8 +573,8 @@
             "procedure_name": "INS_ATTENDANCE",
             "role": "변수 선언및 초기화",
             "43_45": "Used",
-            "42_55": "Used",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "42_55": "Used",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
@@ -602,8 +602,8 @@
         },
         {
           "v": {
-            "75_77": "Used",
             "74_87": "Used",
+            "75_77": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",

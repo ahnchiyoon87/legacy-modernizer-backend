@@ -148,7 +148,8 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
                     procedure_name: '{method_skeleton_data['procedure_name']}'
                 }})
                 SET cmd.java_code = '{command_class_code}',
-                    cmd.summary = '{command_summary}'
+                    cmd.summary = '{command_summary}',
+                    cmd.java_file = '{command_class_name}.java'
                 MERGE (p)-[:CONVERT]->(cmd)
                 RETURN cmd
                 """,
