@@ -116,7 +116,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
                 # * PLSQL, Antlr 데이터 전처리
                 antlr_data = json.loads(antlr_data)
                 last_line = len(plsql_content)
-                plsql_content = add_line_numbers(plsql_content)
+                plsql_content, _ = add_line_numbers(plsql_content)
 
 
             # * 사이퍼쿼리를 생성 및 실행을 처리하는 메서드

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Dict, Tuple
 from convert.create_repository import extract_used_variable_nodes
@@ -93,7 +94,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         try:
             # * 범위 정보 처리
             context_range = [dict(t) for t in {tuple(d.items()) for d in context_range}]
-            context_range.sort(key=lambda x: x['startLine'])
+            context_range.sort(key=lambda x: (x['startLine'], x['endLine']))
             range_count = len(context_range)
         
 
@@ -106,8 +107,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 context_range,
                 range_count,
                 used_query_method_dict,
-                orm_type,
-                sequence_methods
+                sequence_methods,
+                orm_type
             )
 
 
@@ -131,13 +132,14 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         
         try:
             # * 분석 결과에서 코드 정보를 추출
-            code_info = analysis_result['analysis'].get('code', {})
+            code_info = analysis_result['analysis'].get('code_info', {})
             
             
             # * 코드 정보를 추출하고, 자바 코드 업데이트를 위한 사이퍼 쿼리 생성
-            for key, service_code in code_info.items():
-                start_line, end_line = map(int, key.replace('-','~').split('~'))
-                escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+            for line_range, code_content in code_info.items():
+                start_line, end_line = map(int, line_range.replace('-','~').split('~'))
+                java_code = code_content['code'].replace('\n', '\\n').replace("'", "\\'")
+                java_summary = json.dumps(code_content['explanation'])
 
                 # * 파스칼 케이스로 변환하여 자바 파일 이름을 생성합니다.
                 pascal_object_name = convert_to_pascal_case(object_name)
@@ -150,8 +152,9 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                     f"AND n.procedure_name = '{procedure_name}' "
                     f"AND n.endLine = {end_line} "
                     f"AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}', "
-                    f"n.java_file = '{java_file_name}'" 
+                    f"SET n.java_code = '{java_code}', "
+                    f"n.java_file = '{java_file_name}', "
+                    f"n.java_summary = {java_summary}"
                 )  
 
 

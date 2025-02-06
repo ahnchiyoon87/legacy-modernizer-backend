@@ -118,7 +118,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
         try:
             # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 조정
             context_range = [dict(t) for t in {tuple(d.items()) for d in context_range}]
-            context_range.sort(key=lambda x: x['startLine'])
+            context_range.sort(key=lambda x: (x['startLine'], x['endLine']))
             range_count = len(context_range)
 
 
@@ -164,7 +164,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
         
         try:
             # * 분석 결과에서 코드와 변수 정보를 추출합니다.
-            code_info = analysis_result['analysis'].get('code', {})
+            code_info = analysis_result['analysis'].get('code_info', {})
             variables_info = analysis_result['analysis'].get('variables', {})
             
             
@@ -174,14 +174,16 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             
 
             # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
-            for key, service_code in code_info.items():
-                start_line, end_line = map(int, key.replace('-','~').split('~'))
-                escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+            for line_range, code_content in code_info.items():
+                start_line, end_line = map(int, line_range.replace('-','~').split('~'))
+                java_code = code_content['code'].replace('\n', '\\n').replace("'", "\\'")
+                java_summary = json.dumps(code_content['explanation'])
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}', "
-                    f"n.java_file = '{java_file_name}'"
+                    f"SET n.java_code = '{java_code}', "
+                    f"n.java_file = '{java_file_name}', "
+                    f"n.java_summary = {java_summary}"
                 )    
 
 

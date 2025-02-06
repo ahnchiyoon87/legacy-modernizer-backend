@@ -155,21 +155,11 @@ jpa_prompt = PromptTemplate.from_template(
 
 7. Entity 설명 작성 규칙
    - 반드시 다음 형식으로 작성:
-     * "[엔티티클래스명].java 파일은 [테이블명] 테이블과 매핑됩니다." 형식으로 시작
+     * "[엔티티클래스명].java 파일의 [엔티티클래스명] 클래스는 [테이블명] 테이블과 매핑되며, 기본키로 [기본키필드명](타입)을 사용합니다. 이 클래스는 [필드명](타입, nullable여부), [필드명](타입, nullable여부) 필드를 포함합니다." 형식으로 작성
      * 모든 필드는 "필드명(타입)" 형식으로 나열
      * PK 필드들은 반드시 명시
      * @Column의 nullable 속성 포함
-   
-   예시) "Employee.java 파일은 B_EMPLOYEE 테이블과 매핑됩니다.
-         id(Long) 필드가 기본키로 사용됩니다.
-         empName(String, NOT NULL)
-         empEmail(String)
-         empPhone(String)
-         deptCode(String, NOT NULL)
-         positionCode(String)
-         hireDate(LocalDate, NOT NULL)
-         lastModifiedDate(LocalDateTime)
-         managerId(Long)"
+   예시) "Employee.java 파일의 Employee 클래스는 B_EMPLOYEE 테이블과 매핑되며, 기본키로 id(Long)를 사용합니다. 이 클래스는 empName(String, NOT NULL), empEmail(String), empPhone(String), deptCode(String, NOT NULL), positionCode(String), hireDate(LocalDate, NOT NULL), lastModifiedDate(LocalDateTime), managerId(Long) 필드를 포함합니다."
          
    
 [SECTION 2] Entity 클래스 기본 템플릿

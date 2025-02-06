@@ -166,7 +166,7 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                             object_name: '{object_name}'
                         }})
                         SET c.java_code = {json.dumps(repository_interface)},
-                            c.summary = {json.dumps(repository_summary)},
+                            c.java_summary = {json.dumps(repository_summary)},
                             c.summary_vector = {summary_vector.tolist()},
                             c.java_file = '{repository_class_name}.java'
                         """

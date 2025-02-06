@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import textwrap
@@ -93,7 +94,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
             AND p.object_name = '{object_name}'
             MERGE (c:CONTROLLER {{name: '{controller_class_name}', user_id: '{user_id}', object_name: '{object_name}', procedure_name: '{procedure_name}'}} )
             SET c.java_code = '{method_skeleton_code}',
-                c.summary = '{method_summary}',
+                c.java_summary = {json.dumps(method_summary)},
                 c.summary_vector = {method_summary_vector.tolist()},
                 c.java_file = '{controller_class_name}.java'
             MERGE (p)-[:CONVERT]->(c)

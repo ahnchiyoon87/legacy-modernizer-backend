@@ -131,14 +131,19 @@ class Neo4jConnection:
     #
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
-    async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 15) -> list:
+    async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 5) -> list:
         try:
             query = """
             MATCH (n)
-            WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND NOT n:EXCEPTION
+            WHERE n.summary_vector IS NOT NULL 
+            AND n.java_code IS NOT NULL 
+            AND NOT n:EXCEPTION
+            AND NOT n:FUNCTION
+            AND NOT n:PROCEDURE
+            AND NOT n:CREATE_PROCEDURE_BODY
             WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
             WHERE similarity >= $threshold
-            RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, n.java_file as java_file, similarity
+            RETURN n.node_code as node_code, n.java_code as java_code, n.java_summary as summary, n.name as name, n.java_file as java_file, similarity
             ORDER BY similarity DESC
             LIMIT $limit
             """
@@ -154,9 +159,14 @@ class Neo4jConnection:
                 if not nodes:
                     query = """
                     MATCH (n)
-                    WHERE n.summary_vector IS NOT NULL AND n.java_code IS NOT NULL AND NOT n:EXCEPTION
+                    WHERE n.summary_vector IS NOT NULL 
+                    AND n.java_code IS NOT NULL 
+                    AND NOT n:EXCEPTION
+                    AND NOT n:FUNCTION
+                    AND NOT n:PROCEDURE
+                    AND NOT n:CREATE_PROCEDURE_BODY
                     WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
-                    RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, n.java_file as java_file, similarity
+                    RETURN n.node_code as node_code, n.java_code as java_code, n.java_summary as summary, n.name as name, n.java_file as java_file, similarity
                     ORDER BY similarity DESC
                     LIMIT $limit
                     """

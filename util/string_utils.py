@@ -46,12 +46,13 @@ def convert_to_camel_case(snake_str: str) -> str:
 #
 # 반환값: 
 #   - numbered_plsql : 각 라인 앞에 번호가 추가된 PL/SQL 코드
+#   - numbered_lines : 각 라인 앞에 번호가 추가된 라인 리스트
 def add_line_numbers(plsql):
     try: 
         # * 각 라인에 번호를 추가합니다.
         numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
         numbered_plsql = "".join(numbered_lines)
-        return numbered_plsql
+        return numbered_plsql, numbered_lines
     except Exception as e:
         err_msg = f"전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)

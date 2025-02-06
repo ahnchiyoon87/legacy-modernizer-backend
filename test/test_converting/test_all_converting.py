@@ -29,9 +29,12 @@ class TestGenerateSpringBootProject(unittest.IsolatedAsyncioTestCase):
             # ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
         ]
 
+        orm_type = "jpa"
+        user_id = "3c667f5b-6bde-4c1f-b3e9-bfb0a5396d52"
+
         try:
             # * generate_spring_boot_project 메서드 호출 및 결과 확인
-            async for step_result in generate_spring_boot_project(file_names):
+            async for step_result in generate_spring_boot_project(file_names, orm_type, user_id):
                 
                 # * 각 단계의 결과를 로깅
                 logging.info(f"Step result: {step_result}")

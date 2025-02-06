@@ -240,7 +240,7 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         WHERE p.procedure_name = '{procedure_name}'
         AND p.object_name = '{object_name}'
         AND p.user_id = '{user_id}'
-        AND (p:PROCEDURE OR p:FUNCTION)
+        AND (p:PROCEDURE OR p:FUNCTION OR p:CREATE_PROCEDURE_BODY)
         SET p.java_code = '{all_java_code}'
         SET p.java_file = '{service_file_name}'
         """]

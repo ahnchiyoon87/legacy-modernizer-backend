@@ -1,4 +1,5 @@
 from asyncio.log import logger
+import json
 import os
 import logging
 import tiktoken
@@ -67,7 +68,7 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
                         f"""
                         MATCH (n:Table {{name: '{table_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
                         SET n.java_code = '{entity_code}', 
-                            n.summary = '{entity_summary}', 
+                            n.java_summary = {json.dumps(entity_summary)}, 
                             n.summary_vector = {summary_vector.tolist()},
                             n.java_file = '{entity_name}.java'
                         """

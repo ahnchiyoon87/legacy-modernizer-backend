@@ -1,3 +1,4 @@
+import json
 import os
 import logging
 import textwrap
@@ -148,7 +149,7 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
                     procedure_name: '{method_skeleton_data['procedure_name']}'
                 }})
                 SET cmd.java_code = '{command_class_code}',
-                    cmd.summary = '{command_summary}',
+                    cmd.java_summary = {json.dumps(command_summary)},
                     cmd.java_file = '{command_class_name}.java'
                 MERGE (p)-[:CONVERT]->(cmd)
                 RETURN cmd
@@ -176,6 +177,23 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
         method_skeleton_name = analysis_method['methodName']
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
+        method_summary = analysis_method['summary']
+        java_file_name = f"{convert_to_pascal_case(object_name)}Service.java"
+
+
+        # * 메서드 정의 정보를 노드에 저장
+        method_query = [
+            f"""
+            MATCH (s:SPEC)
+            WHERE s.object_name = '{object_name}'
+            AND s.procedure_name = '{method_skeleton_data['procedure_name']}'
+            AND s.user_id = '{user_id}'
+            SET s.java_summary = {json.dumps(method_summary)},
+                s.java_file = '{java_file_name}',
+                s.java_code = '{method_skeleton_code}'
+            """
+        ]
+        await connection.execute_queries(method_query)
 
 
         return (
@@ -277,7 +295,8 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
                     'parameters': [],
                     'local_variables': [],
                     'declaration': item['s'].get('node_code', ''),
-                    'node_type': item['node_type']
+                    'node_type': item['node_type'],
+                    'summary': item['p'].get('summary', '')
                 }
             
             # * 파라미터 추가
@@ -363,7 +382,8 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
             method_skeleton_data = {
                 'procedure_name': proc_name,
                 'local_variables': proc_data['local_variables'],
-                'declaration': proc_data['declaration']
+                'declaration': proc_data['declaration'],
+                'summary': proc_data['summary']
             }
             
             # * 파라미터 데이터 준비

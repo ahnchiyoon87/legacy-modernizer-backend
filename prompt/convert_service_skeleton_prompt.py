@@ -27,6 +27,7 @@ prompt = PromptTemplate.from_template(
 - procedure_name: 프로시저/함수 이름
 - local_variables: 로컬 변수 목록 (각 변수는 name, type, value 속성을 가짐)
 - declaration: 선언부 코드 (리턴타입, 입력 매개변수 등이 선언된 부분)
+- summary: 메서드의 전체적인 비즈니스 로직 흐름을 설명
 
 2. 파라미터 데이터:
 {parameter_data}
@@ -104,13 +105,33 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
 }}
 
 
-[SECTION 3] JSON 출력 형식
+[SECTION 3] Summary 작성 규칙
+===============================================
+1. 메서드 설명 포맷
+    - "[메서드명]은(는) [주요 기능] 메서드입니다."
+    - 예시: "getEmployeeCount는 사원 수를 조회하는 메서드입니다."
+
+2. 필수 포함 정보
+    - 메서드의 주요 기능 설명
+    - 매개변수 설명 (파라미터명과 타입)
+    - 반환 값 설명 (반환 타입과 의미)
+    
+3. 설명 형식
+    - 메서드 개요
+    - 매개변수 설명 (파라미터가 있는 경우)
+    - 반환 값 설명 (void가 아닌 경우)
+    예시:
+    "getEmployeeCount는 부서별 사원 수를 조회하는 메서드입니다. 매개변수로 employeeId(Long)와 departmentCode(String)를 받습니다. 해당 부서의 총 사원 수(Long)를 반환합니다."
+
+
+[SECTION 4] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
     "methodName": "getEmployeeCount",
-    "method": "public Long getEmployeeCount(Long employeeId, String departmentCode) {{\nCodePlaceHolder\n    return result;\n}}",
-    "methodSignature": "Long getEmployeeCount(Long employeeId, String departmentCode)"
+    "method": "public Long getEmployeeCount(Long employeeId, String departmentCode) {{\nCodePlaceHolder\n}}",
+    "methodSignature": "Long getEmployeeCount(Long employeeId, String departmentCode)",
+    "summary": "getEmployeeCount 메서드는 사원 수를 조회하는 메서드입니다."
 }}
 """
 )
