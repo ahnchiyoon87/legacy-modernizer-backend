@@ -224,48 +224,111 @@ class Neo4jConnection:
         
 
 
-    # 역할: 특정 노드의 java_code를 업데이트합니다.
+    # 역할 : 오류 코드 참조 노드 조회
     #
-    # 매개변수:
-    #   - original_java_code: 원본 자바 코드
-    #   - modified_java_code: 수정된 자바 코드
-    #   - file_path: 자바 파일 경로
-    #
-    # 반환값:
-    #   - updated_nodes: 업데이트된 노드 목록
-    async def update_node_code(self, original_java_code, modified_java_code, file_path):
+    # 매개변수 :
+    #   - error_file : 오류 파일명
+    #   - required_type : 필요한 파일 유형
+    #   - error_code : 오류 코드
+    #   - package_name : 오류와 관련된 패키지명
+    #   - related_objects : 관련 객체명
+    # 
+    # 반환값 :
+    #   - reference_nodes : 참조 노드 목록  
+    async def get_reference_nodes(self, error_file, required_type, error_code, package_name, related_objects):
         try:
-            # * 파일 경로에서 파일명만 추출
-            file_name = file_path.split('/')[-1]
+            if required_type == "Service":
+                query = """
+                MATCH (n)-[:INT_CALL|EXT_CALL]->(related)-[:PARENT_OF]->(s:SPEC)
+                WHERE n.java_file = $error_file
+                AND n.object_name = $package_name
+                AND n.java_code CONTAINS $error_code
+                AND apoc.text.clean(n.java_code) CONTAINS apoc.text.clean($error_code)
 
-
-            # * 자바 코드 업데이트 쿼리 실행
-            query = """
-            MATCH (n)
-            WHERE n.java_code = $original_java_code AND n.java_file = $file_name
-            SET n.java_code = $modified_java_code
-            RETURN n
-            """
-            
-
-            # * 파라미터 설정
-            async with self.__driver.session(database=self.database_name) as session:
-                result = await session.run(query, 
-                                           original_java_code=original_java_code,
-                                           modified_java_code=modified_java_code,
-                                           file_name=file_name)
-                updated_nodes = await result.data()
-            
-            
-                # * 업데이트 결과 로깅
-                if updated_nodes:
-                    logging.info(f"Updated {len(updated_nodes)} nodes with new java_code.")
-                else:
-                    logging.warning("No nodes were updated. Check if the original_java_code and file_path are correct.")
                 
-                return updated_nodes
+                RETURN COLLECT(DISTINCT s) as nodes
+                """
+                params = {
+                    "error_file": error_file,
+                    "error_code": error_code,
+                    "package_name": package_name
+                }
+                
+            elif required_type == "Entity":
+                query = """
+                MATCH (n:Table)
+                WHERE n.java_file = $related_objects + '.java'
+                AND n.object_name = $package_name
+                RETURN COLLECT(n) as nodes
+                """
+                params = {
+                    "package_name": package_name,
+                    "related_objects": related_objects
+                }
 
+            elif required_type == "Repository":
+                query = """
+                MATCH (n:REPOSITORY)
+                WHERE n.object_name = $package_name
+                RETURN COLLECT(n) as nodes
+                """
+                params = {
+                    "package_name": package_name
+                }
+            
+            elif required_type == "Command":
+                if related_objects:
+                    query = """
+                    MATCH (n:COMMAND)
+                    WHERE n.object_name = $package_name
+                    AND n.java_file = $related_objects + 'Command.java'
+                    RETURN COLLECT(n) as nodes
+                    """
+                    params = {
+                        "package_name": package_name,
+                        "related_objects": related_objects
+                    }
+                else:
+                    query = """
+                    MATCH (n:COMMAND)
+                    WHERE n.object_name = $package_name
+                    AND n.java_file = $error_file
+                    RETURN COLLECT(n) as nodes
+                    """
+                    params = {
+                        "package_name": package_name,
+                        "error_file": error_file
+                    }
+
+            elif required_type == "Controller":
+                if related_objects:
+                    query = """
+                    MATCH (n:CONTROLLER)
+                    WHERE n.object_name = $package_name
+                    AND n.java_file = $related_objects + 'Controller.java'
+                    RETURN COLLECT(n) as nodes
+                    """
+                    params = {
+                        "package_name": package_name,
+                        "related_objects": related_objects
+                    }
+                else:
+                    query = """
+                    MATCH (n:CONTROLLER)
+                    WHERE n.object_name = $package_name
+                    AND n.java_file = $error_file
+                    RETURN COLLECT(n) as nodes
+                    """
+                    params = {
+                        "package_name": package_name,
+                        "error_file": error_file
+                    }
+
+            async with self.__driver.session(database=self.database_name) as session:
+                result = await session.run(query, params)
+                return await result.data()
+                
         except Exception as e:
-            error_msg = f"노드 코드 업데이트 중 오류 발생: {str(e)}"
+            error_msg = f"오류 코드 참조 노드 조회 중 오류 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)

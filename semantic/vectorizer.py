@@ -1,53 +1,38 @@
 import logging
-import re
-from sentence_transformers import SentenceTransformer
+import os
+from openai import OpenAI
+import numpy as np
 from util.exception import VectorizeError
+from langchain.globals import set_llm_cache
+from langchain_community.cache import SQLiteCache
 
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-
-# # 'all-MiniLM-L6-v2' 모델은:
-# # - 384 차원의 벡터 생성
-# # - 다국어 지원
-# # - 문장의 의미를 잘 포착
-# def vectorize_text(text):
-#     try:
-#         # 1. 메서드/함수 이름 추출
-#         file_names = re.findall(r'([A-Za-z]\w+)(?:\.java|\.py)\s+파일', text)
-#         class_names = re.findall(r'([A-Za-z]\w+)(?:\s+클래스)', text)
-#         method_names = re.findall(r'([A-Za-z]\w+)(?:\s+(?:메서드|함수))', text)
-        
-#         # 2. 메서드 이름 강조만 적용
-#         emphasized_text = text
-#         identifiers = file_names + class_names + method_names
-#         if identifiers:
-#             emphasized_part = ' '.join([f"{name}" * 5 for name in identifiers])
-#             emphasized_text = f"{emphasized_part} {text}"
-        
-#         # 3. 벡터화
-#         vector = model.encode(emphasized_text)
-#         return vector
-        
-#     except Exception as e:
-#         err_msg = f"텍스트 벡터화 중 오류가 발생했습니다: {str(e)}"
-#         logging.error(err_msg)
-#         raise VectorizeError(err_msg)
-    
+# OpenAI 클라이언트 초기화
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
+set_llm_cache(SQLiteCache(database_path=db_path))
 
 
-# import logging
-# from sentence_transformers import SentenceTransformer
-# from util.exception import VectorizeError
-
-# model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-
-# 'all-MiniLM-L6-v2' 모델은:
-# - 384 차원의 벡터 생성
-# - 다국어 지원
-# - 문장의 의미를 잘 포착
+# 역할 : 텍스트를 OpenAI의 text-embedding-3-small 모델을 사용하여 벡터로 변환하는 함수
+#
+# 매개변수 : 
+#   - text (str): 벡터화할 텍스트 문자열
+#                 예: "정규직 직원의 급여 계산 로직"
+#
+# 반환값 : 
+#   - numpy.ndarray: 1536차원의 벡터로 변환된 텍스트
+#                    예: [0.123, -0.456, ..., 0.789]
 def vectorize_text(text):
     try:
-        vector = model.encode(text)  # text -> 384차원 벡터로 변환
-        return vector  # shape: (384,)
+        # * OpenAI API를 사용하여 텍스트 임베딩 생성
+        response = client.embeddings.create(
+            model="text-embedding-3-large",
+            input=text
+        )
+        
+        # * 벡터 추출
+        vector = np.array(response.data[0].embedding)
+        return vector
+        
     except Exception as e:
         err_msg = f"텍스트 벡터화 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)

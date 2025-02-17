@@ -6,13 +6,16 @@ import json
 import difflib
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
-
+from langchain_anthropic import ChatAnthropic
+from langchain.schema import HumanMessage
+from langchain.globals import set_llm_cache
+from langchain_community.cache import SQLiteCache
 from compare.extract_log_info import clear_log_files, compare_then_results, extract_java_given_when_then
 from prompt.generate_compare_text_prompt import generate_compare_text
 from prompt.generate_error_log_prompt import generate_error_log
 from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
-from util.string_utils import add_line_numbers, convert_to_camel_case
+from util.string_utils import add_line_numbers, convert_to_camel_case, convert_to_upper_snake_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'target/java/demo/src/main/java/com/example/demo'
@@ -22,6 +25,9 @@ modification_history = []
 global_test_class_names = []
 global_plsql_gwt_log = []
 stop_execution_flag = False
+db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
+set_llm_cache(SQLiteCache(database_path=db_path))
+
 
 def stop_execution():
     global stop_execution_flag
@@ -129,11 +135,11 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: dict, us
         #     parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         #     search_path = os.path.join(parent_workspace_dir, 'target')
 
-        java_test_directory = os.path.join(base_directory, JAVA_TEST_PATH)
+        # java_test_directory = os.path.join(base_directory, JAVA_TEST_PATH)
 
         for i, test_class_name in enumerate(test_class_names, start=1):
             logging.info(f"{test_class_name} 테스트 클래스 실행 시작")
-            command = f"mvn compile -X -e -Dcompiler.verbose=true -Dmaven.compiler.showWarnings=true -Dmaven.compiler.showDeprecation=true -DargLine=-Xdiags:verbose test -Dtest=com.example.demo.{test_class_name}"
+            command = f"mvn compile -e -q test -Dtest=com.example.demo.{test_class_name}"
             logging.info(f"실행 명령어: {command}")
             
             yield json.dumps({
@@ -151,6 +157,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: dict, us
             )
 
             error_contexts = []
+            plsql_java_pairs = []
             if test_result.returncode != 0:
                 error_output = ""
 
@@ -159,53 +166,56 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: dict, us
                     error_output = test_result.stdout
                     logging.error(f"오류 내용: {error_output}")
                     java_files = get_all_files_in_directory(os.path.join(base_directory, 'target', 'java', user_id))
-                    plsql_java_pairs = []
                     error_result = generate_error_log(error_output)
                     
+
                     for error_item in error_result["error_items"]:
                         error_text = error_item["error_text"]
                         error_location = error_item["error_location"]
                         error_file = error_item["error_file"]
                         error_method = error_item["error_method"]
-
+                        required_type = error_item["required_files"]
+                        package_name = error_item["package_name"]
+                        related_objects = error_item["related_objects"]
+                        
                         error_code = await extract_compile_error_code(error_location, error_file, java_files)
-                        vector_log = vectorize_text(error_text)
-                        similar_nodes = await conn.search_similar_nodes(vector_log)
+                        reference_nodes = await conn.get_reference_nodes(error_file, required_type, error_code, package_name, related_objects)
 
-                        current_similar_nodes = []
-                        for node in similar_nodes:
-                            matching_file = next(
-                                (file for file in java_files if os.path.basename(file['filePath']) == node['java_file']), 
-                                None
-                            )
-                            file_path = matching_file['filePath'] if matching_file else node['java_file']
-                            plsql_java_pairs.append({
-                                'plsql_code': node['node_code'],
-                                'java_code': node['java_code'],
-                                'filePath': file_path,
-                                # 'java_file': node['java_file'],
-                                # 'java_method': convert_to_camel_case(node['procedure_name'])
-                                # 'java_range': node['java_range'] if 'java_range' in node else None
-                            })
+                        matching_file = next(
+                            (file for file in java_files if os.path.basename(file['filePath']) == error_file), 
+                            None
+                        )
+                        file_path = matching_file['filePath'] if matching_file else error_file
 
-                            current_similar_nodes.append({
+
+                        reference_nodes_list = []
+                        for node in reference_nodes[0]['nodes']:
+
+                            reference_nodes_list.append({
                                 'java_code': node['java_code'],
                                 'filePath': file_path,
                                 'java_file': node['java_file'],
                                 'java_method': convert_to_camel_case(node['procedure_name'])
                                 # 'java_range': node['java_range'] if 'java_range' in node else None
                             })
+
+                            plsql_java_pairs.append({
+                                'plsql_code': node['node_code'],
+                                'java_code': node['java_code'],
+                                'filePath': file_path,
+                            })
                         
                         error_contexts.append({
                             "error_text": error_text,
-                            "current_similar_nodes": current_similar_nodes,
+                            "reference_nodes_list": reference_nodes_list,
                             "error_code": error_code,
                             "error_file": error_file,
-                            "error_method": error_method
+                            "error_method": error_method,
+                            "file_path": file_path
                         })
 
                     
-                    async for update_result in update_code(error_contexts=error_contexts, plsql_java_pairs=plsql_java_pairs, java_files=java_files, error=error_output):
+                    async for update_result in update_code(error_contexts=error_contexts, java_files=java_files, plsql_java_pairs=plsql_java_pairs, user_id=user_id):
                         yield update_result
                     return
 
@@ -324,8 +334,7 @@ def generate_prompt(plsql_log_files, java_log_files, compare_result_files, plsql
     생성할 값 중 "original_java_code" 는 제공받은 노드 정보에 있는 'java_code' 값을 그대로 제공해야합니다. 
     "original_java_code" 를 사용해서 전체 코드중 "modified_code" 로 수정할 위치를 찾아야하기 때문에 
     제공받은 목록에 있는 내용중에서만 제공해야하며 그 어떠한 임의의 설명이나 수정 내용 없이 제공받은 노드 정보에 있는 'java_code' 값을 그대로 제공해야합니다.
-    
-    동일한 파일에 대한 수정은 한번만 제공해야합니다.
+    'original_java_code'와 'modified_code' 는 앞 뒤 줄바꿈 및 공백을 그대로 전달된 그대로 유지하세요.
 
     답변은 항상 아래의 JSON 형식으로 출력해주세요.
     JSON 형식: [
@@ -353,20 +362,21 @@ def generate_error_fix_prompt(error_contexts):
 
     각 데이터 항목의 의미:
     1. error_text: 컴파일러가 출력한 오류 메시지를 분석한 설명입니다.
-    2. error_code: 실제로 수정이 필요한 코드 부분입니다. 이 코드를 수정하여 오류를 해결해야 합니다.
+    2. error_code: 실제로 수정이 필요한 코드 부분입니다. 이 코드를 수정하여 오류를 해결해야 합니다. 이 값은 'original_java_code' 입니다.
     3. error_file: 오류가 발생한 파일명입니다.
     4. error_method: 오류가 발생한 메소드명입니다.
-    5. current_similar_nodes: 오류 수정에 참고할 수 있는 코드 정보들입니다.
+    5. reference_nodes_list: 오류 수정에 참고할 수 있는 코드 정보들입니다.
        - java_code: 이미 변환된 유사한 Java 코드입니다. 이 코드를 참고하여 수정 방향을 결정하세요.
        - filePath: 참고할 코드가 있는 파일 경로입니다.
        - java_file: 참고할 Java 파일명입니다.
        - java_method: 참고할 메소드명입니다.
 
-    error_code를 current_similar_nodes의 코드들을 참고하여 수정해주세요.
+    error_code를 reference_nodes_list 코드들을 참고하여 수정해주세요.
     
     테스트 파일에 대한 수정은 왠만하면 이루어지지 않아야합니다. 정말 필요한 경우에만 수정해야합니다.
     테스트 파일에서 오류가 발생한 경우 제공된 테스트 파일 내용을 보고 오류를 해결하면 됩니다. 테스트 파일을 수정할 때에는 오류에 관한 수정만 이루어져야하며, 기존 테스트 내용을 변경하거나 코드를 제거하는등의 방법으로 오류를 회피해서는 절대 안됩니다.
     테스트 파일에서 오류가 발생하지 않은 경우 제공된 컴파일 오류의 원인에 가장 가까운 Java 코드 목록들과 해당 자바 코드의 원본 plsql 코드 목록들 내용을 보고 오류를 해결하면 됩니다.
+    전달된 컴파일 에러 항목당 결과를 생성해야합니다. 결과를 하나로만 생성하지마세요. 
     
     이전 수정 목록:
     {modification_history}
@@ -374,11 +384,6 @@ def generate_error_fix_prompt(error_contexts):
     
     Java 파일을 어떻게 수정해야 오류 없이 컴파일 시킬 수 있는지 개선안을 자세히 제안해 주세요.
     답변은 항상 아래의 JSON 형식으로 출력해주세요.
-    
-    생성할 값 중 "original_java_code" 는 제공받은 노드 정보에 있는 'java_code' 값을 그대로 제공해야합니다. 
-    "original_java_code" 를 사용해서 전체 코드중 "modified_code" 로 수정할 위치를 찾아야하기 때문에 
-    제공받은 목록에 있는 내용중에서만 제공해야하며 그 어떠한 임의의 설명이나 수정 내용 없이 제공받은 노드 정보에 있는 'java_code' 값을 그대로 제공해야합니다.
-    
     동일한 파일에 대한 수정은 한번만 제공해야합니다.
     
     테스트 파일에서 오류가 발생한 경우에는 아래의 JSON 형식을 사용합니다.
@@ -387,7 +392,7 @@ def generate_error_fix_prompt(error_contexts):
             "type": "test_file_update",
             "filePath": "수정된 Java 파일 경로", 
             "modified_code": "수정된 테스트 파일의 전체 Java 코드(반드시 전체 파일 내용을 제공해야합니다.)",
-            "reason": "수정 이유(보다 상세하고 명확하게 한글로 작성)",
+            "reason": "수정 이유(보다 상세하고 명확하게 한글로 작성)"
         }}
     ]
     
@@ -398,7 +403,7 @@ def generate_error_fix_prompt(error_contexts):
             "filePath": "수정된 Java 파일 경로", 
             "reason": "original_java_code 를 수정하는 이유(보다 상세하고 명확하게 한글로 작성)",
             "original_java_code": "수정되기 전 원본 자바 코드(어떠한 설명이나 수정 내용 없이 제공받은 노드 정보에 있는 'java_code' 값을 그대로 제공해야합니다. 제공받은 목록에 있는 내용중에서만 제공해야합니다.)"
-            "modified_code": "original_java_code 내용을 오류 해결을 위해 수정한 Java 코드(original_java_code 내용과 동일해서는 안됩니다. 수정이유에 근거하여 코드를 수정하여야합니다.)",
+            "modified_code": "original_java_code 내용을 오류 해결을 위해 수정한 Java 코드(original_java_code 내용과 동일해서는 안됩니다. 수정이유에 근거하여 코드를 수정하여야합니다.)"
         }}
     ]
     
@@ -411,23 +416,43 @@ def normalize_code(code):
     return ''.join(code.split())
 
 def replace_code(original_code, java_code, updated_code):
-    # Normalize both the original and the java_code for comparison
-    normalized_original = normalize_code(original_code)
-    normalized_java_code = normalize_code(java_code)
-
-    # Find the start index of the normalized java_code in the normalized original code
-    start_index = normalized_original.find(normalized_java_code)
+    # 1단계: 정확히 일치하는지 먼저 시도
+    start_index = original_code.find(java_code)
+    if start_index != -1:  # 정확히 일치하는 경우
+        return original_code[:start_index] + updated_code + original_code[start_index + len(java_code):]
     
-    if start_index == -1:
+    # 예: "throw   new\n  Exception" -> "thrownewException"
+    original_chars = list(original_code)  # 원본 코드를 문자 배열로 변환
+    clean_original = normalize_code(original_code)  # 공백 제거된 원본 코드
+    clean_java = normalize_code(java_code)  # 공백 제거된 찾을 코드
+    
+    # 3단계: 공백 제거된 버전에서 위치 찾기
+    clean_start = clean_original.find(clean_java)
+    if clean_start == -1:  # 공백 제거해도 못 찾으면 실패
         raise ValueError("java_code not found in original_code")
     
-    # Calculate the end index
-    end_index = start_index + len(normalized_java_code)
+    # 4단계: 원본 코드에서의 실제 위치 매핑
+    original_pos = 0  # 원본 코드에서의 현재 위치
+    clean_pos = 0    # 공백 제거된 코드에서의 현재 위치
     
-    # Replace the code in the original with the updated code
-    modified_code = original_code[:start_index] + updated_code + original_code[end_index:]
+    # 시작 위치 찾기
+    while clean_pos < clean_start:  # 공백 제거된 코드에서의 시작 위치까지
+        if not original_chars[original_pos].isspace():  # 공백이 아닌 문자면
+            clean_pos += 1  # 공백 제거된 위치 증가
+        original_pos += 1  # 원본 위치는 항상 증가
+    start_index = original_pos
     
-    return modified_code
+    # 끝 위치 찾기 (같은 방식으로)
+    clean_target = clean_start + len(clean_java)
+    while clean_pos < clean_target:
+        if not original_chars[original_pos].isspace():
+            clean_pos += 1
+        original_pos += 1
+    end_index = original_pos
+    
+    # 5단계: 찾은 위치로 코드 교체
+    return original_code[:start_index] + updated_code + original_code[end_index:]
+    
     
 def merge_code(original_code, updated_code, java_range):
     start_line, end_line = map(int, java_range.split('-'))
@@ -437,12 +462,11 @@ def merge_code(original_code, updated_code, java_range):
 
     return '\n'.join(original_lines)
 
-async def update_code(explanation=None, java_files=None, error=None, plsql_java_pairs=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None, error_contexts=None):
+async def update_code(explanation=None, java_files=None, plsql_java_pairs=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None, error_contexts=None, user_id=None):
     global modification_history, global_test_class_names, global_plsql_gwt_log, stop_execution_flag
-    conn = Neo4jConnection()
     logging.info("코드 업데이트 시작")
     try:
-        if error:
+        if error_contexts:
             # 컴파일 또는 런타임 오류가 발생한 경우
             # Extract pom.xml files from java_files
             # pom_files = [file for file in java_files if file['filePath'].endswith('pom.xml')]
@@ -454,10 +478,11 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
         else:
             prompt = generate_prompt(plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs, explanation)
 
-        # OpenAI 클라이언트 대신 ChatOpenAI 사용
-        chat = ChatOpenAI(
-            model="gpt-4",
-            temperature=0
+
+        chat = ChatAnthropic(
+            model="claude-3-5-sonnet-latest",
+            max_tokens=8000,
+            temperature=0.1
         )
 
         response = chat.invoke([
@@ -470,8 +495,19 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
         updates = json.loads(response_content.strip('```json\n').strip('```'))
         logging.info(f"GPT 응답 수신 완료: {len(updates)}개의 파일 업데이트 제안")
         
+        modified_files = {}
+
         for update in updates:
             file_path = update['filePath']
+            java_code = update['original_java_code']
+            updated_code = update['modified_code']
+
+
+            if file_path in modified_files:
+                originalCode = modified_files[file_path]
+            else:
+                originalCode = next((file['content'] for file in java_files if file['filePath'] == file_path), None)
+            
             originalCode = next((file['content'] for file in java_files if file['filePath'] == file_path), None)
             logging.info(f"파일 업데이트 중: {file_path}")
             
@@ -488,17 +524,20 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
             if update['type'] == "test_file_update":
                 modifiedCode = update['modified_code']
             else:
-                java_code = next((pair['java_code'] for pair in plsql_java_pairs 
-                    if pair['filePath'] == file_path and pair['java_code'].strip() == update['original_java_code'].strip()), None)
-                modifiedCode = replace_code(originalCode, java_code, update['modified_code'])
+                modifiedCode = replace_code(originalCode, java_code, updated_code)
+
+                # java_code = next((pair['java_code'] for pair in plsql_java_pairs 
+                #     if pair['filePath'] == file_path and pair['java_code'].strip() == update['original_java_code'].strip()), None)
+                # modifiedCode = replace_code(originalCode, java_code, update['modified_code'])
                 
                 try:
-                    await conn.update_node_code(java_code, update['modified_code'], file_path)
+                    await update_nodes_with_code(originalCode, java_code, updated_code, file_path)
                     logging.info(f"노드 업데이트 완료")
                     
                     with open(file_path, 'w', encoding='utf-8') as file:
                         file.write(modifiedCode)
-                    
+                    modified_files[file_path] = modifiedCode
+
                     print(f"Updated file: {file_path}")
                     logging.info(f"파일 업데이트 완료: {file_path}")
 
@@ -532,7 +571,6 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
                 "type": "java_file_update"
             }).encode('utf-8') + b"send_stream"
 
-        await conn.close()
         logging.info("모든 코드 업데이트가 완료되었습니다. 테스트를 재실행합니다.")
         yield json.dumps({"type": "update_feedbackLoop_status", "status": "java_file_update_finished"}).encode('utf-8') + b"send_stream"
         
@@ -540,7 +578,7 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
             logging.info("Execution stop requested. Exiting...")
             return
         
-        async for result in execute_maven_commands(global_test_class_names, global_plsql_gwt_log):
+        async for result in execute_maven_commands(global_test_class_names, global_plsql_gwt_log, user_id):
             yield result
         
     except json.JSONDecodeError as e:
@@ -551,19 +589,19 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
         raise
 
 
+# 역할 : 컴파일 에러가 발생한 파일에서 에러가 발생한 라인의 코드를 추출합니다. 
+#
+# 매개변수 : 
+#   - error_location : 에러가 발생한 라인 번호
+#   - error_file : 에러가 발생한 파일명
+#   - java_files : 에러가 발생한 파일들의 목록
+#
+# 반환값 : 
+#   - 에러가 발생한 라인의 코드
 async def extract_compile_error_code(error_location: str, error_file: str, java_files: list) -> str:
-    """
-    컴파일 에러가 발생한 파일에서 에러가 발생한 라인의 코드를 추출합니다.
-    
-    Args:
-        error_location (str): 에러가 발생한 라인 번호
-        error_file (str): 에러가 발생한 파일명
-    
-    Returns:
-        str: 에러가 발생한 라인의 코드
-    """
+
     try:
-        # 에러 파일 찾기
+        # * 에러 파일 찾기
         error_file_data = next(
             (file for file in java_files if os.path.basename(file['filePath']) == error_file),
             None
@@ -572,24 +610,88 @@ async def extract_compile_error_code(error_location: str, error_file: str, java_
         if not error_file_data:
             raise FileNotFoundError(f"에러가 발생한 파일을 찾을 수 없습니다: {error_file}")
             
-        # 파일 내용에 라인 번호 추가
+        # * 파일 내용에 라인 번호 추가
         file_content = error_file_data['content']
         lines = file_content.splitlines()
         _ , numbered_lines = add_line_numbers(lines)
         
-        # 에러 라인 추출
-        error_line = next(
-            (line for line in numbered_lines
-             if line.startswith(f"{error_location}:")),
-            None
-        )
+
+        # * 라인 번호 추출
+        start_line, end_line = map(int, error_location.split('~')) if '~' in error_location else (int(error_location), int(error_location))
+
+        # * 에러 라인 추출 (원본 코드의 공백/들여쓰기 유지)
+        error_lines = [
+            line.split(':', 1)[1]  # 라인 번호만 제거하고 원본 코드 그대로 유지
+            for line in numbered_lines
+            if line.startswith(tuple(f"{i}:" for i in range(start_line, end_line + 1)))
+        ]
         
-        if not error_line:
+        if not error_lines:
             raise ValueError(f"에러 라인을 찾을 수 없습니다: {error_location}")
             
-        # 라인 번호 제거하고 실제 코드만 반환
-        return error_line.split(':', 1)[1].strip()
+        return '\n'.join(error_lines)
         
     except Exception as e:
         logging.error(f"에러 코드 추출 중 오류 발생: {str(e)}")
+        raise
+
+
+# 역할 : 원본 코드에서 특정 자바 코드를 포함하는 모든 노드를 찾아 업데이트합니다.
+#
+# 매개변수 : 
+#   - original_code : 전체 원본 파일 내용
+#   - java_code : 찾을 자바 코드
+#   - updated_code : 업데이트할 자바 코드
+#   - file_path : 자바 파일 경로
+async def update_nodes_with_code(original_code, java_code, updated_code, file_path):
+
+    try:
+        conn = Neo4jConnection()
+        file_name = os.path.basename(file_path)
+        queries = []
+        
+
+        # * 원본 코드를 포함하는 모든 노드 찾기
+        find_node_query = f"""
+        MATCH (n)
+        WHERE apoc.text.clean(n.java_code) CONTAINS apoc.text.clean('{java_code}') 
+        AND n.java_file = '{file_name}'
+        RETURN n, elementId(n) as node_id
+        """
+        
+        # * 먼저 노드 찾기 쿼리 실행
+        find_result = await conn.execute_queries([find_node_query])
+        
+
+        if not find_result[0]:
+            logging.warning(f"No nodes found containing java_code in file: {file_name}")
+            return
+            
+
+        # * 찾은 각 노드에 대해 업데이트 쿼리 생성
+        for node in find_result[0]:
+            node_data = node['n']
+            node_id = node['node_id']
+            original_node_code = node_data['java_code']
+            
+            # * 노드의 자바 코드를 업데이트
+            new_node_code = replace_code(original_node_code, java_code, updated_code)
+            
+            # * 노드의 코드를 업데이트하는 쿼리 생성
+            update_node_query = f"""
+            MATCH (n)
+            WHERE elementId(n) = '{node_id}'
+            SET n.java_code = '{new_node_code}'
+            RETURN n
+            """
+            queries.append(update_node_query)
+        
+        
+        # * 모든 업데이트 쿼리 실행
+        if queries:
+            update_results = await conn.execute_queries(queries)
+            logging.info(f"Updated {len(update_results)} nodes in file: {file_name}")
+            
+    except Exception as e:
+        logging.error(f"Error updating nodes: {str(e)}")
         raise

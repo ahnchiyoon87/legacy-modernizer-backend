@@ -3,6 +3,7 @@ import logging
 
 from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
+from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
@@ -178,12 +179,14 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 start_line, end_line = map(int, line_range.replace('-','~').split('~'))
                 java_code = code_content['code'].replace('\n', '\\n').replace("'", "\\'")
                 java_summary = json.dumps(code_content['explanation'])
+                summary_vector = vectorize_text(java_summary)
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
                     f"SET n.java_code = '{java_code}', "
                     f"n.java_file = '{java_file_name}', "
-                    f"n.java_summary = {java_summary}"
+                    f"n.java_summary = {java_summary}, "
+                    f"n.summary_vector = {summary_vector.tolist()}"
                 )    
 
 

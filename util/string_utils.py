@@ -38,6 +38,34 @@ def convert_to_camel_case(snake_str: str) -> str:
         raise StringConversionError("카멜 케이스 변환 중 오류 발생")
     
 
+# 역할: 파스칼 케이스나 카멜 케이스 형식의 문자열을 대문자 스네이크 케이스로 변환합니다.
+#
+# 매개변수: 
+#   - camel_str: 변환할 파스칼/카멜 케이스 문자열 (예: 'UserProfileService' 또는 'userProfileService')
+#
+# 반환값: 
+#   - 대문자 스네이크 케이스로 변환된 문자열 (예: 'USER_PROFILE_SERVICE')
+def convert_to_upper_snake_case(camel_str: str) -> str:
+    try:
+        if not camel_str:  # None이거나 빈 문자열인 경우
+            return ""
+        
+        # 첫 번째 대문자 앞에는 '_'를 추가하지 않음
+        result = camel_str[0].upper()
+        
+        # 나머지 문자들을 순회하면서 대문자를 '_대문자'로 변환
+        for char in camel_str[1:]:
+            if char.isupper():
+                result += '_' + char
+            else:
+                result += char.upper()
+                
+        return result
+    except Exception as e:
+        err_msg = f"대문자 스네이크 케이스 변환 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise StringConversionError("대문자 스네이크 케이스 변환 중 오류 발생")
+
 
 # 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
 #

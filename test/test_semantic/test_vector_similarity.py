@@ -16,7 +16,7 @@ class TestVectorSimilarity(unittest.IsolatedAsyncioTestCase):
         
         try:
             # 테스트할 검색 텍스트
-            search_text = "TpxSalaryService 클래스에서 calculateDeduction 메서드를 찾을 수 없습니다. 116번 라인에서 calculateDeduction(String, Long) 메서드를 호출하고 있으나, 이 메서드가 클래스 내에 정의되어 있지 않습니다. 실제 정의된 메서드명과 일치하도록 메서드 호출부를 수정해야 합니다. TpxSalaryService 클래스에서 급여 공제액을 계산하는 메서드의 실제 이름을 확인하여 호출부를 수정하세요."
+            search_text = "결근(AB) 상태인 정규직(vRegularYn =Y) 직원의 급여 차감 및 공제액 계산산 로직 차이 발생"
             
             # 검색 텍스트를 벡터화
             search_vector = vectorize_text(search_text)
@@ -24,8 +24,8 @@ class TestVectorSimilarity(unittest.IsolatedAsyncioTestCase):
             # Neo4j 쿼리 실행
             nodes = await conn.search_similar_nodes(
                 search_vector=search_vector,
-                similarity_threshold=0.5,
-                limit=10
+                similarity_threshold=0.4,
+                limit=5
             )
 
             # 결과 출력 및 검증

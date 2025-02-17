@@ -289,14 +289,12 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
                 summary = understand_summary(summary_dict, procedure_name, object_name)
-                summary_vector = vectorize_text(summary['summary'])
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
                         AND n.procedure_name = '{procedure_name}'
                         AND n.user_id = '{user_id}'
-                    SET n.summary = {json.dumps(summary['summary'])},
-                        n.summary_vector = {summary_vector.tolist()}
+                    SET n.summary = {json.dumps(summary['summary'])}
                 """)
                 schedule_stack.clear()
                 node_statementType.clear()
@@ -396,11 +394,9 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
                 # * 구문의 설명(Summary)과 벡터화 된 Summary를 반영하는 사이퍼쿼리를 생성합니다
-                summary_vector = vectorize_text(summary)
                 summary_query = f"""
                     MATCH (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.summary = {json.dumps(summary)},
-                        n.summary_vector = {summary_vector.tolist()}
+                    SET n.summary = {json.dumps(summary)}
                 """
                 cypher_query.append(summary_query)
 

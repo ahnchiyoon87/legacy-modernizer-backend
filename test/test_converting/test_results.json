@@ -15,22 +15,10 @@
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
       "TpjEmployee": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(name = \"DEPT_CODE\", nullable = false, length = 10)\n    private String deptCode;\n    \n    @Column(name = \"EMP_KEY\", nullable = false, length = 10, unique = true)\n    private String empKey;\n    \n    @Column(name = \"REGULAR_YN\", nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(name = \"EMP_NAME\", nullable = false, length = 50)\n    private String empName;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(name = \"REGULAR_YN\", nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(name = \"EMP_NAME\", nullable = false, length = 50)\n    private String empName;\n    \n    @Column(name = \"USER_ID\")\n    private String userId;\n    \n    @Column(name = \"DEPT_CODE\", nullable = false, length = 10)\n    private String deptCode;\n    \n    @Column(name = \"EMP_KEY\", unique = true, nullable = false, length = 10)\n    private String empKey;\n}",
         "table_info": {
           "name": "TPJ_EMPLOYEE",
           "fields": [
-            [
-              "java_file",
-              "TpjEmployee.java"
-            ],
-            [
-              "DEPT_CODE",
-              "DEPT_CODE§VARCHAR2(10)§nullable:false"
-            ],
-            [
-              "EMP_KEY",
-              "EMP_KEY§VARCHAR2(10)§nullable:false"
-            ],
             [
               "REGULAR_YN",
               "REGULAR_YN§CHAR(1)§nullable:false"
@@ -44,12 +32,12 @@
               "525f343f-006e-455d-9e52-9825170c2088"
             ],
             [
-              "java_code",
-              "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(name = \"DEPT_CODE\", nullable = false, length = 10)\n    private String deptCode;\n    \n    @Column(name = \"EMP_KEY\", nullable = false, length = 10, unique = true)\n    private String empKey;\n    \n    @Column(name = \"REGULAR_YN\", nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(name = \"EMP_NAME\", nullable = false, length = 50)\n    private String empName;\n}"
+              "DEPT_CODE",
+              "DEPT_CODE§VARCHAR2(10)§nullable:false"
             ],
             [
-              "java_summary",
-              "TpjEmployee.java 파일의 TpjEmployee 클래스는 TPJ_EMPLOYEE 테이블과 매핑되며, 기본키로 id(Long)를 사용합니다. 이 클래스는 deptCode(String, NOT NULL), empKey(String, NOT NULL, UNIQUE), regularYn(String, NOT NULL), empName(String, NOT NULL) 필드를 포함합니다."
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:false"
             ]
           ],
           "primary_keys": "EMP_KEY"
@@ -58,22 +46,10 @@
     },
     "TPX_SALARY": {
       "TpjSalary": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n    \n    private UUID userId;\n    \n    @Column(nullable = false)\n    private Long amount;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    private String userId;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n}",
         "table_info": {
           "name": "TPJ_SALARY",
           "fields": [
-            [
-              "java_file",
-              "TpjSalary.java"
-            ],
-            [
-              "PAY_DATE",
-              "PAY_DATE§DATE§nullable:false"
-            ],
-            [
-              "EMP_KEY",
-              "EMP_KEY§VARCHAR2(10)§nullable:true"
-            ],
             [
               "user_id",
               "525f343f-006e-455d-9e52-9825170c2088"
@@ -87,12 +63,12 @@
               "SAL_KEY§VARCHAR2(50)§nullable:false"
             ],
             [
-              "java_code",
-              "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n    \n    private UUID userId;\n    \n    @Column(nullable = false)\n    private Long amount;\n}"
+              "PAY_DATE",
+              "PAY_DATE§DATE§nullable:false"
             ],
             [
-              "java_summary",
-              "TpjSalary.java 파일의 TpjSalary 클래스는 TPJ_SALARY 테이블과 매핑되며, 기본키로 id(Long)를 사용합니다. 이 클래스는 salKey(String, NOT NULL, UNIQUE), payDate(LocalDate, NOT NULL), empKey(String), userId(UUID), amount(Long, NOT NULL) 필드를 포함합니다."
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:true"
             ]
           ],
           "primary_keys": "SAL_KEY"
@@ -101,22 +77,10 @@
     },
     "TPX_ATTENDANCE": {
       "TpjAttendance": {
-        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String attKey;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}",
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.LocalDate;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, unique = true)\n    private String attKey;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    private UUID userId;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}",
         "table_info": {
           "name": "TPJ_ATTENDANCE",
           "fields": [
-            [
-              "java_file",
-              "TpjAttendance.java"
-            ],
-            [
-              "EMP_KEY",
-              "EMP_KEY§VARCHAR2(10)§nullable:true"
-            ],
-            [
-              "WORK_DATE",
-              "WORK_DATE§DATE§nullable:true"
-            ],
             [
               "STATUS",
               "STATUS§VARCHAR2(2)§nullable:false"
@@ -130,12 +94,12 @@
               "ATT_KEY§VARCHAR2(50)§nullable:false"
             ],
             [
-              "java_code",
-              "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String attKey;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}"
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:true"
             ],
             [
-              "java_summary",
-              "TpjAttendance.java 파일의 TpjAttendance 클래스는 TPJ_ATTENDANCE 테이블과 매핑되며, 기본키로 id(Long)를 사용합니다. 이 클래스는 attKey(String, NOT NULL), status(String, NOT NULL), empKey(String), workDate(LocalDate) 필드를 포함합니다."
+              "WORK_DATE",
+              "WORK_DATE§DATE§nullable:true"
             ]
           ],
           "primary_keys": "ATT_KEY"
@@ -356,34 +320,32 @@
       "TPX_UPDATE_SALARY": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "14_16": "Used",
-            "type": "BOOLEAN",
             "procedure_name": "TPX_UPDATE_SALARY",
+            "role": "변수 선언및 초기화",
             "13_13": "Used",
-            "value_tracking": "직원 존재 여부를 저장하는 Boolean 변수",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "13_23": "Used",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vExists",
+            "14_16": "Used",
+            "type": "BOOLEAN",
             "value": "null",
             "9_10": "Used"
           }
         },
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "BOOLEAN",
             "procedure_name": "TPX_UPDATE_SALARY",
             "18_18": "Used",
-            "value_tracking": "급여 정보 존재 여부를 저장하는 Boolean 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "13_23": "Used",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vSalaryExists",
             "19_21": "Used",
+            "type": "BOOLEAN",
             "value": "null",
             "9_10": "Used"
           }
@@ -394,18 +356,17 @@
       "EXISTS_EMPLOYEE": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "49_49": "Used",
-            "41_41": "Used",
-            "type": "NUMBER",
             "44_49": "Used",
             "procedure_name": "EXISTS_EMPLOYEE",
-            "value_tracking": "직원 레코드 수를 저장하는 변수로, tpjEmployeeRepository.countByEmpKey 메서드의 결과값이 저장됨",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
             "44_47": "Used",
+            "49_49": "Used",
             "name": "vCount",
+            "41_41": "Used",
+            "type": "NUMBER",
             "value": "null"
           }
         }
@@ -413,38 +374,36 @@
       "IS_REGULAR_EMPLOYEE": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "69_69": "Used",
-            "type": "CHAR",
-            "61_61": "Used",
             "64_67": "Used",
             "procedure_name": "IS_REGULAR_EMPLOYEE",
-            "value_tracking": "직원의 정규직 여부를 저장하는 문자열 변수, TpjEmployee 엔티티의 regularYn 필드값이 할당됨",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "64_69": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
             "name": "vRegularYn",
-            "value": "null"
+            "69_69": "Used",
+            "type": "CHAR",
+            "value": "null",
+            "61_61": "Used"
           }
         }
       ],
       "INS_EMPLOYEE": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "89_91": "Used",
-            "type": "BOOLEAN",
-            "88_97": "Used",
-            "88_88": "Used",
             "84_84": "Used",
             "procedure_name": "INS_EMPLOYEE",
-            "value_tracking": "직원 존재 여부를 저장하는 Boolean 타입 변수, existsEmployee 메서드의 결과값 저장",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "89_91": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
             "name": "vExists",
-            "value": "null"
+            "type": "BOOLEAN",
+            "value": "null",
+            "88_97": "Used",
+            "88_88": "Used"
           }
         }
       ]
@@ -455,7 +414,6 @@
           "v": {
             "procedure_name": "EXISTS_SALARY",
             "role": "변수 선언및 초기화",
-            "value_tracking": "급여 데이터 존재 여부를 확인하기 위한 카운트 값 저장",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
@@ -470,16 +428,15 @@
       "p_CALCULATE_DEDUCTION": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "NUMBER",
             "86_86": "Used",
             "85_85": "Used",
             "procedure_name": "p_CALCULATE_DEDUCTION",
-            "value_tracking": "결근일수와 일일 공제액을 곱한 총 공제액",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vDeduction",
+            "type": "NUMBER",
             "value": "null",
             "76_86": "Used",
             "70_72": "Used"
@@ -493,7 +450,6 @@
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "82_82": "Used",
             "80_80": "Used",
-            "value_tracking": "정규직 여부에 따른 일일 공제액",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
@@ -506,15 +462,14 @@
         },
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "CHAR",
             "procedure_name": "p_CALCULATE_DEDUCTION",
-            "value_tracking": "직원의 정규직 여부를 나타내는 Y/N 값",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vRegularYn",
             "79_83": "Used",
+            "type": "CHAR",
             "value": "null",
             "76_76": "Used",
             "76_86": "Used",
@@ -526,36 +481,34 @@
         {
           "v": {
             "99_99": "Used",
-            "role": "변수 선언및 초기화",
-            "108_108": "Used",
-            "102_108": "Used",
-            "type": "NUMBER",
-            "102_106": "Used",
             "procedure_name": "GET_SALARY",
-            "value_tracking": "TpjSalary 엔티티에서 조회한 급여 금액이 저장되는 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAmount",
-            "value": "null"
+            "108_108": "Used",
+            "102_108": "Used",
+            "type": "NUMBER",
+            "value": "null",
+            "102_106": "Used"
           }
         }
       ],
       "INS_SALARY": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "121_121": "Used",
-            "126_128": "Used",
-            "type": "BOOLEAN",
             "125_138": "Used",
             "procedure_name": "INS_SALARY",
+            "role": "변수 선언및 초기화",
             "125_125": "Used",
-            "value_tracking": "직원 존재 여부를 저장하는 Boolean 타입 변수. tpxEmployeeService.existsEmployee() 호출 결과 저장",
+            "121_121": "Used",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
+            "126_128": "Used",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
+            "type": "BOOLEAN",
             "value": "null"
           }
         }
@@ -563,16 +516,15 @@
       "UPD_SALARY_BY_ABSENT": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "NUMBER",
-            "165_165": "Used",
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
-            "value_tracking": "기본 급여 금액을 저장하는 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vBaseAmount",
+            "type": "NUMBER",
+            "165_165": "Used",
             "value": "null",
             "175_175": "Used",
             "151_154": "Used"
@@ -580,16 +532,15 @@
         },
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "NUMBER",
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
-            "value_tracking": "결근 일수를 저장하는 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAbsentDays",
             "168_172": "Used",
+            "type": "NUMBER",
             "value": "null",
             "175_175": "Used",
             "151_154": "Used"
@@ -597,16 +548,15 @@
         },
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "NUMBER",
             "159_181": "Used",
             "178_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
-            "value_tracking": "최종 계산된 급여 금액을 저장하는 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vFinalAmount",
+            "type": "NUMBER",
             "value": "null",
             "175_175": "Used",
             "151_154": "Used"
@@ -614,16 +564,15 @@
         },
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "type": "BOOLEAN",
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
-            "value_tracking": "직원 존재 여부를 저장하는 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
             "159_159": "Used",
+            "type": "BOOLEAN",
             "value": "null",
             "151_154": "Used",
             "160_162": "Used"
@@ -635,18 +584,17 @@
       "INS_ATTENDANCE": [
         {
           "v": {
-            "role": "변수 선언및 초기화",
-            "42_42": "Used",
-            "type": "BOOLEAN",
             "procedure_name": "INS_ATTENDANCE",
+            "role": "변수 선언및 초기화",
             "43_45": "Used",
-            "value_tracking": "직원 존재 여부를 저장하는 Boolean 타입 변수. tpxEmployeeService.existsEmployee() 호출 결과 저장",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "42_55": "Used",
             "38_38": "Used",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
+            "42_42": "Used",
+            "type": "BOOLEAN",
             "value": "null"
           }
         }
@@ -654,18 +602,17 @@
       "GET_ABSENT_DAYS": [
         {
           "v": {
+            "87_87": "Used",
             "74_87": "Used",
             "69_70": "Used",
-            "role": "변수 선언및 초기화",
-            "80_85": "Used",
-            "type": "NUMBER",
-            "87_87": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
-            "value_tracking": "결근 일수를 저장하는 Long 타입 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vCount",
+            "80_85": "Used",
+            "type": "NUMBER",
             "value": "null"
           }
         },
@@ -674,14 +621,13 @@
             "74_87": "Used",
             "75_77": "Used",
             "69_70": "Used",
-            "role": "변수 선언및 초기화",
-            "type": "BOOLEAN",
             "procedure_name": "GET_ABSENT_DAYS",
-            "value_tracking": "직원 존재 여부를 저장하는 Boolean 타입 변수",
+            "role": "변수 선언및 초기화",
             "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
+            "type": "BOOLEAN",
             "value": "null",
             "74_74": "Used"
           }
