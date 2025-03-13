@@ -3,8 +3,7 @@ import logging
 import os
 from fastapi import APIRouter, HTTPException, Request, logger
 from fastapi.responses import FileResponse, StreamingResponse
-from compare.result_compare import stop_execution
-from service.service import delete_all_temp_data, get_node_info_from_neo4j, initialize_docker_environment, process_comparison_result, process_project_zipping
+from service.service import delete_all_temp_data, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
@@ -229,120 +228,5 @@ async def delete_all_data(request: Request):
         
     except Exception as e:
         error_message = f"임시 파일 삭제 중 오류 발생: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
-
-
-# 역할: 비교 결과를 반환하는 엔드포인트
-# 매개변수: 
-#   - request: 비교할 파일 정보가 담긴 요청 객체 (fileNames: string[])
-# 반환값: 비교 결과 데이터
-@router.post("/compare/")
-async def get_compare_result(request: Request):
-    try:
-        # * 사용자 ID 추출
-        user_id = request.headers.get('Session-UUID')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-        
-
-        # * 비교 테스트 데이터 추출
-        compare_data = await request.json()
-        logging.info("Received Compare Data")
-        test_cases = compare_data.get('cases', [])
-        orm_type = compare_data.get('orm_type', 'jpa')
-        
-        
-        # * 테스트 케이스 정보 검증
-        if not test_cases:
-            raise HTTPException(status_code=400, detail="테스트 케이스 정보가 없습니다.")
-            
-
-        # * 비교 테스트 및 피드백 루프 처리
-        return StreamingResponse(process_comparison_result(test_cases, user_id, orm_type))
-    
-    except Exception as e:
-        error_message = f"비교 결과를 가져오는데 실패했습니다: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
-
-
-# 역할: 테스트 입력값을 위해 노드 정보를 조회하여 반환합니다
-#
-# 매개변수:
-#   - request: 사용자 ID가 담긴 요청 객체
-#
-# 반환값: 노드 정보 데이터
-@router.get("/nodeInfo/")
-async def get_node_info(request: Request):
-    try:
-        # * 사용자 ID 추출
-        user_id = request.headers.get('Session-UUID')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-        
-
-        # * Neo4j에서 모든 노드 정보를 조회하는 로직 구현 필요
-        result = await get_node_info_from_neo4j(user_id)
-        return result
-    
-    except Exception as e:
-        error_message = f"노드 정보를 가져오는데 실패했습니다: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
-    
-
-# 역할: 도커 환경을 비동기적으로 초기화합니다
-#
-# 매개변수:
-#   - request: 
-#     사용자 ID와 ORM 타입이 담긴 요청 객체
-#     패키지 이름이 담긴 요청 객체
-#
-# 반환값:
-#   - dict: 초기화 시작 메시지
-@router.post("/initDocker/")
-async def init_docker_environment(request: Request):
-    try:
-        # * 사용자 ID 추출
-        user_id = request.headers.get('Session-UUID')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-            
-
-        # * ORM 타입 추출
-        data = await request.json()
-        orm_type = data.get('orm_type', 'jpa').lower()
-        package_names = data.get('package_names', [])
-        print(package_names)
-
-        
-        # * 도커 환경 초기화 시작 (비동기 백그라운드)
-        asyncio.create_task(initialize_docker_environment(user_id, orm_type, package_names))
-        
-        return {
-            "message": "도커 환경 초기화가 백그라운드에서 시작되었습니다.",
-            "status": "started"
-        }
-        
-    except Exception as e:
-        error_message = f"도커 환경 초기화 요청 처리 중 오류 발생: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
-
-
-
-# 역할 : 피드백 루프를 중지하는 엔드포인트
-# 매개변수 : 없음
-# 반환값 : 중지 메시지
-@router.post("/stop_feedback_loop/")
-async def stop_feedback_loop():
-    try:
-        stop_execution()
-        logging.info("Execution stop request received and processed.")
-        
-        return {"message": "Execution stopped successfully."}
-    except Exception as e:
-        error_message = f"Execution stop failed: {str(e)}"
         logger.exception(error_message)
         raise HTTPException(status_code=500, detail=error_message)

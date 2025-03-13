@@ -19,7 +19,7 @@ if api_key is None:
     raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
 # llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
 
 
 prompt = PromptTemplate.from_template(
@@ -30,13 +30,6 @@ prompt = PromptTemplate.from_template(
 분석된 요약 내용:
 {summaries}
 
-패키지명: 
-{object_name}
-
-프로시저명: 
-{procedure_name}
-
-
 [분석 규칙]
 ===============================================
 1. 핵심 기능 파악
@@ -45,18 +38,15 @@ prompt = PromptTemplate.from_template(
    - 중요한 비즈니스 로직
 
 2. 요약 방식
-   - 첫 문장은 반드시 "[패키지명]Service.java 파일의 [프로시저명] 메서드는..." 형식으로 시작
-   - 전달된 패키지명과 프로시저명은 원본 그대로 사용 (TPX 등의 접두어가 있는 경우 포함)
-   - 전달된 패키지명과 프로시저명은 파스칼 및 카멜 케이스로 변환하여 사용
-   - 3~4줄로 간단하게 정리
+   - 최소 3~4줄로 상세하게 정리
    - 기술적인 용어는 최소화
    - 비즈니스 관점에서 이해하기 쉽게 설명
-   예시) "TpxEmployeeService.java 파일의 tPXUpdateEmployeeInfo 메서드는 직원의 인사 정보를 갱신합니다.
+   예시) 직원의 인사 정보를 갱신하는 프로시저로,
          입력받은 직원 ID를 기준으로 부서 이동, 직급 변경, 급여 조정 등의 정보를 처리하며,
          변경된 정보는 인사 이력 테이블에 자동으로 기록됩니다.
          또한 변경 사항에 따라 관련 부서장과 인사팀에 이메일 알림을 발송합니다."
 
-   예시) "TpxPaymentService.java 파일의 processMonthlyPayroll 메서드는 월별 급여 지급 처리를 수행합니다.
+   예시) 월별 급여 지급 처리를 수행하는 프로시저로,
          해당 월의 근태 기록과 수당 정보를 집계하여 실지급액을 계산하고,
          각 직원별 급여 명세서를 생성합니다.
          계산된 급여는 지정된 은행 계좌로 일괄 이체 요청됩니다."
@@ -71,7 +61,7 @@ prompt = PromptTemplate.from_template(
 """
 )
 
-def understand_summary(summaries, procedure_name, object_name):
+def understand_summary(summaries):
     try:
         chain = (
             RunnablePassthrough()
@@ -79,7 +69,7 @@ def understand_summary(summaries, procedure_name, object_name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"summaries": summaries, "procedure_name": procedure_name, "object_name": object_name})
+        result = chain.invoke({"summaries": summaries})
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 요약 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

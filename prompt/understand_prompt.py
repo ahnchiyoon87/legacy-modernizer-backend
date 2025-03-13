@@ -13,7 +13,7 @@ from langchain_core.output_parsers import JsonOutputParser
 # TODO 일단 기본키 외래키 같은것들도 정보에 추가해야하고, 프롬포트로 수정 필요(기본키 외래키가 식별될 경우에만 추가하도록)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
+llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.0)
 
 prompt = PromptTemplate.from_template(
 """
@@ -26,10 +26,6 @@ prompt = PromptTemplate.from_template(
 
 분석할 Stored Procedure Code의 범위 목록:
 {ranges}
-
-
-분석할 Procedure의 이름:
-{procedure_name}
 
 
 반드시 지켜야할 주의사항:
@@ -48,9 +44,7 @@ prompt = PromptTemplate.from_template(
    - 반복문(FOR, WHILE 등)의 반복 조건과 수행 목적을 설명
    - SQL 작업(INSERT/UPDATE/DELETE/SELECT)의 대상 테이블과 처리 목적을 설명
    - 해당 코드 범위가 전체 프로시저에서 수행하는 역할과 목적을 설명
-   예시) "{procedure_name}에서 v_process_date에 현재 날짜를 할당하여 처리 기준일을 설정하고,
-         v_count가 임계값(10)을 초과하는지 확인하여 처리량을 제한합니다.
-         CUSTOMER 테이블에서 활성 고객만을 SELECT하여, ORDER_HISTORY 테이블에 집계 데이터를 생성합니다."
+   예시) "v_process_date에 현재 날짜를 할당하여 처리 기준일을 설정하고, v_count가 임계값(10)을 초과하는지 확인하여 처리량을 제한합니다. CUSTOMER 테이블에서 활성 고객만을 SELECT하여, ORDER_HISTORY 테이블에 집계 데이터를 생성합니다."
 
 2. 각 범위에서 사용된 모든 변수들을 식별하세요. 변수는 다음과 같은 유형을 모두 포함합니다:
    - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
@@ -105,12 +99,11 @@ prompt = PromptTemplate.from_template(
 #   - sp_code : 분석 대상 PL/SQL 프로시저의 전체 코드
 #   - context_ranges : 분석이 필요한 코드 범위 목록
 #   - context_range_count : 분석해야 할 코드 범위의 총 개수
-#   - procedure_name : 프로시저 이름
 #
 # 반환값: 
 #   - parsed_content : LLM의 코드 분석 결과
 #      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
-def understand_code(sp_code, context_ranges, context_range_count, procedure_name):
+def understand_code(sp_code, context_ranges, context_range_count):
     try:
         ranges_json = json.dumps(context_ranges)
 
@@ -122,7 +115,7 @@ def understand_code(sp_code, context_ranges, context_range_count, procedure_name
 
         json_parser = JsonOutputParser()
         # TODO 여기서 최대 출력 토큰만 4096이 넘은 경우 처리가 필요
-        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "procedure_name": procedure_name})
+        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
         json_parsed_content = json_parser.parse(result.content)
         logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content

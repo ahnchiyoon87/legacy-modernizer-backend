@@ -11,7 +11,7 @@ import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
+llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.0)
 
 
 # mybatis 기반의 서비스 레이어 프롬프트
@@ -247,37 +247,6 @@ Sequence Method List:
    * 예시:
    - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
    - 변환: Long nextVal = userRepository.getNextUserKeySequence();
-
-   
-[SECTION 9] 코드 요약 규칙
-===============================================
-1. 코드 동작 설명
-   - 해당 코드 블록이 수행하는 모든 작업을 순차적으로 설명
-   - 호출하는 모든 메서드와 전달하는 파라미터를 명시
-   - 변수 초기화나 값 할당 작업도 포함
-   - 조건문이나 반복문의 경우 그 목적과 처리 내용을 설명
-   
-2. 요약 방식
-   - 기술적인 세부사항을 포함하여 상세하게 설명
-   - 각 라인이 어떤 작업을 수행하는지 구체적으로 기술
-   - 메서드 호출의 경우 "A메서드를 호출하여 B파라미터를 전달하고 C작업을 수행"과 같이 설명
-   - 변수 처리의 경우 "A변수에 B값을 할당" 또는 "A변수의 값을 B로 초기화" 형식으로 설명
-
-   예시 1) 메서드 호출 코드의 경우:
-   "tpxEmployeeService의 isRegularEmployee 메서드를 호출하여 iEmpKey를 전달하고 해당 직원의 정규직 여부를 확인합니다.
-   반환된 결과를 vRegularYn 변수에 저장하고, 정규직(Y)인 경우 공제액을 100,000원, 비정규직인 경우 200,000원으로 설정합니다.
-   설정된 공제액(vDeductionPerDay)과 결근일수(iAbsentDays)를 곱하여 최종 공제금액을 계산하고 반환합니다."
-
-   예시 2) 변수 초기화 코드의 경우:
-   "직원ID(vEmpId)와 부서코드(vDeptCode) 변수를 각각 null로 초기화합니다.
-   현재 날짜를 기준으로 처리일자(vProcessDate)를 LocalDateTime.now()로 설정하고,
-   처리상태(vStatus)는 기본값 'N'으로 설정합니다."
-
-3. 주의사항
-   - 코드의 목적과 처리 흐름이 명확히 드러나도록 설명
-   - 중요한 비즈니스 로직이나 핵심 처리 단계는 반드시 포함
-   - 단순 변수 선언이나 초기화라도 그 목적과 의미를 설명
-   - 조건문이나 분기 처리의 경우 각 경우에 대한 처리 내용을 모두 설명
 
 
 [SECTION 10] 자바 코드 생성시 JSON 문자열 처리 규칙
@@ -587,32 +556,6 @@ Sequence Method List:
    - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
 
 
-[SECTION 9] 코드 explanation 생성 규칙
-===============================================
-코드 explanation 방식:
-1. 모든 메서드 호출은 다음 형식으로 설명:
-   "[메서드명]을 호출하여 [파라미터]를 전달하고 [수행작업]을 합니다. 결과는 [변수명]에 저장됩니다."
-
-2. 모든 변수 처리는 다음 형식으로 설명:
-   "[변수명]에 [값/계산식]을 할당하여 [목적]을 수행합니다."
-
-3. 조건문은 다음 형식으로 설명:
-   "만약 [조건]이면 [처리A]를 수행하고, 그렇지 않으면 [처리B]를 수행합니다."
-
-   
-필수 준수사항:
-1. 모든 메서드 호출과 파라미터는 반드시 명시해야 합니다.
-2. 중요 비즈니스 로직은 상세히 설명해야 합니다.
-3. 변수의 용도와 목적을 명확히 설명해야 합니다.
-4. 조건문의 모든 분기 처리를 빠짐없이 설명해야 합니다.
-5. 코드의 순차적 실행 흐름이 드러나도록 설명해야 합니다.
-6. 반드시 변수명은 명확하게 명시해야 합니다.
-
-예시:
-"calculateSalary 메서드를 호출하여 empId와 basicSalary를 전달하고 급여를 계산합니다. 계산된 결과는 finalSalary 변수에 저장됩니다.
-만약 isDeduction이 true이면 deductAmount를 차감하고, 그렇지 않으면 전체 금액을 반환합니다."
-
-
 [SECTION 10] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
@@ -641,23 +584,15 @@ Sequence Method List:
 
 4. 'CHR(10)'가 식별되는 경우 줄바꿈 '\n'으로 처리하지 말고 무시하세요.
 
-5. 'explanation'는 반드시 매우 상세하게 작성이 되어야합니다. 어떤 메서드를 호출하는지 어떤 매개변수를 넘기는지, 어떤 변수값을 초기화하고 저장하는지, 어떤 비즈니스 로직을 수행하는지에 대한 모든 정보를 누락 및 생략 없이 제공해야 합니다. 
-
 
 [SECTION 11] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음과 같은 dictionary(사전) 형태의 JSON 형식으로 반환하세요:
 {{
    "analysis": {{
-      "code_info": {{
-         "startLine~endLine": {{
-            "code": "Java Code",
-            "explanation": "explanation of this code block"
-         }},
-         "startLine~endLine": {{
-            "code": "Java Code",
-            "explanation": "explanation of this code block"
-         }}
+      "code": {{
+         "startLine~endLine": "Java Code",
+         "startLine~endLine": "Java Code"
       }},
       "variables": {{
          "name": "initialized value and role",

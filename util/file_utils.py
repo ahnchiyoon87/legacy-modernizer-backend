@@ -75,37 +75,3 @@ async def read_sequence_file(object_name: str, user_id: str) -> str:
         err_msg = f"시퀀스 파일을 읽는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ReadFileError(err_msg)
-    
-
-# 역할 : target 디렉토리 내의 파일을 읽는 유틸리티 함수
-#
-# 매개변수 :
-#   - class_name: 읽을 파일의 클래스 이름 (예: "UserService", "UserEntity")
-#   - component_type: 컴포넌트 타입 경로 (예: "service", "entity", "repository")
-#   - user_id : 사용자 ID
-#
-# 반환값 :
-#   - str: 파일의 내용
-def read_target_file(class_name: str, component_type: str, user_id:str) -> str:
-
-    try:
-        # * 환경에 따라 저장 경로 설정
-        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            
-            
-        # * 파일 경로
-        base_path = 'demo/src/main/java/com/example/demo'
-        file_path = os.path.join(base_dir, 'target', 'java', user_id, base_path, component_type, f'{class_name}.java')
-        
-
-        # * 파일 읽기
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return file.read()
-        
-    except Exception as e:
-        err_msg = f"파일 읽기 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise ReadFileError(err_msg)

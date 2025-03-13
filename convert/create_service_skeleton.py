@@ -6,7 +6,6 @@ import tiktoken
 from prompt.convert_variable_prompt import convert_variables
 from prompt.convert_service_skeleton_prompt import convert_method_code
 from prompt.convert_command_prompt import convert_command_code
-from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.file_utils import save_file
@@ -107,8 +106,6 @@ CodePlaceHolder
 #   - node_type: 대상 노드의 유형
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
 #   - user_id : 사용자 ID
-#   - connection: Neo4j 연결 객체
-#   - object_name: 프로시저 노드의 객체 이름
 #
 # 반환값: 
 #   - command_class_variable: 커맨드 클래스에 정의된 필드 정보 (함수인 경우 None)
@@ -116,7 +113,7 @@ CodePlaceHolder
 #   - method_skeleton_name: 생성된 서비스 메서드명
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
-async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str, connection: Neo4jConnection, object_name: str) -> tuple:
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str) -> tuple:
     command_class_variable = None
     command_class_name = None
     
@@ -130,42 +127,6 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
             command_class_variable = analysis_command['command_class_variable']     
-            command_summary = analysis_command['summary']
-            command_summary_vector = vectorize_text(command_summary)
-            
-            
-            # * 커맨드 클래스 정보를 노드에 저장
-            command_query = [
-                f"""
-                MATCH (p)
-                WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
-                AND p.procedure_name = '{method_skeleton_data['procedure_name']}'
-                AND p.user_id = '{user_id}'
-                AND p.object_name = '{object_name}'
-                MERGE (cmd:COMMAND {{
-                    name: '{command_class_name}',
-                    user_id: '{user_id}',
-                    object_name: '{object_name}',
-                    procedure_name: '{method_skeleton_data['procedure_name']}'
-                }})
-                SET cmd.java_code = '{command_class_code}',
-                    cmd.java_summary = {json.dumps(command_summary)},
-                    cmd.java_file = '{command_class_name}.java'
-                MERGE (p)-[:CONVERT]->(cmd)
-                RETURN cmd
-                """,
-                
-                f"""
-                MATCH (cmd:COMMAND {{
-                    name: '{command_class_name}',
-                    user_id: '{user_id}',
-                    object_name: '{object_name}',
-                    procedure_name: '{method_skeleton_data['procedure_name']}'
-                }})
-                SET cmd.summary_vector = {command_summary_vector.tolist()}
-                """
-            ]
-            await connection.execute_queries(command_query)
             
 
             # * 커맨드 클래스 파일 생성
@@ -177,23 +138,6 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
         method_skeleton_name = analysis_method['methodName']
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
-        method_summary = analysis_method['summary']
-        java_file_name = f"{convert_to_pascal_case(object_name)}Service.java"
-
-
-        # * 메서드 정의 정보를 노드에 저장
-        method_query = [
-            f"""
-            MATCH (s:SPEC)
-            WHERE s.object_name = '{object_name}'
-            AND s.procedure_name = '{method_skeleton_data['procedure_name']}'
-            AND s.user_id = '{user_id}'
-            SET s.java_summary = {json.dumps(method_summary)},
-                s.java_file = '{java_file_name}',
-                s.java_code = '{method_skeleton_code}'
-            """
-        ]
-        await connection.execute_queries(method_query)
 
 
         return (
@@ -261,7 +205,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             WHERE d.object_name = '{object_name}'
             OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable)
             WHERE dv.object_name = '{object_name}'
-            OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC)
+            OPTIONAL MATCH (p)-[:PARENT_OF]->(s:DEFINITION)
             WHERE s.object_name = '{object_name}'
             OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable)
             WHERE sv.object_name = '{object_name}'
@@ -272,6 +216,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             END as node_type
             RETURN p, d, dv, s, sv, node_type
             ORDER BY p.startLine""",
+            
             # * 외부 호출 노드 쿼리
             f"""MATCH (p)-[:EXT_CALL]->(ext)
             WHERE p.object_name = '{object_name}'
@@ -399,7 +344,6 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 proc_data['node_type'],
                 dir_name,
                 user_id,
-                connection,
                 object_name
             )
 

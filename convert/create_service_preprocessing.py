@@ -3,7 +3,6 @@ import logging
 
 from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
-from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
@@ -159,34 +158,31 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
     #
     # 반환값:
     #   - tracking_variables : 변수 정보를 추적하기 위한 사전
+    # 역할: LLM이 분석한 결과를 바탕으로 Neo4j 데이터베이스의 노드들을 업데이트하는 함수입니다.
+    #
+    # 매개변수:
+    #   - analysis_result : LLM이 분석한 결과
+    #
+    # 반환값:
+    #   - tracking_variables : 변수 정보를 추적하기 위한 사전
     async def handle_convert_result(analysis_result:dict) -> dict:
         nonlocal tracking_variables
         node_update_query = []
         
         try:
             # * 분석 결과에서 코드와 변수 정보를 추출합니다.
-            code_info = analysis_result['analysis'].get('code_info', {})
+            code_info = analysis_result['analysis'].get('code', {})
             variables_info = analysis_result['analysis'].get('variables', {})
-            
-            
-            # * 파스칼 케이스로 변환하여 자바 파일 이름을 생성합니다.
-            pascal_object_name = convert_to_pascal_case(object_name)
-            java_file_name = f"{pascal_object_name}Service.java"
             
 
             # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
-            for line_range, code_content in code_info.items():
-                start_line, end_line = map(int, line_range.replace('-','~').split('~'))
-                java_code = code_content['code'].replace('\n', '\\n').replace("'", "\\'")
-                java_summary = json.dumps(code_content['explanation'])
-                summary_vector = vectorize_text(java_summary)
+            for key, service_code in code_info.items():
+                start_line, end_line = map(int, key.replace('-','~').split('~'))
+                escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{java_code}', "
-                    f"n.java_file = '{java_file_name}', "
-                    f"n.java_summary = {java_summary}, "
-                    f"n.summary_vector = {summary_vector.tolist()}"
+                    f"SET n.java_code = '{escaped_code}', "
                 )    
 
 
@@ -389,14 +385,13 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
             MATCH (p)-[:PARENT_OF]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
-                  OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC)
+                  OR n:PACKAGE_BODY OR n:DEFINITION)
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE m.object_name = '{object_name}'
             AND m.user_id = '{user_id}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
-            AND NOT type(r) CONTAINS 'EXT_CALL'
-            AND NOT type(r) CONTAINS 'INT_CALL'
+                OR m:PACKAGE_BODY OR m:DEFINITION)
+            AND NOT type(r) CONTAINS 'CALL'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'
             RETURN n, r, m

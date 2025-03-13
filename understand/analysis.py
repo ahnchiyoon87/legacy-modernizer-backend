@@ -7,19 +7,19 @@ from prompt.understand_summarized_prompt import understand_summary
 import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
-from semantic.vectorizer import vectorize_text
 from util.exception import (LLMCallError, TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
-                            ProcessResultError, HandleResultError, EventRsRqError, VectorizeError)
+                            ProcessResultError, HandleResultError, EventRsRqError)
 
 
 encoder = tiktoken.get_encoding("cl100k_base")
 
-STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PROCEDURE_SPEC", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION", "TRY"]
+STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION"]
 DML_TYPES = ["UPDATE", "INSERT", "DELETE", "MERGE"]
 PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"]
-NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PROCEDURE_SPEC", "FUNCTION_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
-NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC"]
-NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC"]
+NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
+NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE"]
+NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE"]
+
 
 # 역할: 스토어드 프로시저 코드의 토큰 수를 계산합니다.
 #
@@ -76,6 +76,40 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 범위내에 코드 추출 도중에 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise ExtractCodeError(err_msg)
+
+
+# 역할: 프로시저/함수의 선언부만 추출하는 함수
+#
+# 매개변수: 
+#   - code (str): 프로시저/함수 코드
+#
+# 반환값: 
+#   - str: 추출된 선언부 (이름, 파라미터, 반환 타입 포함)
+def extract_definition(code: str) -> str:
+    if not code:
+        return ""
+    
+    try:
+        # *코드를 줄 단위로 분리
+        lines = code.split('\n')
+        spec_lines = []
+        
+        for line in lines:
+            spec_lines.append(line)
+            # * IS 또는 AS 키워드로 끝나는 선언부 감지
+            # * 주석 제거 후 검사
+            clean_line = re.sub(r'--.*$', '', line).strip().upper()
+            
+            # * IS 또는 AS로 끝나는 패턴 찾기
+            if re.search(r'\bIS\b|\bAS\b', clean_line):
+                break
+        
+        return '\n'.join(spec_lines)
+    
+    except Exception as e:
+        err_msg = f"Understanding 과정에서 프로시저 선언부 추출 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ExtractCodeError(err_msg)
 
@@ -254,6 +288,8 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     extract_code = ""                 # 범위 만큼 추출된 스토어드 프로시저
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드
     sp_token_count = 0                # 토큰 수
+    definition = ""                   # 함수 및 프로시저 정의 코드드
+
 
     print(f"\n[{object_name}] 사이퍼 쿼리 생성 시작")
 
@@ -275,7 +311,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
-            analysis_result = understand_code(extract_code, context_range, context_range_count, procedure_name)        
+            analysis_result = understand_code(extract_code, context_range, context_range_count)        
             cypher_queries = await handle_analysis_result(analysis_result)
             
 
@@ -288,7 +324,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             # * 프로시저 노드의 경우, Summary를 요약 및 벡터화 하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
-                summary = understand_summary(summary_dict, procedure_name, object_name)
+                summary = understand_summary(summary_dict)
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
@@ -433,10 +469,10 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                                 WITH c, p
                                 FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
                                     CREATE (new:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{user_id}'}})
-                                    MERGE (c)-[:EXT_CALL]->(new)
+                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
                                 )
                                 FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-                                    MERGE (c)-[:EXT_CALL]->(p)
+                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(p)
                                 )
                             """
                             cypher_query.append(call_relation_query)
@@ -446,7 +482,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                                 WITH c
                                 MATCH (p {{object_name: '{object_name}', procedure_name: '{name}', user_id: '{user_id}'}} )
                                 WHERE p:PROCEDURE OR p:FUNCTION
-                                MERGE (c)-[:INT_CALL]->(p)
+                                MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
                             """
                             cypher_query.append(call_relation_query)
                     
@@ -464,8 +500,6 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
             return cypher_query
         
-        except VectorizeError:
-            raise
         except Exception as e:
             err_msg = f"Understanding 과정에서 LLM의 결과를 이용해 사이퍼쿼리를 생성하는 도중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
@@ -478,12 +512,12 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     #   - declaration_code (str): 분석할 선언부 코드
     #   - node_startLine (int): 선언부의 시작 라인 번호
     #   - statement_type (str): 선언부의 타입
-    def process_declaration_part(declaration_code: str, node_startLine: int, statement_type: str):
+    def process_declaration_part(declaration_code, node_startLine, statement_type):
         try:
             # * 매개변수의 역할을 결정합니다
             role = ('패키지 전역 변수' if statement_type == 'PACKAGE_VARIABLE' else
                     '변수 선언및 초기화' if statement_type == 'DECLARE' else
-                    '함수 및 프로시저 입력 매개변수' if statement_type == 'SPEC' else
+                    '함수 및 프로시저 입력 매개변수' if statement_type == 'DEFINITION' else
                     '알 수 없는 매개변수')
             
 
@@ -499,36 +533,36 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 
                 if statement_type == 'DECLARE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}})"
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}', user_id: '{user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', user_id: '{user_id}'}}) "
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global', user_id: '{user_id}'}})"
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global'}})"
+                        f"MERGE (p)-[:SCOPE]->(v)"
+                    ])
+                elif statement_type == 'DEFINITION':
+                    cypher_query.extend([
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
+                        f"MERGE (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"SET p.summary = {var_summary}"
+                        f"WITH p "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 else:
-                    cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
-                        f"SET p.summary = {var_summary}"
-                        f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}})"
-                        f"MERGE (p)-[:SCOPE]->(v)"
-                    ])
+                    logging.info("알 수 없는 노드 타입입니다.")
 
-        except LLMCallError:
-            raise
-        except Exception as e:
-            err_msg = f"Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다: {str(e)}"
+        except Exception:
+            err_msg = "Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다."
             logging.error(err_msg)
             raise HandleResultError(err_msg)
 
@@ -571,7 +605,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     #   - parent_startLine (int, optional): 부모 노드의 시작 라인 번호
     #   - parent_statementType (str, optional): 부모 노드의 타입
     async def traverse(node: dict, schedule_stack: list, parent_startLine: int = None, parent_statementType: str = None):
-        nonlocal focused_code, sp_token_count, extract_code, procedure_name
+        nonlocal focused_code, sp_token_count, extract_code, procedure_name, definition
 
         # * 분석에 필요한 필요한 정보를 준비하거나 할당합니다
         start_line, end_line, statement_type = node['startLine'], node['endLine'], node['type']
@@ -591,9 +625,10 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         }
 
 
-        # * 프로시저 노드의 경우, 프로시저 정보를 저장합니다
+        # * 프로시저 노드의 경우, 프로시저 정보 처리 및 저장합니다
         if statement_type in PROCEDURE_TYPES:
             procedure_name = extract_procedure_name(node_code)
+            definition = extract_definition(node_code)
             logging.info(f"[{object_name}] {procedure_name} 프로시저 분석 시작")
 
 
@@ -642,6 +677,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
                         n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',
+                        n.definition = '{definition.replace('\n', '\\n').replace("'", "\\'")}',
                         n.token = {node_size}
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
@@ -659,8 +695,10 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
         # * 현재 노드가 프로시저 선언부인 경우, 변수 노드를 생성합니다
-        if (procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
+        if (procedure_name and statement_type in ["DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
             process_declaration_part(node_code, start_line, statement_type)
+        if definition and statement_type in ["PROCEDURE", "FUNCTION"]:
+            process_declaration_part(definition, start_line, "DEFINITION")
 
 
         # * 스케줄 스택에 현재 스케줄을 넣고, 노드의 타입을 세트에 저장합니다
@@ -695,6 +733,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
         # * 부모 노드의 자식들이 모두 처리가 끝났다면, 부모 노드도 context_range에 포함합니다. (만약 프로시저, 함수 노드라면 분석을 진행합니다)
+        # TODO 왜 프로시저 노드의 경우, 분석을 진행하는지 이해하기 -> 토큰 초과가 될텐데? 그냥 summary 부분만 처리
         if children:
             if (statement_type in PROCEDURE_TYPES) and (context_range and focused_code):
                 extract_code, line_number = extract_code_within_range(focused_code, context_range)

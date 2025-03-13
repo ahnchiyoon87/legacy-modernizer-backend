@@ -1,13 +1,11 @@
 from collections import defaultdict
-import json
 import os
 import logging
 import textwrap
-from prompt.convert_repository_prompt import convert_repository_code, convert_save_method
-from semantic.vectorizer import vectorize_text
+from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_variable_nodes
-from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TokenCountError, TraverseCodeError, VariableNodeError, VectorizeError
+from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TraverseCodeError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
@@ -50,9 +48,6 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 #   - orm_type : 사용할 ORM 유형
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #   - user_id : 사용자 ID
-#
-# 반환값:
-#   - generated_repositories : 생성된 리포지토리 인터페이스 목록
 async def generate_repository_interface(all_query_methods: dict, orm_type: str, sequence_methods: list, user_id: str) -> None:
     try:
         # * 저장 경로 설정
@@ -68,10 +63,6 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
             textwrap.indent(method['method'].strip().replace('\n\n', '\n'),  '    ')
             for method in (sequence_methods or [])
         ) if sequence_methods else ''
-
-
-        # * 생성된 리포지토리 인터페이스 목록 
-        generated_repositories = {}
         
 
         # * 각 테이블별 리포지토리 인터페이스 생성
@@ -103,12 +94,6 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
                 base_path=save_path
             )
 
-            # * 생성된 리포지토리 인터페이스 리스트 추가
-            generated_repositories[filename] = repository_interface_template
-
-
-        return generated_repositories
-
     except (SaveFileError, StringConversionError):
         raise
     except Exception as e:
@@ -126,13 +111,10 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
 #   - sequence_data : 시퀀스 정보
 #   - orm_type : 사용할 ORM 유형
 #   - user_id : 사용자 ID
-#   - table_entity_info : 테이블 및 엔티티 정보
-#   - connection : Neo4j 연결 객체
-#   - object_name : 프로시저/패키지 이름
 #
 # 반환값: 
 #   - used_repository_methodss_list : 생성된 쿼리 메서드들의 정보 리스트
-async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, sequence_data: str, orm_type: str, user_id: str, table_entity_info: dict, connection: Neo4jConnection, object_name: str) -> list:
+async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, sequence_data: str, orm_type: str, user_id: str) -> list:
     
     try:
         current_tokens = 0
@@ -141,79 +123,39 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
         all_query_methods = {}
         used_query_methods_list = {}
         sequence_methods = []
-        summary_methods = {}
 
 
-        # 역할 : 리포지토리 노드를 생성하기 위한 메서드
-        async def generate_repository_node(generated_repository_dict: dict) -> None:
-            try :
-                for filename, repository_interface in generated_repository_dict.items():
-                    repository_class_name = filename.split('.')[0]
-                    entity_name = repository_class_name.replace('Repository', '')
-                    repository_summary = '\n'.join(summary_methods.get(entity_name, []))
-                    summary_vector = vectorize_text(repository_summary)
-
-                    # * 리포지토리 노드 생성
-                    repository_query = [
-                        f"""
-                        MATCH (r)
-                        WHERE (r:ROOT)
-                        AND r.user_id = '{user_id}'
-                        AND r.object_name = '{object_name}'
-                        MERGE (r)-[:CONVERT]->(c:REPOSITORY {{
-                            name: '{repository_class_name}', 
-                            user_id: '{user_id}', 
-                            object_name: '{object_name}'
-                        }})
-                        SET c.java_code = {json.dumps(repository_interface)},
-                            c.java_summary = {json.dumps(repository_summary)},
-                            c.summary_vector = {summary_vector.tolist()},
-                            c.java_file = '{repository_class_name}.java'
-                        """
-                    ]
-
-                    # * 리포지토리 노드 저장
-                    await connection.execute_queries(repository_query)
-
-            except (LLMCallError, StringConversionError, VectorizeError):
-                raise
-            except Exception as e:
-                err_msg = f"리포지토리 노드 생성 중 오류가 발생했습니다: {str(e)}"
-                logging.error(err_msg)
-                raise RepositoryCreationError(err_msg)
-
-
-        # 역할 : mybatis로 Converting 할시 -> save 쿼리 메서드 저장
-        async def save_query_methods(table_entity_info: dict) -> None:
-            try:
-                # * save 메서드 생성
-                save_result = await convert_save_method(table_entity_info)
+        # # 역할 : mybatis로 Converting 할시 -> save 쿼리 메서드 저장
+        # async def save_query_methods(table_entity_info: dict) -> None:
+        #     try:
+        #         # * save 메서드 생성
+        #         save_result = await convert_save_method(table_entity_info)
                 
-                # * 각 엔티티별로 처리
-                for method_info in save_result['analysis']:
+        #         # * 각 엔티티별로 처리
+        #         for method_info in save_result['analysis']:
                     
-                    # * 테이블 이름을 파스칼 케이스로 변환
-                    table_name = method_info['tableName'].split('.')[-1]
-                    entity_name = convert_to_pascal_case(table_name)
+        #             # * 테이블 이름을 파스칼 케이스로 변환
+        #             table_name = method_info['tableName'].split('.')[-1]
+        #             entity_name = convert_to_pascal_case(table_name)
 
-                    # * 기존 메서드 리스트 가져오기 (없으면 빈 리스트 생성)
-                    existing_methods = all_query_methods.setdefault(entity_name, [])
+        #             # * 기존 메서드 리스트 가져오기 (없으면 빈 리스트 생성)
+        #             existing_methods = all_query_methods.setdefault(entity_name, [])
                     
-                    # * save 메서드 추가
-                    existing_methods.append(method_info['method'])
+        #             # * save 메서드 추가
+        #             existing_methods.append(method_info['method'])
 
 
-            except (LLMCallError, StringConversionError):
-                raise
-            except Exception as e:
-                err_msg = f"save 쿼리 메서드 저장 중 오류가 발생했습니다: {str(e)}"
-                logging.error(err_msg)
-                raise ProcessResultError(err_msg)
+        #     except (LLMCallError, StringConversionError):
+        #         raise
+        #     except Exception as e:
+        #         err_msg = f"save 쿼리 메서드 저장 중 오류가 발생했습니다: {str(e)}"
+        #         logging.error(err_msg)
+        #         raise ProcessResultError(err_msg)
 
 
         # 역할: LLM 분석 결과를 처리하여 리포지토리 인터페이스 정보를 생성합니다.
         async def prcoess_repository_interface_code() -> None:
-            nonlocal all_query_methods, current_tokens, repository_data_chunk, used_variable_nodes, current_tokens, sequence_methods, summary_methods    
+            nonlocal all_query_methods, current_tokens, repository_data_chunk, used_variable_nodes, current_tokens, sequence_methods    
 
             try:
                 # * LLM을 통한 코드 변환
@@ -235,12 +177,6 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                     # * 테이블별 메서드 정보 저장
                     methods = all_query_methods.setdefault(entity_name, [])
                     methods.append(method['method'])
-            
-                    # * 테이블별 메서드 설명 저장
-                    summaries = summary_methods.setdefault(entity_name, [])
-                    if not summaries:
-                        summaries.append(f"{entity_name}Repository.java 파일은 {table_name}의 데이터 접근을 담당하는 Repository 인터페이스입니다.")
-                    summaries.append(method['summary'])
                     
                     # * 사용된 메서드 범위 저장
                     for range in method['range']:
@@ -267,9 +203,9 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
 
 
-        # * 만약 mybatis 일 경우 save 메서드 생성
-        if orm_type == 'mybatis':
-            await save_query_methods(table_entity_info)
+        # # * 만약 mybatis 일 경우 save 메서드 생성
+        # if orm_type == 'mybatis':
+        #     await save_query_methods(table_entity_info)
 
 
         # * 리포지토리 노드 처리
@@ -300,8 +236,7 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
 
         # * 리포지토리 인터페이스 및 노드 생성
-        generated_repositories = await generate_repository_interface(all_query_methods, orm_type, sequence_methods, user_id)
-        await generate_repository_node(generated_repositories)
+        await generate_repository_interface(all_query_methods, orm_type, sequence_methods, user_id)
         return used_query_methods_list, all_query_methods, sequence_methods
 
     except ConvertingError:
@@ -319,12 +254,11 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 #   - sequence_data : 시퀀스 정보
 #   - orm_type : 사용할 ORM 유형
 #   - user_id : 사용자 ID
-#   - table_entity_info : 엔티티 클래스 정보
 #
 # 반환값: 
 #   - query_method_list : 생성된 모든 쿼리 메서드 정보 리스트
 #   - global_variables : 전역 변수 목록
-async def start_repository_processing(object_name: str, sequence_data: str, orm_type: str, user_id: str, table_entity_info: dict):
+async def start_repository_processing(object_name: str, sequence_data: str, orm_type: str, user_id: str):
     
     logging.info(f"[{object_name}] Repository Interface 생성을 시작합니다.")
     connection = Neo4jConnection()
@@ -370,9 +304,6 @@ async def start_repository_processing(object_name: str, sequence_data: str, orm_
             sequence_data,
             orm_type,
             user_id,
-            table_entity_info,
-            connection,
-            object_name
         )
 
         logging.info(f"[{object_name}] Repository Interface를 생성했습니다.\n")

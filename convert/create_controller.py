@@ -4,7 +4,6 @@ import os
 import textwrap
 import tiktoken
 from prompt.convert_controller_prompt import convert_controller_method_code
-from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
 from util.file_utils import save_file
@@ -79,28 +78,6 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 
         # * 컨트롤러 메서드 코드 추출
         method_skeleton_code = analysis_method['method']
-        method_summary = analysis_method['summary']
-        method_summary_vector = vectorize_text(method_summary)
-
-
-        # * 컨트롤러 메서드 코드를 컨트롤러 노드에 저장
-        controller_class_name = convert_to_pascal_case(procedure_name)
-        controller_query = [
-            f"""
-            MATCH (p)
-            WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
-            AND p.procedure_name = '{procedure_name}'
-            AND p.user_id = '{user_id}'
-            AND p.object_name = '{object_name}'
-            MERGE (c:CONTROLLER {{name: '{controller_class_name}', user_id: '{user_id}', object_name: '{object_name}', procedure_name: '{procedure_name}'}} )
-            SET c.java_code = '{method_skeleton_code}',
-                c.java_summary = {json.dumps(method_summary)},
-                c.summary_vector = {method_summary_vector.tolist()},
-                c.java_file = '{controller_class_name}.java'
-            MERGE (p)-[:CONVERT]->(c)
-            """
-        ]
-        await connection.execute_queries(controller_query)
         return method_skeleton_code
 
     except (LLMCallError, Neo4jError, StringConversionError):

@@ -12,7 +12,7 @@ from util.exception import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 api_key = os.getenv("OPENAI_API_KEY")
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
 
 
 # MyBatis 엔티티 클래스 생성 프롬프트
@@ -153,14 +153,6 @@ jpa_prompt = PromptTemplate.from_template(
    - 기본 제공되는 import문 유지
    - 추가로 필요한 import문 선언
 
-7. Entity 설명 작성 규칙
-   - 반드시 다음 형식으로 작성:
-     * "[엔티티클래스명].java 파일의 [엔티티클래스명] 클래스는 [테이블명] 테이블과 매핑되며, 기본키로 [기본키필드명](타입)을 사용합니다. 이 클래스는 [필드명](타입, nullable여부), [필드명](타입, nullable여부) 필드를 포함합니다." 형식으로 작성
-     * 모든 필드는 "필드명(타입)" 형식으로 나열
-     * PK 필드들은 반드시 명시
-     * @Column의 nullable 속성 포함
-   예시) "Employee.java 파일의 Employee 클래스는 B_EMPLOYEE 테이블과 매핑되며, 기본키로 id(Long)를 사용합니다. 이 클래스는 empName(String, NOT NULL), empEmail(String), empPhone(String), deptCode(String, NOT NULL), positionCode(String), hireDate(LocalDate, NOT NULL), lastModifiedDate(LocalDateTime), managerId(Long) 필드를 포함합니다."
-         
    
 [SECTION 2] Entity 클래스 기본 템플릿
 ===============================================
@@ -195,10 +187,8 @@ public class EntityName {{
 {{
     "analysis": [
         {{
-            "tableName": "TableName",
             "entityName": "EntityName",
             "code": "Java Code"
-            "summary" : "Summary"
         }}
     ]
 }}

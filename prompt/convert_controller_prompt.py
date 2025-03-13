@@ -12,7 +12,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
+llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.0)
 
 prompt = PromptTemplate.from_template(
 """
@@ -77,16 +77,6 @@ controller_skeleton: 컨트롤러 클래스의 기본 구조 코드
     - 서비스 메서드 호출만 하고, 결과와 관계없이 성공 메시지 반환
     - 성공 메시지는 이름에 따라 알아서 설정
 
-    
-5. 메서드 설명 작성 규칙
-    - 반드시 다음 형식으로 작성:
-      * "[컨트롤러클래스명].java 파일의 [메서드명] 메서드는..." 형식으로 시작
-      * 컨트롤러 메서드의 주요 기능과 처리 흐름을 설명
-      * 서비스 메서드 호출과 그 결과 처리 방식을 포함
-    예시) "EmployeeController.java 파일의 updateEmployee 메서드는 직원 정보 수정 요청을 처리합니다. 
-          전달받은 Command 객체에서 필요한 정보를 추출하여 employeeService를 통해 
-          데이터베이스에 변경사항을 저장하고, 처리 결과를 응답합니다."
-
 
 [컨트롤러 메서드 예시]
 ===============================================
@@ -101,7 +91,6 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
-    "summary": "컨트롤러 메서드 생성 요약",
     "method": "작성된 컨트롤러 메서드 코드"
 }}
 """

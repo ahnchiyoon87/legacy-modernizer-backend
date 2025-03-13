@@ -6,14 +6,6 @@ from typing import Any, AsyncGenerator
 import zipfile
 import aiofiles
 import os
-from compare.create_init_sql import extract_procedure_params, generate_init_sql, generate_insert_sql, get_package_dependencies
-from compare.extract_log_info import clear_log_files, generate_given_when_then
-from compare.create_docker_compose_yml import check_docker_services_running, process_docker_compose_yml
-from compare.create_init_sql import generate_init_sql
-from compare.create_junit_test import create_junit_test
-from compare.execute_plsql_sql import execute_plsql, execute_sql
-from compare.result_compare import execute_maven_commands
-from convert.add_service_line_range import find_service_line_ranges
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
@@ -315,18 +307,18 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, table_entity_info = await start_entity_processing(object_name, orm_type, user_id) 
+            entity_name_list = await start_entity_processing(object_name, orm_type, user_id) 
             yield f"{file_name}-Step1 completed\n"
             
 
             # * 2 단계 : 리포지토리 인터페이스 생성
-            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type, user_id, table_entity_info) 
+            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type, user_id) 
             yield f"{file_name}-Step2 completed\n"
             
 
             # * 2.5 단계 : MyBatis XML 매퍼 생성 (MyBatis 전용)
-            if orm_type == 'mybatis':
-                await start_mybatis_mapper_processing(table_entity_info, all_query_methods, user_id)
+            # if orm_type == 'mybatis':
+            #     await start_mybatis_mapper_processing(table_entity_info, all_query_methods, user_id)
 
 
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
@@ -476,195 +468,3 @@ async def delete_all_temp_data(user_id:str):
         err_msg = f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}"
         logging.exception(err_msg)
         raise OSError(err_msg)
-    
-
-# 역할: 주어진 PL/SQL 파일을 기반으로 JUnit 테스트 코드를 생성하고, 필요한 데이터를 Neo4j에서 가져옵니다.
-#
-# 매개변수:
-#   - test_cases: 테스트 케이스 목록
-#   - user_id: 사용자 ID
-#   - orm_type: 사용할 ORM 유형
-# TODO 리팩토링 필요 
-async def process_comparison_result(test_cases: list, user_id: str, orm_type: str):
-    try:
-        # * 모든 테스트 케이스에서 사용된 테이블 이름을 추출하여 집합으로 저장
-        table_names = list({table for case in test_cases for table in case['tableFields'].keys()})
-        delete_statements = [f"DELETE FROM {table_name}" for table_name in table_names]
-        test_class_names = []
-
-
-        # * 테스트 데이터 삭제
-        await execute_sql(delete_statements, orm_type, True)
-        
-
-        # * 로그 파일 비우기
-        if orm_type == 'mybatis':
-            await clear_log_files('plsql', 'java')
-        else:
-            await clear_log_files('plsql')
-
-
-        # * docker-compose.yml 파일 생성 및 실행 상태 전송
-        yield json.dumps({
-            "type": "status",
-            "message": "Docker 환경 구성 시작"
-        }, ensure_ascii=False).encode('utf-8') + b"send_stream"
-
-
-        # * 각 테스트 케이스에 처리 진행 
-        for test_case in test_cases:
-            case_id = test_case['id']
-            procedure = test_case['procedure']
-            table_fields = test_case['tableFields']
-            
-            # * 프로시저 이름과 패키지(파일) 이름 추출
-            procedure_name = procedure['procedure_name']
-            package_name = procedure['object_name']
-
-            # * 현재 처리중인 케이스 정보 전송
-            yield json.dumps({
-                "type": "status",
-                "message": f"테스트 케이스 {case_id} 처리 중"
-            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
-
-            # * 테스트 데이터 생성을 위한 초기 데이터 삽입 SQL 생성
-            insert_statements = generate_insert_sql(table_fields)
-            await execute_sql(insert_statements)
-
-            # * Given 로그 파일 비우기
-            await clear_log_files('plsql')
-
-            # * 테스트 데이터 생성을 위한 프로시저 파라미터 추출
-            procedure_params = extract_procedure_params(procedure)
-            await execute_plsql(procedure_name, procedure_params)
-
-            # * Given-When-Then 로그 생성
-            given_when_then_log = await generate_given_when_then(case_id, procedure, procedure_params, table_fields)
-
-            # * 실제 로그 데이터 전송
-            yield json.dumps({
-                "type": "plsql",
-                "log": given_when_then_log
-            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
-
-            # * Junit 테스트 코드 작성 
-            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name, orm_type, user_id)
-            test_class_names.append(test_class_name)
-
-
-        # * 테스트 코드 실행하는 메서드 호출
-        async for result in execute_maven_commands(test_class_names, given_when_then_log, user_id):
-            yield result
-
-    except FeedbackLoopError as e:
-        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
-    except Exception as e:
-        err_msg = f"결과 검증 및 비교하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        yield json.dumps({"type": "error","message": err_msg}).encode('utf-8') + b"send_stream"
-
-
-# 역할 : Neo4j에서 테스트 검증을 위한 초기 노드 정보를 조회하여 반환합니다
-#
-# 매개변수 :
-#   - user_id : 사용자 ID
-#
-# 반환값 : 노드 정보 데이터
-async def get_node_info_from_neo4j(user_id: str):
-    neo4j = Neo4jConnection()
-    
-    try:
-        # * 모든 쿼리를 리스트로 구성
-        queries = [
-            f"""
-            MATCH (t:Table {{user_id: '{user_id}'}})
-            RETURN COLLECT({{
-                name: t.name,
-                fields: [key IN keys(t) 
-                    WHERE key <> 'name' 
-                    AND key <> 'object_name'
-                    AND key <> 'id'
-                    AND key <> 'elementId'
-                    AND key <> 'primary_keys'
-                    AND key <> 'foreign_keys'
-                    AND key <> 'reference_tables'
-                    | t[key]
-                ] 
-            }}) as tables
-            """,
-            f"""
-            MATCH (r:ROOT {{user_id: '{user_id}'}})
-            RETURN COLLECT({{
-                object_name: r.object_name
-            }}) as roots
-            """,
-            f"""
-            MATCH (n)-[:PARENT_OF]->(s:SPEC)-[:SCOPE]->(v:Variable)
-            WHERE n:PROCEDURE OR n:FUNCTION OR n:CREATE_PROCEDURE_BODY
-            AND n.user_id = '{user_id}'
-            WITH n, collect({{name: v.name, type: v.type}}) as vars
-            RETURN COLLECT({{
-                procedure_name: n.procedure_name,
-                object_name: n.object_name,
-                variables: vars
-            }}) as procedures
-            """,    
-        ]
-
-
-        # * 테스트를 위한 노드를 가져오는 쿼리 실행
-        results = await neo4j.execute_queries(queries)
-        
-
-        return {
-            "table": results[0][0]['tables'],
-            "root": results[1][0]['roots'],
-            "procedure": results[2][0]['procedures']
-        }
-    
-    except Exception as e:
-        err_msg = f"Neo4j에서 노드 정보를 가져오는데 실패했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise Neo4jError(err_msg)
-    finally:
-        await neo4j.close()
-
-
-# 역할: 도커 환경을 비동기적으로 초기화합니다.
-#
-# 매개변수:
-#   - user_id: 사용자 ID
-#   - orm_type: ORM 타입
-#   - package_names: 패키지 이름 리스트
-async def initialize_docker_environment(user_id: str, orm_type: str, package_names: list):
-    try:
-        connection = Neo4jConnection()
-        
-        # * 테이블 이름 리스트 조회 쿼리
-        query = [f"""
-        MATCH (t:Table)
-        WHERE t.user_id = '{user_id}' 
-        AND t.object_name IN {package_names}
-        RETURN collect(t.name) as table_names
-        """]
-        
-
-        # * 테이블 이름 리스트 조회 쿼리 실행
-        result = await connection.execute_queries(query)
-        table_name_list = result[0][0]['table_names']
-        
-        
-        # * 도커 서비스 실행 여부 확인
-        is_docker_running = await check_docker_services_running()
-        if not is_docker_running:
-            logging.info("도커 서비스 실행 시작")
-            package_names = await get_package_dependencies(user_id)
-            await generate_init_sql(table_name_list, package_names, orm_type)
-            await process_docker_compose_yml(table_name_list, user_id)
-        else:
-            logging.info("도커 서비스 이미 실행 중")
-        
-    except Exception as e:
-        logging.error(f"도커 환경 초기화 중 오류 발생: {str(e)}")
-    finally:
-        await connection.close()

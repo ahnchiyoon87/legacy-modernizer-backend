@@ -1,10 +1,7 @@
-from asyncio.log import logger
-import json
 import os
 import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
-from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
@@ -32,56 +29,27 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
         current_tokens = 0
         table_data_chunk = []
         entity_name_list = []
-        table_entity_info = {}
 
 
         # 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
         async def process_entity_class_code() -> None:
-            nonlocal entity_name_list, table_entity_info, current_tokens, table_data_chunk
+            nonlocal entity_name_list, current_tokens, table_data_chunk
 
             try:
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
                 analysis_data = convert_entity_code(table_data_chunk, orm_type)
-                
 
-                # * 테이블 정보를 이름으로 빠르게 찾기 위한 딕셔너리
-                table_map = {
-                    table['name']: table 
-                    for table in table_data_chunk
-                }
-                
 
                 # * 각 엔티티별로 파일 생성
                 for entity in analysis_data['analysis']:
                     entity_name = entity['entityName']
                     entity_code = entity['code']
-                    table_name = entity['tableName']
-                    entity_summary = entity['summary']
                     
                     # * 엔티티 클래스 파일 생성
                     await generate_entity_class(entity_name, entity_code, user_id)
-                    
-                    
-                    # * 엔티티 클래스 정보를 테이블 노드에 저장
-                    summary_vector = vectorize_text(entity_summary)
-                    entity_query = [
-                        f"""
-                        MATCH (n:Table {{name: '{table_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
-                        SET n.java_code = '{entity_code}', 
-                            n.java_summary = {json.dumps(entity_summary)}, 
-                            n.summary_vector = {summary_vector.tolist()},
-                            n.java_file = '{entity_name}.java'
-                        """
-                    ]
-                    await connection.execute_queries(entity_query)
-                    
-
+                                        
                     # * 엔티티 클래스 정보 저장
                     entity_name_list.append(entity_name)                    
-                    table_entity_info[entity_name] = {
-                        'code': entity['code'],
-                        'table_info': table_map.get(table_name, {})
-                    }
 
 
                 # * 다음 사이클을 위한 상태 초기화
@@ -117,7 +85,7 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
             await process_entity_class_code()
 
 
-        return entity_name_list, table_entity_info
+        return entity_name_list
 
     except (FilePathError, SaveFileError, ProcessResultError):
         raise
@@ -205,10 +173,10 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list, table_entity_info = await process_table_by_token_limit(table_data_list, object_name, orm_type, user_id, connection)
+        entity_name_list = await process_table_by_token_limit(table_data_list, object_name, orm_type, user_id, connection)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
-        return entity_name_list, table_entity_info
+        return entity_name_list
     
     except ConvertingError:
         raise
