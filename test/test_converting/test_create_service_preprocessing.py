@@ -53,7 +53,7 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
 
         # * 테스트할 세션 및 orm 타입 설정
         session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
-        api_key = "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"
+        api_key = ""
 
 
         try:

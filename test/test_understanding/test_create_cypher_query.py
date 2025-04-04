@@ -32,7 +32,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         ]
 
         session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
-        api_key = "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"
+        api_key = ""
 
 
         # * 검증 로직 없이 함수 실행만 확인

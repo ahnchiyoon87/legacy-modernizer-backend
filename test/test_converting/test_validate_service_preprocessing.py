@@ -62,8 +62,7 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
 
             # * 사용할 ORM 유형 설정
             session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
-            orm_type = "jpa"
-
+            api_key = ""
 
             # * 검증 프로세스 시작
             for object_name in object_names:
@@ -87,9 +86,9 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
                         procedure_name,
                         repository_methods,
                         object_name,
-                        orm_type,
                         sequence_methods,
-                        session_uuid
+                        session_uuid,
+                        api_key
                     )
 
             self.assertTrue(True, "서비스 검증 프로세스가 성공적으로 완료되었습니다.")
