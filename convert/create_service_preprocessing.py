@@ -380,12 +380,12 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
             MATCH (p)-[:PARENT_OF]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
-                  OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC)
+                  OR n:SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE m.object_name = '{object_name}'
             AND m.user_id = '{user_id}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
+                OR m:SPEC)
             AND NOT type(r) CONTAINS 'CALL'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'

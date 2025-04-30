@@ -30,12 +30,8 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         AND n.user_id = '{user_id}'
         AND NOT n:Table 
         AND NOT n:ROOT 
-        AND NOT n:PACKAGE_SPEC
         AND NOT n:PACKAGE_VARIABLE
         AND NOT n:Variable
-        AND NOT n:PROCEDURE_SPEC
-        AND NOT n:FUNCTION_SPEC
-        AND NOT n:PACKAGE_BODY
         AND NOT n:FUNCTION
         AND NOT n:SPEC
         AND NOT n:DECLARE
