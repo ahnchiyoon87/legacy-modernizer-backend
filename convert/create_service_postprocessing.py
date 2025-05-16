@@ -145,9 +145,14 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
                     # 기존 TRY 노드가 있는 경우 원래 로직 수행
                     try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
                     indented_code = textwrap.indent(try_catch_code, '    ')
-                    java_code = java_code.replace("CodePlaceHolder", indented_code)
-                    all_java_code += java_code + "\n"
+                    if "CodePlaceHolder" in java_code:
+                        java_code = java_code.replace("CodePlaceHolder", indented_code)
+                        all_java_code += java_code + "\n"
+                    else:
+                        all_java_code += try_catch_code + "\n"
                     try_catch_code = ""
+
+
                 print("\n"+"-"*50)
                 print("---- 처리 상태 ----")
                 print("-"*50)

@@ -18,6 +18,10 @@ prompt = PromptTemplate.from_template(
 당신은 PL/SQL 함수를 스프링부트 메서드로 변환하는 전문가입니다.
 주어진 JSON 데이터를 기반으로 메서드를 생성합니다.
 
+
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 [입력 데이터 구조 설명]
 ===============================================
 1. 메서드 데이터:
@@ -121,7 +125,7 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
 #
 # 반환값: 
 #   - result : LLM이 생성한 메서드 기본 구조 정보
-def convert_method_code(method_skeleton_data, parameter_data, api_key):
+def convert_method_code(method_skeleton_data, parameter_data, api_key, locale):
     
     try:
 
@@ -139,7 +143,7 @@ def convert_method_code(method_skeleton_data, parameter_data, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"method_skeleton_data": method_skeleton_data, "parameter_data": parameter_data})
+        result = chain.invoke({"method_skeleton_data": method_skeleton_data, "parameter_data": parameter_data, "locale": locale})
         return result
     
     except Exception as e:

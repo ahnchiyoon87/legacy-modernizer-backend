@@ -22,7 +22,7 @@ encoder = tiktoken.get_encoding("cl100k_base")
 #
 # 반환값:
 #   entity_result_list (list): 생성된 Java 엔티티 클래스의 이름과 코드를 포함한 딕셔너리 목록
-async def process_table_by_token_limit(table_data_list: list, user_id: str, api_key: str, project_name: str) -> list[dict]:
+async def process_table_by_token_limit(table_data_list: list, user_id: str, api_key: str, project_name: str, locale: str) -> list[dict]:
  
     try:
         current_tokens = 0
@@ -36,7 +36,7 @@ async def process_table_by_token_limit(table_data_list: list, user_id: str, api_
 
             try:
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
-                analysis_data = convert_entity_code(table_data_chunk, api_key, project_name)
+                analysis_data = convert_entity_code(table_data_chunk, api_key, project_name, locale)
 
 
                 # * 각 엔티티별로 파일 생성
@@ -142,7 +142,7 @@ async def generate_entity_class(entity_name: str, entity_code: str, user_id: str
 #
 # 반환값:
 #   entity_result_list (list): 생성된 모든 Java 엔티티 클래스의 이름과 코드를 포함한 딕셔너리 목록
-async def start_entity_processing(file_names: list, user_id: str, api_key: str, project_name: str = None) -> list[dict]:
+async def start_entity_processing(file_names: list, user_id: str, api_key: str, project_name: str = None, locale: str = 'ko') -> list[dict]:
 
     connection = Neo4jConnection()
     logging.info(f"엔티티 생성을 시작합니다.")
@@ -182,7 +182,7 @@ async def start_entity_processing(file_names: list, user_id: str, api_key: str, 
         
         # 엔티티 클래스 생성
         if table_data_list:
-            entity_result_list = await process_table_by_token_limit(table_data_list, user_id, api_key, project_name)
+            entity_result_list = await process_table_by_token_limit(table_data_list, user_id, api_key, project_name, locale)
             logging.info(f"총 {len(entity_result_list)}개의 엔티티가 생성되었습니다.")
             return entity_result_list
         else:

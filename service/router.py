@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 # .env 파일 로드
 load_dotenv()
 
-# router = APIRouter()
-router = APIRouter(prefix="/api/backend")
+router = APIRouter()
+# router = APIRouter(prefix="/api/backend")
 logger = logging.getLogger(__name__)  
 
 
@@ -33,20 +33,23 @@ async def understand_data(request: Request):
 
         # * API 키 추출
         api_key = None
-        if user_id == "TestSession":
+        if user_id == "EN_TestSession" or user_id == "KO_TestSession":
             # TestSession인 경우 환경 변수에서 API 키 가져오기
             api_key = os.getenv("API_KEY")
-            logging.info(f"TestSession: API_KEY 환경변수 가져옴")
+            logging.info(f"{user_id}: API_KEY 환경변수 가져옴")
             if not api_key:
-                raise HTTPException(status_code=400, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
+                raise HTTPException(status_code=401, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
         else:
             # 일반 사용자인 경우 헤더에서 API 키 가져오기
             api_key = request.headers.get('Anthropic-Api-Key')
             if not api_key:
-                raise HTTPException(status_code=400, detail="Anthropic API 키가 없습니다.")
+                raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
+
+        # * 언어 설정 추출
+        locale = request.headers.get('Accept-Language', 'ko')  # 기본값은 한국어
 
         # * API 키 유효성 검증
-        is_valid_key = True if user_id == "TestSession" else await validate_anthropic_api_key(api_key)
+        is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
         if not is_valid_key:
             raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
 
@@ -61,7 +64,7 @@ async def understand_data(request: Request):
         
 
         # * Cypher 쿼리 생성 및 실행(Understanding)
-        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key))
+        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key, locale))
     
     except Exception as e:
         error_message = f"Understanding 처리 중 오류 발생: {str(e)}"
@@ -87,22 +90,27 @@ async def covnert_spring_project(request: Request):
     
         # * API 키 추출
         api_key = None
-        if user_id == "TestSession":
+        if user_id == "EN_TestSession" or user_id == "KO_TestSession":
             # TestSession인 경우 환경 변수에서 API 키 가져오기
             api_key = os.getenv("API_KEY")
-            logging.info(f"TestSession: API_KEY 환경변수 가져옴")
+            logging.info(f"{user_id}: API_KEY 환경변수 가져옴")
             if not api_key:
                 raise HTTPException(status_code=400, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
         else:
             # 일반 사용자인 경우 헤더에서 API 키 가져오기
             api_key = request.headers.get('Anthropic-Api-Key')
             if not api_key:
-                raise HTTPException(status_code=400, detail="Anthropic API 키가 없습니다.")
+                raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")     
 
         # * API 키 유효성 검증
-        is_valid_key = True if user_id == "TestSession" else await validate_anthropic_api_key(api_key)
+        is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
         if not is_valid_key:
             raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
+
+
+        # * 언어 설정 추출
+        locale = request.headers.get('Accept-Language', 'ko')  # 기본값은 한국어
+
 
         # * 요청 객체에서 파일 이름 정보 추출 (filename, objectName)
         file_data = await request.json()
@@ -116,7 +124,7 @@ async def covnert_spring_project(request: Request):
 
 
         # * 스프링 부트 프로젝트 생성 시작
-        return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key), media_type="text/plain")
+        return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key, locale), media_type="text/plain")
     
     except Exception as e:
         error_message = f"스프링 부트 프로젝트 생성 도중 오류 발생: {str(e)}"

@@ -72,7 +72,7 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
 #   - sequence_methods : 사용할 시퀀스 메서드 목록
 #   - user_id : 사용자 ID
 #   - api_key : 사용할 API 키
-async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, sequence_methods:list, user_id:str, api_key:str) -> None:
+async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, sequence_methods:list, user_id:str, api_key:str, locale:str) -> None:
     
     connection = Neo4jConnection()
     used_query_method_dict = {}
@@ -105,7 +105,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 range_count,
                 used_query_method_dict,
                 sequence_methods,
-                api_key
+                api_key,
+                locale
             )
 
 

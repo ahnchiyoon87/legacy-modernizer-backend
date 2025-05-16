@@ -18,6 +18,10 @@ prompt = PromptTemplate.from_template(
 """
 당신은 SQL 프로시저의 변수를 분석하는 전문가입니다. 주어진 코드에서 모든 변수 선언을 찾아 변수명과 데이터 타입을 추출하는 작업을 수행합니다.
 
+
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 프로시저 코드입니다:
 {declaration_code}
 
@@ -92,7 +96,7 @@ prompt = PromptTemplate.from_template(
 #   - api_key: OpenAI API 키
 # 반환값: 
 #   - result: LLM이 분석한 변수 정보 목록 (각 변수의 이름, 데이터 타입, 용도 등이 포함된 구조화된 데이터)
-def understand_variables(declaration_code, ddl_tables, api_key):
+def understand_variables(declaration_code, ddl_tables, api_key, locale):
 
     try:
         ddl_tables = json.dumps(ddl_tables, ensure_ascii=False, indent=2)
@@ -110,7 +114,7 @@ def understand_variables(declaration_code, ddl_tables, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"declaration_code": declaration_code, "ddl_tables": ddl_tables})
+        result = chain.invoke({"declaration_code": declaration_code, "ddl_tables": ddl_tables, "locale": locale})
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 변수 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

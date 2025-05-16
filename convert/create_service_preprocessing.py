@@ -22,7 +22,7 @@ from util.utility_tool import extract_used_query_methods
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #   - user_id : 사용자 ID
 #   - api_key : Claude API 키
-async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, user_id:str, api_key:str):
+async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, user_id:str, api_key:str, locale:str):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -87,7 +87,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
         try:
             # * 요약된 코드를 분석하여, 요약된 메서드 틀을 생성합니다.
-            analysis_result = convert_summarized_code(summarized_code)
+            analysis_result = convert_summarized_code(summarized_code, locale)
             service_code = analysis_result['code']
             escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
 
@@ -129,7 +129,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 context_range, range_count, 
                 used_query_method_dict,
                 sequence_methods,
-                api_key
+                api_key,
+                locale
             )
             await handle_convert_result(analysis_result)
 
@@ -363,7 +364,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 #
 # 반환값: 
 #   - variable_nodes : 변환 과정에서 사용된 변수 노드 리스트
-async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, user_id:str, api_key:str) -> None:
+async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, user_id:str, api_key:str, locale:str) -> None:
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
@@ -421,7 +422,8 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             procedure_name,
             sequence_methods,
             user_id,
-            api_key
+            api_key,
+            locale
         )
 
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")

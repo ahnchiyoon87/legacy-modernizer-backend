@@ -19,6 +19,9 @@ jpa_prompt = PromptTemplate.from_template(
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 테이블 데이터를 기반으로 자바 Entity 클래스를 생성하는 작업을 맡았습니다.
 
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 테이블 데이터(JSON)입니다:
 {table_json_data}
 
@@ -121,7 +124,7 @@ public class EntityName {{
 #
 # 반환값: 
 #   - result : LLM이 생성한 Entity 클래스 정보
-def convert_entity_code(table_data: dict, api_key: str, project_name: str) -> dict:
+def convert_entity_code(table_data: dict, api_key: str, project_name: str, locale: str) -> dict:
     
     try:
         llm = ChatAnthropic(
@@ -133,7 +136,8 @@ def convert_entity_code(table_data: dict, api_key: str, project_name: str) -> di
         table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
         prompt_data = {
                 "table_json_data": table_json_data,
-                "project_name": project_name
+                "project_name": project_name,
+                "locale": locale
             }
 
         chain = (

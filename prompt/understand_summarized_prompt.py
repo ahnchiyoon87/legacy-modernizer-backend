@@ -20,6 +20,10 @@ prompt = PromptTemplate.from_template(
 당신은 PL/SQL 프로시저와 함수의 동작을 분석하고 요약하는 전문가입니다.
 주어진 코드 분석 요약들을 바탕으로 전체 프로시저/함수의 핵심 기능을 간단명료하게 설명해주세요.
 
+
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 분석된 요약 내용:
 {summaries}
 
@@ -54,7 +58,7 @@ prompt = PromptTemplate.from_template(
 """
 )
 
-def understand_summary(summaries, api_key):
+def understand_summary(summaries, api_key, locale):
     try:
 
         # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
@@ -70,7 +74,7 @@ def understand_summary(summaries, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"summaries": summaries})
+        result = chain.invoke({"summaries": summaries, "locale": locale})
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 요약 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

@@ -276,7 +276,7 @@ def clean_field_name(field_name: str) -> str:
 #   - ddl_tables (dict): 테이블 DDL 정보
 #   - has_ddl_info (bool): DDL 정보가 있는지 여부
 #   - user_id(str): 사용자 ID
-async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, object_name: str, ddl_tables: dict, has_ddl_info: bool, user_id: str, api_key: str):
+async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, object_name: str, ddl_tables: dict, has_ddl_info: bool, user_id: str, api_key: str, locale: str):
     schedule_stack = []               # 스케줄 스택
     context_range = []                # LLM이 분석할 스토어드 프로시저의 범위
     cypher_query = []                 # 사이퍼 쿼리를 담을 리스트
@@ -308,7 +308,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
-            analysis_result = understand_code(extract_code, context_range, context_range_count, procedure_name, api_key)        
+            analysis_result = understand_code(extract_code, context_range, context_range_count, procedure_name, api_key, locale)        
             cypher_queries = await handle_analysis_result(analysis_result)
             
 
@@ -321,7 +321,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             # * 프로시저 노드의 경우, Summary를 요약 및 벡터화 하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
-                summary = understand_summary(summary_dict, api_key)
+                summary = understand_summary(summary_dict, api_key, locale)
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
@@ -539,7 +539,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             
 
             # * 변수를 분석하고, 각 타입별로 변수 노드를 생성합니다
-            analysis_result = understand_variables(declaration_code, ddl_tables, api_key)
+            analysis_result = understand_variables(declaration_code, ddl_tables, api_key, locale)
             logging.info(f"[{object_name}] {procedure_name}의 변수 분석 완료")
             var_summary = json.dumps(analysis_result.get("summary", "unknown"))
             for variable in analysis_result["variables"]:
@@ -656,7 +656,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
         sp_token_count = calculate_code_token(extract_code)
-        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1000) or (sp_token_count >= 1000 and context_range) or (len(context_range) >= 10 and sp_token_count >= 1000):
+        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1000) or (sp_token_count >= 1000 and context_range) or (len(context_range) >= 10 and sp_token_count >= 500):
             await signal_for_process_analysis(line_number)
 
 

@@ -19,6 +19,9 @@ prompt = PromptTemplate.from_template(
 주어진 JSON 데이터에서 'parameters'와 'procedure_name' 정보를 활용하여 Command 클래스를 생성합니다.
 
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 [입력 데이터 구조 설명]
 ===============================================
 입력되는 JSON 데이터는 다음 구조를 가집니다:
@@ -107,7 +110,7 @@ public class ExampleCommand {{
 #   - dir_name : 클래스가 저장될 디렉토리 이름
 # 반환값: 
 #   - result : LLM이 생성한 Command 클래스 정보
-def convert_command_code(command_class_data, dir_name, api_key, project_name):
+def convert_command_code(command_class_data, dir_name, api_key, project_name, locale):
     
     try:
         llm = ChatAnthropic(
@@ -124,7 +127,7 @@ def convert_command_code(command_class_data, dir_name, api_key, project_name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name, "project_name": project_name})
+        result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name, "project_name": project_name, "locale": locale})
         return result
     except Exception as e:
         err_msg = f"Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

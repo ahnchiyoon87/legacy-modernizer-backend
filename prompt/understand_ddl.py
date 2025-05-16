@@ -19,6 +19,10 @@ prompt = PromptTemplate.from_template(
 """
 당신은 DDL을 분석하여 테이블 구조를 파악하는 전문가입니다. 주어진 DDL에서 테이블 정보와 관계를 추출합니다.
 
+
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 DDL 내용입니다:
 {ddl_content}
 
@@ -80,7 +84,7 @@ DDL 내용입니다:
 # 반환값:
 #   - result : 테이블 구조 분석 결과가 담긴 JSON 형식의 딕셔너리
 #             (테이블 정보, 컬럼 목록, 키 정보 포함)
-def understand_ddl(ddl_content, api_key):
+def understand_ddl(ddl_content, api_key, locale):
 
     try:
         # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
@@ -98,7 +102,7 @@ def understand_ddl(ddl_content, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"ddl_content": ddl_content})
+        result = chain.invoke({"ddl_content": ddl_content, "locale": locale})
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 DDL 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

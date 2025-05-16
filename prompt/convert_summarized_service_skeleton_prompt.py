@@ -19,6 +19,9 @@ prompt = PromptTemplate.from_template(
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 스토어드 프로시저 코드를 기반으로 임시 자바 코드를 생성하는 작업을 맡았습니다.
 
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 summarized_stored_procedure_code:
 {summarized_code}
 
@@ -62,7 +65,7 @@ summarized_stored_procedure_code:
 # 반환값: 
 #   - result : LLM이 생성한 요약된 형태의 Java 코드
 #      (실제 구현은 나중에 채워질 수 있도록 자리 표시자를 포함)
-def convert_summarized_code(summarized_code, api_key):
+def convert_summarized_code(summarized_code, api_key, locale):
     
     try:
         llm = ChatAnthropic(
@@ -77,7 +80,7 @@ def convert_summarized_code(summarized_code, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"summarized_code": summarized_code})
+        result = chain.invoke({"summarized_code": summarized_code, "locale": locale})
         return result
     
     except Exception as e:

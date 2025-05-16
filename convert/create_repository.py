@@ -113,7 +113,7 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 #
 # 반환값: 
 #   - used_repository_methodss_list : 생성된 쿼리 메서드들의 정보 리스트
-async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, user_id: str, api_key: str, project_name: str) -> list:
+async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, user_id: str, api_key: str, project_name: str, locale: str) -> list:
     
     try:
         current_tokens = 0
@@ -135,7 +135,8 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                     used_variable_nodes, 
                     len(repository_data_chunk),
                     global_variable_nodes,
-                    api_key
+                    api_key,
+                    locale
                 )
 
 
@@ -225,7 +226,7 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 # 반환값: 
 #   - query_method_list : 생성된 모든 쿼리 메서드 정보 리스트
 #   - global_variables : 전역 변수 목록
-async def start_repository_processing(file_names: list, user_id: str, api_key: str, project_name: str):
+async def start_repository_processing(file_names: list, user_id: str, api_key: str, project_name: str, locale: str = 'ko'):
     
     logging.info("Repository Interface 생성을 시작합니다.")
     connection = Neo4jConnection()
@@ -294,7 +295,8 @@ async def start_repository_processing(file_names: list, user_id: str, api_key: s
                     global_variable_nodes,
                     user_id,
                     api_key,
-                    project_name
+                    project_name,
+                    locale
                 )
                 
                 all_used_query_methods.update(used_query_methods)

@@ -19,6 +19,7 @@ jpa_prompt = PromptTemplate.from_template(
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
 주어진 데이터를 기반으로 Repository Interface의 JPA Query Methods를 생성하는 작업을 맡았습니다.
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
 
 Stored Procedure Code:
 {repository_nodes}
@@ -157,7 +158,7 @@ Global Variable:
 #
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, api_key: str) -> dict:
+def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, api_key: str, locale: str) -> dict:
     
     try: 
         repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
@@ -171,6 +172,7 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
             "used_variable_nodes": used_variable_nodes,
             "count": data_count,
             "global_variable_nodes": global_variable_nodes,
+            "locale": locale
         }
 
 

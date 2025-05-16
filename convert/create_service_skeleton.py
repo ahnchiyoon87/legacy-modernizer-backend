@@ -116,7 +116,7 @@ CodePlaceHolder
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
 #   - command_class_code: 생성된 커맨드 클래스 코드
-async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str, api_key: str, project_name: str) -> tuple:
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str, api_key: str, project_name: str, locale: str) -> tuple:
     command_class_variable = None
     command_class_name = None
     command_class_code = None
@@ -124,7 +124,7 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
     try:
         # * 파라미터가 있는 프로시저인 경우 커맨드 클래스 생성
         if node_type != 'FUNCTION' and parameter_data['parameters']:
-            analysis_command = convert_command_code(parameter_data, dir_name, api_key, project_name)  
+            analysis_command = convert_command_code(parameter_data, dir_name, api_key, project_name, locale)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
             command_class_variable = analysis_command['command_class_variable']              
@@ -132,7 +132,7 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
 
 
         # * 메서드 틀 생성에 필요한 정보를 받습니다.
-        analysis_method = convert_method_code(method_skeleton_data, parameter_data, api_key)  
+        analysis_method = convert_method_code(method_skeleton_data, parameter_data, api_key, locale)  
         method_skeleton_name = analysis_method['methodName']
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
@@ -293,7 +293,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
-async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list, user_id: str, api_key: str, project_name: str) -> tuple[list, str, str, bool, list]:
+async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list, user_id: str, api_key: str, project_name: str, locale: str) -> tuple[list, str, str, bool, list]:
     connection = Neo4jConnection()
     dir_name = convert_to_camel_case(object_name)
     method_info_list = []
@@ -309,7 +309,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
 
         # * 전역 변수 변환
         if global_variables is not None and len(global_variables) > 0:
-            convert_global_variables = convert_variables(global_variables, api_key)
+            convert_global_variables = convert_variables(global_variables, api_key, locale)
         else:
             convert_global_variables = []  # 또는 적절한 기본값
         
@@ -351,7 +351,8 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 dir_name,
                 user_id,
                 api_key,
-                project_name
+                project_name,
+                locale
             )
 
             # * 커맨드 클래스 생성 및 정보 저장

@@ -19,6 +19,9 @@ jpa_prompt = PromptTemplate.from_template(
 주어진 Stored Procedure Code를 기반으로 서비스 클래스의 메서드 바디 부분을 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
 
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 [입력 데이터]
 Stored Procedure Code:
 {code}
@@ -342,7 +345,7 @@ Sequence Method List:
 #
 # 반환값: 
 #  - json_parsed_content : LLM이 생성한 서비스 메서드 정보
-def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, sequence_methods:list, api_key: str) -> dict:
+def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, sequence_methods:list, api_key: str, locale: str) -> dict:
    
    try:  
       context_range_json = json.dumps(context_range, indent=2)
@@ -355,7 +358,8 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
          "context_range": context_range_json,
          "count": count,
          "query_method_list": query_method_list,
-         "sequence_methods": sequence_methods
+         "sequence_methods": sequence_methods,
+         "locale": locale
       }
       
       llm = ChatAnthropic(

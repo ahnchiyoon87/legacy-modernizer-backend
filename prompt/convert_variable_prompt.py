@@ -19,6 +19,10 @@ prompt = PromptTemplate.from_template(
 당신은 PL/SQL 변수를 Java 변수 타입으로 변환하는 전문가입니다.
 주어진 JSON 데이터를 기반으로 Java 변수 타입을 결정합니다. (검증)
 
+
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 [입력 데이터 구조 설명]
 ===============================================
 입력되는 JSON 데이터는 다음 구조를 가집니다:
@@ -90,7 +94,7 @@ prompt = PromptTemplate.from_template(
 #   - variable_metadata : PL/SQL 변수의 메타데이터 정보
 # 반환값: 
 #   - result : LLM이 생성한 변수 타입 변환 정보
-def convert_variables(variables, api_key):
+def convert_variables(variables, api_key, locale):
     
     try:
         variables = json.dumps(variables, ensure_ascii=False, indent=2)
@@ -103,7 +107,7 @@ def convert_variables(variables, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"variables": variables})
+        result = chain.invoke({"variables": variables, "locale": locale})
         return result
     
     except Exception as e:

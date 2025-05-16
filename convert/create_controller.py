@@ -68,7 +68,7 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 #
 # 반환값: 
 #   - method_skeleton_code: 생성된 컨트롤러 메서드 코드
-async def process_controller_method_code(method_signature: str, procedure_name: str, object_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, user_id: str, api_key: str) -> str:
+async def process_controller_method_code(method_signature: str, procedure_name: str, object_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, user_id: str, api_key: str, locale: str) -> str:
     connection = Neo4jConnection()
     
     try:
@@ -79,7 +79,8 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
             command_class_variable,
             command_class_name,
             controller_skeleton,
-            api_key
+            api_key,
+            locale
         )
 
 
@@ -114,7 +115,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
-async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str, api_key: str, project_name: str) -> str:
+async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str, api_key: str, project_name: str, locale: str) -> str:
 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 
@@ -131,7 +132,8 @@ async def start_controller_processing(method_signature: str, procedure_name: str
                 command_class_name,
                 controller_skeleton,
                 user_id,
-                api_key
+                api_key,
+                locale
             )
 
             # * 컨트롤러 메서드 코드 병합

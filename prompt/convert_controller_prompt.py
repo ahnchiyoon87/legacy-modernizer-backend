@@ -19,6 +19,9 @@ prompt = PromptTemplate.from_template(
 주어진 데이터를 기반으로 컨트롤러 메서드를 생성합니다.
 
 
+사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+
+
 [입력 데이터 구조 설명]
 ===============================================
 method_signature: 서비스 클래스에 정의된 메서드의 시그니처
@@ -127,7 +130,7 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
 #
 # 반환값:
 #   - result: LLM이 생성한 컨트롤러 메서드 코드
-def convert_controller_method_code(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, api_key: str) -> str:
+def convert_controller_method_code(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, api_key: str, locale: str) -> str:
     
     try:
         llm = ChatAnthropic(
@@ -150,7 +153,8 @@ def convert_controller_method_code(method_signature: str, procedure_name: str, c
             "procedure_name": procedure_name,
             "command_class_variable": command_class_variable,
             "command_class_name": command_class_name,
-            "controller_skeleton": controller_skeleton
+            "controller_skeleton": controller_skeleton,
+            "locale": locale
         })
     
         return result

@@ -59,7 +59,7 @@ def get_user_directories(user_id: str):
 #
 # 반환값: 
 #   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
-async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_key: str) -> AsyncGenerator[Any, None]:
+async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_key: str, locale: str) -> AsyncGenerator[Any, None]:
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
@@ -98,7 +98,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                 ddl_start = {"type": "ALARM", "MESSAGE": "START DDL PROCESSING", "file": ddl_file_name}
                 yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
                 logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
-                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name, user_id, api_key)
+                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name, user_id, api_key, locale)
                 has_ddl_info = True
 
             # PLSQL/ANTLR 파일 읽기 및 전처리
@@ -157,7 +157,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             # 태스크 생성 및 실행
             analysis_task = asyncio.create_task(
                 analysis(antlr_data, plsql_content, receive_queue, send_queue, 
-                         last_line, object_name, ddl_results, has_ddl_info, user_id, api_key)
+                         last_line, object_name, ddl_results, has_ddl_info, user_id, api_key, locale)
             )
             
             # 단순화된 예외 처리 - 기본 로직 흐름 유지하면서 예외는 상위로 전파
@@ -192,13 +192,13 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
 #
 # 반환값:
 #   - ddl_result: 분석된 테이블 구조 정보 (테이블명, 컬럼, 키 정보 등)
-async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str, api_key: str):
+async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str, api_key: str, locale: str):
     
     try:
         # * 처리할 DDL 파일 읽기
         async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
             ddl_content = await ddl_file.read()
-            ddl_result = understand_ddl(ddl_content, api_key)
+            ddl_result = understand_ddl(ddl_content, api_key, locale)
             cypher_queries = []
             
             
@@ -257,7 +257,7 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
 #
 # 반환값: 
 #   - 스트림 : 각 변환 단계의 진행 상태 메시지
-async def generate_spring_boot_project(file_names: list, user_id: str, api_key: str) -> AsyncGenerator[Any, None]:
+async def generate_spring_boot_project(file_names: list, user_id: str, api_key: str, locale: str) -> AsyncGenerator[Any, None]:
     try:
         #==================================================================
         # 유틸리티 함수 정의
@@ -280,7 +280,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
         #==================================================================
         yield create_message("message", step=1, content="Generating Entity Class")
         
-        entity_result_list = await start_entity_processing(file_names, user_id, api_key, project_name)
+        entity_result_list = await start_entity_processing(file_names, user_id, api_key, project_name, locale)
         
         for entity in entity_result_list:
             yield create_message(
@@ -299,7 +299,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
         yield create_message("message", step=2, content="Generating Repository Interface")
         
         used_query_methods, global_variables, sequence_methods, repository_list = await start_repository_processing(
-            file_names, user_id, api_key, project_name
+            file_names, user_id, api_key, project_name, locale
         )
         
         for repo in repository_list:
@@ -336,7 +336,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
             
             service_creation_info, service_skeleton, service_class_name, exist_command_class, command_class_list = (
                 await start_service_skeleton_processing(
-                    entity_result_list, object_name, global_variables, user_id, api_key, project_name
+                    entity_result_list, object_name, global_variables, user_id, api_key, project_name, locale
                 )
             )
             
@@ -374,7 +374,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     object_name,
                     sequence_methods,
                     user_id,
-                    api_key
+                    api_key,
+                    locale
                 )
 
                 # 서비스 검증
@@ -387,7 +388,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     object_name,
                     sequence_methods,
                     user_id,
-                    api_key
+                    api_key,
+                    locale
                 )
 
                 # 서비스 후처리
@@ -411,7 +413,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     object_name,
                     user_id,
                     api_key,
-                    project_name
+                    project_name,
+                    locale
                 )
 
             #--------------------------------------------------------------
