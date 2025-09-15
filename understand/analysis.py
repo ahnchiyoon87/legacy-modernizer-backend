@@ -50,9 +50,9 @@ def get_table_relationship(statement_type: str | None) -> str | None:
     반환값:
     - Optional[str]: 테이블 관계 라벨(FROM/WRITES/EXECUTE). 매핑되지 않으면 None.
     """
-    if statement_type == "SELECT":
+    if statement_type in ["SELECT", "FETCH"]:
         return "FROM"
-    if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE", "FETCH"]:
+    if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"]:
         return "WRITES"
     if statement_type in ["EXECUTE_IMMEDIATE", "VARIABLE"]:
         return "EXECUTE"
@@ -556,46 +556,71 @@ class Analyzer:
                     relationship_label = table_relationship_type
                     if not relationship_label:
                         continue
-                    match_table = (
-                        f"MATCH (t:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}})"
+                    match_current = (
+                        f"OPTIONAL MATCH (t_current:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}', folder_name: '{self.folder_name}'}})"
                         if schema_part else
-                        f"MATCH (t:Table {{name: '{name_part}', user_id: '{self.user_id}'}})"
+                        f"OPTIONAL MATCH (t_current:Table {{name: '{name_part}', user_id: '{self.user_id}', folder_name: '{self.folder_name}'}})"
+                    )
+                    match_empty_sub = (
+                        f"OPTIONAL MATCH (t_empty:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}}) WHERE coalesce(t_empty.folder_name,'') = ''"
+                        if schema_part else
+                        f"OPTIONAL MATCH (t_empty:Table {{name: '{name_part}', user_id: '{self.user_id}'}}) WHERE coalesce(t_empty.folder_name,'') = ''"
                     )
                     table_relationship_query = f"""
                         MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                         WITH n
-                        {match_table}
-                        MERGE (n)-[:{relationship_label}]->(t)
+                        {match_current}
+                        WITH n, t_current, '{self.folder_name}' AS folderName, '{self.user_id}' AS userId
+                        CALL {{
+                            WITH n, t_current
+                            WITH n, t_current WHERE t_current IS NULL
+                            {match_empty_sub}
+                            RETURN t_empty
+                        }}
+                        WITH n, t_current, t_empty, folderName, userId, coalesce(t_current, t_empty) AS t
+                        FOREACH (_ IN CASE WHEN t IS NOT NULL THEN [1] ELSE [] END |
+                            SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN folderName ELSE t.folder_name END
+                            MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                            MERGE (folder)-[:CONTAINS]->(t)
+                            MERGE (n)-[:{relationship_label}]->(t)
+                        )
                     """
                     self.cypher_query.append(table_relationship_query)
 
                 for link_item in db_links:
                     mode = (link_item.get('mode') or 'r').lower()
                     name = (link_item.get('name') or '').strip().upper()
-                    schema_part, name_part, _ = parse_table_identifier(name)
-                    label = 'DB_LINK'
+                    schema_part, name_part, link_name = parse_table_identifier(name)
                     relationship_label = table_relationship_type
                     if not relationship_label:
                         continue
-                    match_table = (
-                        f"MATCH (t:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}})"
+                    match_other = (
+                        f"OPTIONAL MATCH (t_other:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}'}}) WHERE coalesce(t_other.folder_name, '') <> '{self.folder_name}'"
                         if schema_part else
-                        f"MATCH (t:Table {{name: '{name_part}', user_id: '{self.user_id}'}})"
+                        f"OPTIONAL MATCH (t_other:Table {{user_id: '{self.user_id}', name: '{name_part}'}}) WHERE coalesce(t_other.folder_name, '') <> '{self.folder_name}'"
                     )
+
+                    merge_new = (
+                        f"MERGE (t_new:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}', folder_name: ''}})"
+                        if schema_part else
+                        f"MERGE (t_new:Table {{user_id: '{self.user_id}', name: '{name_part}', folder_name: ''}})"
+                    )
+
                     table_relationship_query = f"""
                         MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                         WITH n
-                        {match_table}
-                        FOREACH(_ IN CASE WHEN t IS NULL THEN [1] ELSE [] END |
-                            MERGE (t2:Table {{name: '{name_part}', user_id: '{self.user_id}'}})
-                            SET t2.schema = '{schema_part or ''}'
-                            MERGE (n)-[:{label} {{mode: '{mode}'}}]->(t2)
-                            MERGE (n)-[:{relationship_label}]->(t2)
-                        )
-                        FOREACH(_ IN CASE WHEN t IS NOT NULL THEN [1] ELSE [] END |
-                            MERGE (n)-[:{label} {{mode: '{mode}'}}]->(t)
-                            MERGE (n)-[:{relationship_label}]->(t)
-                        )
+                        {match_other}
+                        WITH n, t_other
+                        CALL {{
+                            WITH n, t_other
+                            WITH n, t_other WHERE t_other IS NULL
+                            {merge_new}
+                            RETURN t_new
+                        }}
+                        WITH n, t_other, t_new, coalesce(t_other, t_new) AS t
+                        SET t.db_link = '{link_name}'
+                        MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)
+                        MERGE (n)-[:{relationship_label}]->(t)
                     """
                     self.cypher_query.append(table_relationship_query)
 
@@ -639,6 +664,9 @@ class Analyzer:
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
+                    WITH v
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:CONTAINS]->(v)
                     """
                     self.cypher_query.append(cypher_query)
                 elif statement_type == 'PACKAGE_VARIABLE':
@@ -649,6 +677,9 @@ class Analyzer:
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
+                    WITH v
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:CONTAINS]->(v)
                     """
                     self.cypher_query.append(cypher_query)
                 else:
@@ -659,6 +690,9 @@ class Analyzer:
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
+                    WITH v
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:CONTAINS]->(v)
                     """
                     self.cypher_query.append(cypher_query)
 
@@ -750,6 +784,9 @@ class Analyzer:
                     n.token = {node_size},
                     n.procedure_name = '{self.procedure_name}',
                     n.has_children = {has_children_value}
+                WITH n
+                MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                MERGE (folder)-[:CONTAINS]->(n)
             """)
         else:
             if statement_type == "ROOT":
@@ -763,7 +800,7 @@ class Analyzer:
                         n.has_children = {has_children_value}
                     WITH n
                     MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
-                    MERGE (folder)-[:PARENT_OF]->(n)
+                    MERGE (folder)-[:CONTAINS]->(n)
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 self.cypher_query.append(f"""
@@ -777,6 +814,9 @@ class Analyzer:
                         n.has_children = {has_children_value}
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
+                    WITH n
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:CONTAINS]->(n)
                 """)
             else:
                 self.cypher_query.append(f"""
@@ -788,6 +828,9 @@ class Analyzer:
                         n.token = {node_size},
                         n.procedure_name = '{self.procedure_name}',
                         n.has_children = {has_children_value}
+                    WITH n
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:CONTAINS]->(n)
                 """)
 
         if (self.procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":

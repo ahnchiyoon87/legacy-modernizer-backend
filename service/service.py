@@ -99,7 +99,7 @@ async def _ensure_folder_node(connection: Neo4jConnection, user_id: str, folder_
     """폴더 노드를 (user_id, name) 기준으로 없을 때만 생성합니다."""
     escaped_user_id = str(user_id).replace("'", r"\'")
     escaped_name = str(folder_name).replace("'", r"\'")
-    query = f"MERGE (f:FOLDER {{user_id: '{escaped_user_id}', name: '{escaped_name}', has_children: true}}) RETURN f"
+    query = f"MERGE (f:Folder {{user_id: '{escaped_user_id}', name: '{escaped_name}', has_children: true}}) RETURN f"
     await connection.execute_queries([query])
 
 async def _already_analyzed_flow(connection: Neo4jConnection, user_id: str, file_pairs: list[tuple[str, str]]) -> AsyncGenerator[bytes, None]:

@@ -17,7 +17,7 @@ class Neo4jConnection:
         - NEO4J_PASSWORD (기본: an1021402)
         """
         uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        user = os.getenv("NEO4J_USER", "neo4j")
+        user = os.getenv("NEO4J_USER", "test")
         password = os.getenv("NEO4J_PASSWORD", "an1021402")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
