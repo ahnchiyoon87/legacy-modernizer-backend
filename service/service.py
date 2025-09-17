@@ -165,7 +165,7 @@ async def _run_understanding(
         if analysis_result.get('type') == 'end_analysis':
             logging.info(f"Understanding Completed for {folder_name}-{file_name}\n")
             # 파일 단위 후처리: 테이블 타입 변수 처리 (LLM 기반)
-            await resolve_table_variables_with_llm(connection, user_id, folder_name, file_name, api_key, locale)
+            # await resolve_table_variables_with_llm(connection, user_id, folder_name, file_name, api_key, locale)
             graph_result = await connection.execute_query_and_return_graph(user_id, file_pairs)
             yield _data(graph=graph_result, line_number=last_line, analysis_progress=100, current_file=f"{folder_name}-{file_name}")
             break
