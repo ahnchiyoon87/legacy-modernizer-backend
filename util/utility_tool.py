@@ -155,6 +155,27 @@ def add_line_numbers(plsql: List[str]) -> Tuple[str, List[str]]:
 
 
 #==============================================================================
+# 스키마/테이블 파싱 & 정규화 유틸리티
+#==============================================================================
+def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | None]:
+    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출.
+    스키마가 없으면 '' 반환. 결과는 원본 케이스를 보존합니다.
+    """
+    if not qualified_table_name:
+        return '', '', None
+    text = qualified_table_name.strip()
+    link = None
+    if '@' in text:
+        left, link = text.split('@', 1)
+    else:
+        left = text
+    if '.' in left:
+        s, t = left.split('.', 1)
+    else:
+        s, t = '', left
+    return (s.strip() or ''), t.strip(), (link or None)
+
+#==============================================================================
 # 코드 분석 및 변환 유틸리티
 #==============================================================================
 

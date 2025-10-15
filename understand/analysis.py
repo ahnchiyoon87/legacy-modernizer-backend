@@ -1,5 +1,4 @@
 import asyncio
-from collections import defaultdict
 import json
 import logging
 import re
@@ -8,7 +7,7 @@ import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
 from util.exception import (LLMCallError, UnderstandingError, ProcessAnalyzeCodeError)
-from util.utility_tool import calculate_code_token
+from util.utility_tool import calculate_code_token, parse_table_identifier
 
 
 encoder = tiktoken.get_encoding("cl100k_base")
@@ -57,27 +56,6 @@ def get_table_relationship(statement_type: str | None) -> str | None:
     if statement_type in ["EXECUTE_IMMEDIATE", "ASSIGNMENT", "CALL"]:
         return "EXECUTE"
     return None
-
-
-def parse_table_identifier(qualified_table_name: str) -> tuple[str | None, str, str | None]:
-    """역할:
-    - 'SCHEMA.TABLE@DBLINK' 형태의 표기에서 (스키마, 테이블, DB링크명)을 추출합니다.
-
-    반환값:
-    - (schema, table, db_link)
-    """
-    qualified = qualified_table_name.strip().upper()
-    link_name = None
-    if '@' in qualified:
-        left, link_name = qualified.split('@', 1)
-    else:
-        left = qualified
-
-    if '.' in left:
-        schema, table = left.split('.', 1)
-    else:
-        schema, table = None, left
-    return schema, table, (link_name or None)
 
 
 def is_over_token_limit(node_token: int, sp_token: int, context_len: int) -> bool:
@@ -595,15 +573,9 @@ class Analyzer:
                     if not (src_table and src_column and tgt_table and tgt_column):
                         continue
 
-                    # 파싱: SCHEMA.TABLE
-                    def split_table(qualified_table: str) -> tuple[str | None, str]:
-                        if '.' in qualified_table:
-                            s, t = qualified_table.split('.', 1)
-                            return (s or '').upper(), (t or '').upper()
-                        return None, qualified_table.upper()
-
-                    src_schema, src_table_name = split_table(src_table)
-                    tgt_schema, tgt_table_name = split_table(tgt_table)
+                    # 기존 파서 재사용으로 스키마 빈문자 통일
+                    src_schema, src_table_name, _ = parse_table_identifier(src_table)
+                    tgt_schema, tgt_table_name, _ = parse_table_identifier(tgt_table)
 
                     # Table 노드 MERGE (소스/타겟)
                     src_t_merge_key = {

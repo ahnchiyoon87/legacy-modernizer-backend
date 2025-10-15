@@ -12,7 +12,7 @@ db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 
 prompt = PromptTemplate.from_template(
-f"""
+"""
 [ROLE]
 당신은 PostgreSQL 및 PL/pgSQL 코드 분석 전문가입니다. 
 주어진 저장 프로시저/함수 코드를 체계적이고 정확하게 분석하여 구조화된 정보를 추출해야 합니다.
@@ -63,13 +63,28 @@ f"""
 - 조건 분기 로직: IF, CASE, WHEN 문의 판단 기준과 분기별 목적
 - 반복 처리 로직: FOR, WHILE, LOOP 문의 조건과 반복 목적
 - 데이터베이스 작업: DML 관련(SELECT, INSERT, UPDATE, DELETE, MERGE, EXECUTE_IMMEDIATE, FETCH) 작업의 대상과 목적
-- 컬럼 및 키/관계 명시: 모든 DML/JOIN에 대해 구체적인 컬럼명을 스키마.테이블.컬럼 형식으로 명확히 나열하고, 기본키(PK), 고유키(UK), 외래키(FK) 여부를 명시. 외래키는 "로컬테이블.컬럼 -> 참조테이블.참조컬럼" 형식으로 정확히 표기. JOIN 조건의 컬럼 쌍도 모두 명시
+- 컬럼 및 키/관계 명시: 모든 DML/JOIN에 대해 사용된 테이블과 컬럼을 자연어 문장으로 명확히 언급하고, 기본키(PK), 고유키(UK), 외래키(FK) 여부를 간결히 서술합니다.
 - 예외 처리: EXCEPTION 블록의 처리 방식과 목적
 - 트랜잭션 제어: COMMIT, ROLLBACK 등의 사용 목적
 
-출력 형식:
-상세한 설명을 자연어로 작성
-예시: "v_order_date에 CURRENT_DATE를 할당하여 주문 처리 기준일을 설정하고, v_total_count > 100 조건으로 대량 주문 여부를 판단합니다. TPJ.ORDER_MASTER OM과 TPJ.ORDER_DETAIL OD를 OM.ORDER_ID = OD.ORDER_ID로 조인하여 미처리 주문을 조회합니다(조인 컬럼: TPJ.ORDER_MASTER.ORDER_ID[PK] = TPJ.ORDER_DETAIL.ORDER_ID[FK]). INSERT 대상은 TPJ.ORDER_HISTORY(컬럼: ORDER_ID, STATUS, CREATED_AT)이며, TPJ.ORDER_MASTER(컬럼: ORDER_ID[PK], CUSTOMER_ID[FK -> TPJ.CUSTOMER(CUSTOMER_ID)], ORDER_DATE)에서 값을 읽어 처리 이력을 생성합니다. FK 관계는 TPJ.ORDER_MASTER.CUSTOMER_ID -> TPJ.CUSTOMER.CUSTOMER_ID로 명시합니다."
+- 출력 형식 및 길이 규칙:
+- 요약은 반드시 해당 코드 범위의 원문 길이(문자 수)를 초과 금지(절대 규칙)
+- 요약은 자연어 문장으로만 작성하며, 요약 내용이 길 경우, 세부적인 내용을 생략하고 핵심만 서술합니다.
+- 짧은 범위(수~수십 줄): 최대 2문장, 80~160자 내
+- 긴 범위(수십 줄 이상): 최대 5문장, 160~400자 내
+- 절대 상한: 400자 초과 금지
+- 변수·테이블·컬럼은 자연어 문장 안에서 그대로 명시합니다
+- 스키마 표기는 기본 생략, 모호할 때만 덧붙입니다. 별칭, 괄호형 나열, '=' 등 기호 중심 표기는 금지합니다.
+- 동일 정보 반복을 금지합니다. 목적 → 변수/조건 → 조인 → DML → FK 순으로 핵심만 서술합니다.
+- INSERT시 어떤 컬럼에 어떤 값을 넣는지 명시합니다.
+- UPDATE시 어떤 컬럼에 어떤 값을 업데이트 하는지 명시합니다.
+- DELETE시 어떤 컬럼에 어떤 값을 삭제하는지 명시합니다.
+- SELECT시 어떤 컬럼에 어떤 값을 조회하는지 명시합니다.
+- MERGE시 어떤 컬럼에 어떤 값을 병합하는지 명시합니다.
+- JOIN시 어떤 컬럼에 어떤 값을 조인하는지 명시합니다.
+- FK시 어떤 컬럼에 어떤 값을 참조하는지 명시합니다.
+예시 1(변수/조건): "v_order_date를 CURRENT_DATE로 설정하고 v_total_count가 100을 넘으면 대량 주문으로 분기합니다."
+예시 2(INSERT/JOIN): "ORDER_MASTER와 ORDER_DETAIL 테이블을 ORDER_ID와 ORDER_ID로 조인해 조회하고, 결과를 ORDER_HISTORY 테이블의 ORDER_ID, STATUS, CREATED_AT에 기록합니다. CUSTOMER_ID는 CUSTOMER 테이블의 CUSTOMER_ID를 참조합니다."
 
 
 [SECTION_2_VARIABLE_IDENTIFICATION]
@@ -146,7 +161,7 @@ f"""
 외래키(FK) 관계 식별 및 표기:
 
 수집 대상:
-- 테이블 간에 외래키 관계가 있는 경우
+- 테이블 간에 직접적인 외래키 관계가 있는 경우 및 직접 참조하는 컬럼명이 있는 경우에만 식별하며, 간접인 경우는 제외합니다.
 - JOIN 조건에서 동등 비교(=)로 연결된 컬럼 쌍 중 외래키로 해석되는 관계
 - INSERT/UPDATE 시 참조 무결성을 전제로 사용하는 컬럼-테이블 관계
 - 동적 SQL(EXECUTE IMMEDIATE, 변수에 저장된 SQL 문자열)에서 식별 가능한 FK 관계
@@ -221,7 +236,7 @@ JSON 스키마:
 - analysis[i].fkRelations 요소는 객체이며 sourceTable, sourceColumn, targetTable, targetColumn(모두 문자열)만 포함
 - analysis[i].dbLinks 요소는 객체이며 name(문자열, '@' 권장), mode('r'|'w')만 포함
 - 빈 배열도 허용되며 null 값은 사용 금지
-- summary는 상세하고 구체적인 설명을 한국어로 작성
+- summary는 한국어로 작성하며, 위의 길이 규칙을 준수해 핵심만 압축 표현
 - 코드펜스(```json ... ``` 등) 포함 금지, 트레일링 콤마 금지
 - dbLinks.name은 반드시 '테이블@링크' 또는 '스키마.테이블@링크' 형식. 해당 패턴이 범위 내에 없으면 dbLinks는 []
 - localTables에도 테이블 표기가 없으면 localTables는 []

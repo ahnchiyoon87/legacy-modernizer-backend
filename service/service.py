@@ -29,6 +29,7 @@ from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
 from util.exception import ConvertingError, Neo4jError, UnderstandingError, FileProcessingError
 from util.utility_tool import add_line_numbers
+from util.utility_tool import parse_table_identifier
 from util.llm_client import get_llm
 
 
@@ -66,7 +67,7 @@ def get_user_directories(user_id: str):
 #-------------------------------------------------------------------------#
 def _stream_bytes(payload: dict) -> bytes:
     """스트림 전송용 바이트를 생성합니다."""
-    return json.dumps(payload).encode('utf-8') + b"send_stream"
+    return json.dumps(payload, default=str).encode('utf-8') + b"send_stream"
 
 
 def _alarm(message: str, **extra) -> bytes:
@@ -165,8 +166,8 @@ async def _run_understanding(
 
         if analysis_result.get('type') == 'end_analysis':
             logging.info(f"Understanding Completed for {folder_name}-{file_name}\n")
-            # 파일 단위 후처리: 테이블 타입 변수 처리 (LLM 기반)
-            # await resolve_table_variables_with_llm(connection, user_id, folder_name, file_name, api_key, locale)
+            # 파일 단위 후처리 실행: 변수 타입 해석 + 컬럼 역할 업데이트
+            await postprocess_table_variables(connection, user_id, folder_name, file_name, api_key, locale)
             graph_result = await connection.execute_query_and_return_graph(user_id, file_pairs)
             yield _data(graph=graph_result, line_number=last_line, analysis_progress=100, current_file=f"{folder_name}-{file_name}")
             break
@@ -192,26 +193,28 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
     1) 변수 타입 해석(기존 로직 유지): 변수별로 테이블 메타를 가져와 타입을 결정하고 Variable 노드를 업데이트.
     2) 테이블 단위 컬럼 역할: 각 테이블당 컬럼/DML 요약을 모아 컬럼 역할을 도출하고 Column.description을 업데이트.
     """
-
+    
     # 1) 변수 타입 해석 - 변수별 처리(기존 로직 단순화)
     fetch_vars = f"""
     MATCH (v:Variable {{folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'}})
-    WHERE v.value STARTS WITH 'Table: '
-    WITH v, trim(replace(v.value, 'Table: ', '')) AS fullName
-    WITH v, CASE WHEN v.type CONTAINS '.' THEN split(v.type, '.') ELSE split(fullName, '.') END AS parts
     WITH v,
-         CASE WHEN size(parts) = 2 THEN parts[0] ELSE null END AS schemaName,
-         CASE WHEN size(parts) = 2 THEN parts[1] ELSE parts[0] END AS tableName
+        trim(replace(replace(coalesce(v.value, ''), 'Table: ', ''), 'Table:', '')) AS valueAfterPrefix,
+        coalesce(v.type, '') AS vtype
+    WITH v, trim(replace(CASE WHEN vtype <> '' THEN vtype ELSE valueAfterPrefix END, ' ', '')) AS raw
+    WITH v,
+        CASE WHEN raw CONTAINS '.' THEN split(raw, '.')[0] ELSE '' END AS schemaName,
+        CASE WHEN raw CONTAINS '.' THEN split(raw, '.')[1] ELSE raw END AS tableName
     MATCH (t:Table {{user_id: '{user_id}', name: toUpper(tableName)}})
-    WHERE (schemaName IS NULL AND (t.schema IS NULL OR t.schema = '')) OR t.schema = toUpper(schemaName)
+    WHERE coalesce(t.schema, '') = coalesce(toUpper(schemaName), '')
     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id}'}})
-    WITH v, toUpper(schemaName) AS schema, toUpper(tableName) AS table,
-         collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
+    WITH v, coalesce(toUpper(schemaName), '') AS schema, toUpper(tableName) AS table,
+        collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
     RETURN v.name AS varName, v.type AS declaredType, schema, table, columns
     """
 
     res_vars = await connection.execute_queries([fetch_vars])
     var_rows = res_vars[0] if res_vars else []
+    logging.info(f"[postprocess] 변수 타입 해석 대상: {len(var_rows)}건")
     if var_rows:
         update_queries = []
         type_tasks = []
@@ -242,6 +245,7 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
 
         if update_queries:
             await connection.execute_queries(update_queries)
+            logging.info(f"[postprocess] 변수 타입 업데이트 쿼리 실행 완료")
 
     # 2) 테이블 단위 처리 - 테이블 하나씩 컬럼 역할 산출 후 Column.description 업데이트
     fetch_tables = f"""
@@ -255,11 +259,9 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
 
     res_tables = await connection.execute_queries([fetch_tables])
     table_rows = res_tables[0] if res_tables else []
-    if not table_rows:
-        return
-
+    logging.info(f"[postprocess] 컬럼 역할 산출 대상 테이블: {len(table_rows)}건")
     column_update_queries = []
-    roles_tasks = []
+    roles_coroutines = []
     roles_meta = []
     for row in table_rows:
         schema = row.get('schema') or ''
@@ -268,25 +270,39 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
         dml_summaries_raw = row.get('dmlSummaries')
         columns = json.loads(columns_raw) if isinstance(columns_raw, str) else (columns_raw or [])
         dml_summaries = json.loads(dml_summaries_raw) if isinstance(dml_summaries_raw, str) else (dml_summaries_raw or [])
-        roles_tasks.append(asyncio.create_task(understand_column_roles(columns, dml_summaries, api_key, locale)))
+        logging.info(f"[postprocess] LLM 요청 준비: {folder_name}/{file_name} → {schema}.{table} (cols={len(columns)}, dml={len(dml_summaries)})")
+        roles_coroutines.append(understand_column_roles(columns, dml_summaries, api_key, locale))
         roles_meta.append((schema, table))
 
-    roles_results = await asyncio.gather(*roles_tasks)
+    roles_results = await asyncio.gather(*roles_coroutines, return_exceptions=True)
     for (schema, table), roles_result in zip(roles_meta, roles_results):
-        schema_upper = (schema or '').upper()
-        table_upper = (table or '').upper()
+        if isinstance(roles_result, Exception):
+            logging.error(f"[postprocess] 컬럼 역할 산출 실패: {schema}.{table}: {str(roles_result)}")
+            continue
+        schema_text = schema or ''
+        table_text = table or ''
         match_table = (
-            f"MATCH (t:Table {{user_id: '{user_id}', name: '{table_upper}', schema: '{schema_upper}'}})"
-            if schema_upper else
-            f"MATCH (t:Table {{user_id: '{user_id}', name: '{table_upper}'}})"
+            f"MATCH (t:Table {{user_id: '{user_id}', name: '{table_text}'}}) WHERE coalesce(t.schema,'') = '{schema_text}'"
         )
 
+        # 2-1) 테이블 설명 업데이트
+        table_desc = (roles_result or {}).get('tableDescription') or ''
+        table_desc_esc = str(table_desc).replace("'", "\\'")
+        column_update_queries.append(
+            f"""
+            {match_table}
+            SET t.description = '{table_desc_esc}'
+            """
+        )
+
+        # 2-2) 컬럼 역할을 Column.description으로 반영 (키: role)
         roles = (roles_result or {}).get('roles') or []
+        logging.info(f"[postprocess] 컬럼 역할 반영: {schema}.{table} → {len(roles)}건")
         for role_item in roles:
             col_name_esc = (role_item.get('name') or '').replace("'", "\\'")
             if not col_name_esc:
                 continue
-            desc_esc = (role_item.get('description') or '').replace("'", "\\'")
+            desc_esc = (role_item.get('role') or '').replace("'", "\\'")
             column_update_queries.append(
                 f"""
                 {match_table}
@@ -297,6 +313,7 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
 
     if column_update_queries:
         await connection.execute_queries(column_update_queries)
+        logging.info(f"[postprocess] 컬럼/테이블 설명 업데이트 쿼리 실행 완료")
 
 
 #-------------------------------------------------------------------------#
@@ -397,38 +414,44 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                 foreign_list = table.get('foreignKeys', [])
                 primary_list = [str(pk).strip().upper() for pk in (table.get('primaryKeys') or []) if str(pk).strip()]
 
-                schema_raw = (table_info.get('schema') or '').strip()
-                schema_val = schema_raw.upper() if schema_raw else ''
-                table_name_raw = (table_info.get('name') or '').strip()
-                table_name_val = table_name_raw.upper()
+                # 원본 텍스트
+                orig_schema_text = (table_info.get('schema') or '').strip()
+                orig_table_name_text = (table_info.get('name') or '').strip()
+                qualified_table_text = f"{orig_schema_text}.{orig_table_name_text}" if orig_schema_text else orig_table_name_text
+                parsed_schema, parsed_table, _ = parse_table_identifier(qualified_table_text)
+                table_schema_text = parsed_schema or ''
+                table_name_text = parsed_table
+                effective_schema = table_schema_text if table_schema_text else ''
+                table_name_raw = table_name_text
                 table_comment = (table_info.get('comment') or '').strip()
                 table_type = (table_info.get('table_type') or 'BASE TABLE').strip().upper()
 
                 # Table 노드 MERGE
                 t_merge_key = {
                     'user_id': user_id,
-                    'schema': schema_val,
-                    'name': table_name_val,
+                    'schema': effective_schema,
+                    'name': table_name_text,
                 }
                 t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
                 t_set_props = {
                     'description': table_comment.replace("'", "\\'"),
                     'table_type': table_type,
+                    'db': 'postgres',
                 }
                 t_set_clause = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
                 cypher_queries.append(f"MERGE (t:Table {{{t_merge_key_str}}}) SET {t_set_clause}")
 
                 # Column 노드 MERGE 및 HAS_COLUMN
                 for col in columns:
-                    col_name_raw = (col.get('name') or '').strip()
-                    if not col_name_raw:
+                    columnNameText = (col.get('name') or '').strip()
+                    if not columnNameText:
                         continue
-                    col_name = col_name_raw
-                    dtype = (col.get('dtype') or col.get('type') or '').strip()
-                    nullable_val = col.get('nullable', True)
-                    description = (col.get('comment') or '').strip()
+                    col_name = columnNameText
+                    columnTypeText = (col.get('dtype') or col.get('type') or '').strip()
+                    isNullable = col.get('nullable', True)
+                    columnCommentText = (col.get('comment') or '').strip()
                     # fqn: schema.table.column (소문자)
-                    fqn_parts = [schema_raw or '', table_name_raw, col_name]
+                    fqn_parts = [effective_schema or '', table_name_text, col_name]
                     fqn = '.'.join([p for p in fqn_parts if p]).lower()
 
                     c_merge_key = {
@@ -438,9 +461,9 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                     }
                     c_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in c_merge_key.items())
                     c_set_props = {
-                        'dtype': dtype.replace("'", "\\'"),
-                        'description': description.replace("'", "\\'"),
-                        'nullable': str(bool(nullable_val)).lower(),
+                        'dtype': columnTypeText.replace("'", "\\'"),
+                        'description': columnCommentText.replace("'", "\\'"),
+                        'nullable': str(bool(isNullable)).lower(),
                     }
                     if col_name.upper() in primary_list:
                         c_set_props['pk_constraint'] = f"{table_name_raw}_pkey"
@@ -459,19 +482,17 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                     if not src_col or not ref:
                         continue
                     # ref 형식: SCHEMA.TABLE.COLUMN 또는 TABLE.COLUMN
-                    parts = [p.strip() for p in ref.split('.') if p.strip()]
-                    if len(parts) == 3:
-                        ref_schema, ref_table, ref_column = parts
-                    elif len(parts) == 2:
-                        ref_schema, ref_table, ref_column = schema_raw, parts[0], parts[1]
-                    else:
+                    if '.' not in ref:
                         continue
+                    table_qualifier, ref_column = ref.rsplit('.', 1)
+                    ref_schema, ref_table, _ = parse_table_identifier(table_qualifier)
+                    ref_schema = ref_schema or effective_schema
 
                     # 대상 Table
                     ref_table_merge_key = {
                         'user_id': user_id,
-                        'schema': (ref_schema or '').upper(),
-                        'name': (ref_table or '').upper(),
+                        'schema': (ref_schema or ''),
+                        'name': (ref_table or ''),
                     }
                     ref_table_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_table_merge_key.items())
                     cypher_queries.append(f"MERGE (rt:Table {{{ref_table_merge_key_str}}})")
@@ -481,8 +502,8 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                     )
 
                     # Column FK_TO
-                    src_fqn = '.'.join([p for p in [schema_raw or '', table_name_raw, src_col] if p]).lower()
-                    ref_fqn = '.'.join([p for p in [ref_schema or '', ref_table, ref_column] if p]).lower()
+                    src_fqn = '.'.join([p for p in [effective_schema or '', table_name_text, src_col] if p]).lower()
+                    ref_fqn = '.'.join([p for p in [(ref_schema or effective_schema), ref_table, ref_column] if p]).lower()
 
                     src_c_key = { 'user_id': user_id, 'name': src_col, 'fqn': src_fqn }
                     ref_c_key = { 'user_id': user_id, 'name': ref_column, 'fqn': ref_fqn }

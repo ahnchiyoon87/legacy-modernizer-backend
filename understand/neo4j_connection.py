@@ -1,5 +1,6 @@
 import logging
 import os
+from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
 from util.exception import Neo4jError
 
@@ -16,9 +17,11 @@ class Neo4jConnection:
         - NEO4J_USER (기본: neo4j)
         - NEO4J_PASSWORD (기본: an1021402)
         """
+        # .env 자동 로드 (이미 로드되어 있어도 안전)
+        load_dotenv()
         uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         user = os.getenv("NEO4J_USER", "neo4j")
-        password = os.getenv("NEO4J_PASSWORD", "an1021402")
+        password = os.getenv("NEO4J_PASSWORD", "neo4j")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
 
