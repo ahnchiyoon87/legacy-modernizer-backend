@@ -453,6 +453,7 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
         "file_name": "ORDER_PKG.sql",
         "folder_name": "PKG_ORDER",
         "user_id": "my-session-123",
+        "project_name": "OrderSystem",
         "summary": "주문 정보를 조회합니다"
       }
     }
@@ -655,29 +656,30 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 
 | 노드 라벨 | 설명 | 모든 속성 |
 |---------|------|----------|
-| `Folder` | 폴더 (패키지) | `user_id`, `name`, `has_children` |
-| `FILE` | PL/SQL 파일 | `user_id`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `has_children` |
-| `PROCEDURE` | 프로시저 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `FUNCTION` | 함수 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `SELECT` | SELECT 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `INSERT` | INSERT 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `UPDATE` | UPDATE 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `DELETE` | DELETE 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `MERGE` | MERGE 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `FETCH` | FETCH 구문 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `CALL` | 프로시저 호출 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `ASSIGNMENT` | 변수 할당 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `EXECUTE_IMMEDIATE` | 동적 SQL 실행 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `SPEC` | 매개변수 선언부 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `DECLARE` | 변수 선언부 | `user_id`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `PACKAGE_VARIABLE` | 패키지 전역 변수 | `user_id`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `Table` | 테이블 | `user_id`, `schema`, `name`, `description`, `table_type`, `db`, `folder_name`, `db_link` (선택) |
+| `Folder` | 폴더 (패키지) | `user_id`, `name`, `project_name`, `has_children` |
+| `FILE` | PL/SQL 파일 | `user_id`, `project_name`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `has_children` |
+| `PROCEDURE` | 프로시저 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
+| `FUNCTION` | 함수 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
+| `SELECT` | SELECT 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `INSERT` | INSERT 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `UPDATE` | UPDATE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `DELETE` | DELETE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `MERGE` | MERGE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `FETCH` | FETCH 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `CALL` | 프로시저 호출 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `ASSIGNMENT` | 변수 할당 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `EXECUTE_IMMEDIATE` | 동적 SQL 실행 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `SPEC` | 매개변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `DECLARE` | 변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `PACKAGE_VARIABLE` | 패키지 전역 변수 | `user_id`, `project_name`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `Table` | 테이블 | `user_id`, `project_name`, `schema`, `name`, `description`, `table_type`, `db`, `folder_name`, `db_link` (선택) |
 | `Column` | 컬럼 | `user_id`, `name`, `fqn`, `dtype`, `description`, `nullable`, `pk_constraint` (선택) |
-| `Variable` | 변수 | `user_id`, `folder_name`, `file_name`, `name`, `type`, `parameter_type`, `procedure_name` (선택), `role`, `scope`, `value`, `resolved` (선택) |
-| `DBLink` | DB 링크 | `user_id`, `name` |
+| `Variable` | 변수 | `user_id`, `project_name`, `folder_name`, `file_name`, `name`, `type`, `parameter_type`, `procedure_name` (선택), `role`, `scope`, `value`, `resolved` (선택) |
+| `DBLink` | DB 링크 | `user_id`, `project_name`, `name` |
 
 **속성 설명:**
 - `user_id`: 세션 식별자 (모든 노드에 필수)
+- `project_name`: 프로젝트 이름 (그래프 분리용, 대부분의 노드에 포함)
 - `folder_name`: 폴더명 (패키지명)
 - `file_name`: 파일명
 - `procedure_name`: 프로시저/함수명
@@ -832,11 +834,13 @@ ANTLR AST를 DFS 순회하며 코드를 분석합니다.
 
 **주요 클래스:**
 - `Analyzer`: AST 분석기
-  - `run()`: 분석 실행
-  - `analyze_statement_tree()`: 구문 트리 순회
-  - `execute_analysis_and_reset_state()`: LLM 분석 실행
-  - `process_analysis_output_to_cypher()`: Cypher 쿼리 생성
-  - `analyze_variable_declarations()`: 변수 선언 분석
+  - `__init__(antlr_data, file_content, send_queue, receive_queue, last_line, folder_name, file_name, user_id, api_key, locale, dbms, project_name)`: 생성자
+  - `run()`: 분석 실행 (DFS 순회 시작→잔여 배치 플러시→완료 이벤트 송신)
+  - `analyze_statement_tree(node, schedule_stack, parent_startLine, parent_statementType)`: 구문 트리 DFS 순회 및 분석
+  - `execute_analysis_and_reset_state(statement_type)`: LLM 분석 실행 및 상태 초기화
+  - `process_analysis_output_to_cypher(analysis_result)`: LLM 분석 결과를 사이퍼 쿼리로 변환
+  - `analyze_variable_declarations(declaration_code, node_startLine, statement_type)`: 변수 선언부 분석 (SPEC/DECLARE/PACKAGE_VARIABLE)
+  - `send_analysis_event_and_wait(node_end_line, statement_type)`: 분석 결과 이벤트 송신 및 완료 대기
 
 #### 🗄️ `understand/neo4j_connection.py`
 Neo4j 데이터베이스 연결 및 쿼리 실행을 담당합니다.
