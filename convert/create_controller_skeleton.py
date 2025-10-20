@@ -12,7 +12,7 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # 역할: 컨트롤러 클래스의 기본 구조를 생성하는 함수입니다.
 #
 # 매개변수: 
-#   - object_name: plsql 패키지 이름
+#   - object_name: 패키지 이름
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 #   - project_name: 프로젝트 이름
 #
@@ -65,7 +65,7 @@ CodePlaceHolder
 # 역할: 컨트롤러 클래스 기본 구조를 생성 프로세스를 시작하고 관리하는 함수입니다.
 #
 # 매개변수:
-#   - object_name: plsql 패키지 이름
+#   - object_name: 패키지 이름
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 #   - api_key: Claude API 키
 #   - project_name: 프로젝트 이름

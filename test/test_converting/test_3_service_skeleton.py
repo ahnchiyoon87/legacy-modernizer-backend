@@ -1,7 +1,7 @@
 import os, sys, asyncio
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from _common import setup_logging, get_context, persist_context
-from convert.create_service_skeleton import start_service_skeleton_processing
+from convert.create_service_skeleton import ServiceSkeletonGenerator
 
 
 async def main() -> None:
@@ -21,10 +21,10 @@ async def main() -> None:
     # 객체별 스켈레톤 생성
     skeleton_results = {}
     for _, object_name in file_names:
+        generator = ServiceSkeletonGenerator(project_name, user_id, api_key, locale)
         service_info, service_skeleton, service_class_name, exist_command_class, command_class_list = (
-            await start_service_skeleton_processing(
-                entity_list, object_name, ctx['results'].get('global_variables', []),
-                user_id, api_key, project_name, locale
+            await generator.generate(
+                entity_list, object_name, object_name, ctx['results'].get('global_variables', [])
             )
         )
 

@@ -1,34 +1,16 @@
 from collections import defaultdict
-import os
 import logging
 import textwrap
 from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, GenerateTargetError, GenerateTargetError
-from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, extract_used_variable_nodes, save_file
+from util.exception import ConvertingError
+from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_java_base_path, build_variable_index, extract_used_variable_nodes
 
 
-MAX_TOKENS = 1000
-# 프로젝트 이름을 파라미터로 받도록 수정
-# JPA_TEMPLATE는 함수 내에서 동적으로 생성
+MAX_TOKENS = 2000  # LLM 처리를 위한 배치당 최대 토큰 수
 
-
-# 역할: Spring Data 리포지토리 인터페이스 파일을 생성합니다.
-#
-# 매개변수:
-#   - all_query_methods : {테이블명: [ 쿼리 메서드 정보]} 형식의 딕셔너리
-#   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-#   - project_name : 프로젝트 이름
-async def generate_repository_interface(all_query_methods: dict, sequence_methods: list, user_id: str, api_key: str, project_name: str) -> list:
-    repository_list = []
-    try:
-        # 리포지토리 경로 생성
-        repository_path = f'{project_name}/src/main/java/com/example/{project_name}/repository'
-        
-        # * JPA 템플릿 동적 생성
-        jpa_template = """package com.example.{project_name}.repository;
+# JPA Repository 인터페이스 템플릿
+JPA_TEMPLATE = """package com.example.{project_name}.repository;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -42,289 +24,198 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 {merged_methods}
 }}"""
 
-        # * 저장 경로 설정
-        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, repository_path)
-        else:
-            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, repository_path)
 
+# ----- Repository 생성 관리 클래스 -----
+class RepositoryGenerator:
+    """
+    레거시 SQL 쿼리(DML)를 분석하여 Spring Data JPA Repository 인터페이스를 자동 생성하는 클래스
+    Neo4j에서 DML 노드(SELECT, INSERT, UPDATE, DELETE)와 변수 정보를 조회하고,
+    LLM을 활용하여 JPA Repository 메서드로 변환합니다.
+    """
 
-        # * 시퀀스 메서드 들여쓰기 처리
-        formatted_sequence_methods = '\n\n'.join(
-            textwrap.indent(method['method'].strip().replace('\n\n', '\n'),  '    ')
-            for method in (sequence_methods or [])
-        ) if sequence_methods else ''
+    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
+        """
+        RepositoryGenerator 초기화
         
+        Args:
+            project_name: 프로젝트 이름
+            user_id: 사용자 식별자
+            api_key: LLM API 키
+            locale: 언어 설정 (기본값: 'ko')
+        """
+        self.project_name = project_name
+        self.user_id = user_id
+        self.api_key = api_key
+        self.locale = locale
+        self.save_path = build_java_base_path(project_name, user_id, 'repository')
 
-        # * 각 테이블별 리포지토리 인터페이스 생성
-        for entity_pascal_name, query_method in all_query_methods.items():
+    async def generate(self) -> tuple:
+        """
+        Repository 인터페이스 생성의 메인 진입점
+        Neo4j에서 DML 노드와 변수 정보를 조회하고, 배치 단위로 LLM 변환을 수행하여
+        JPA Repository 인터페이스 파일을 생성합니다.
+        
+        Returns:
+            tuple: (used_query_methods, global_variables, sequence_methods, repository_list)
+                - used_query_methods (dict): {라인범위: 메서드코드} 매핑
+                - global_variables (list): 전역 변수 정보 리스트
+                - sequence_methods (list): 시퀀스 관련 메서드 목록
+                - repository_list (list): 생성된 Repository 정보 리스트
+        """
+        logging.info("Repository Interface 생성을 시작합니다.")
+        connection = Neo4jConnection()
+        
+        try:
+            # Neo4j에서 DML 노드 및 변수 정보 조회
+            table_dml_results, var_results = await connection.execute_queries([
+                f"""MATCH (n {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                    WHERE n:SELECT OR n:UPDATE OR n:DELETE OR n:INSERT OR n:MERGE
+                    AND NOT EXISTS {{ MATCH (p)-[:PARENT_OF]->(n) WHERE p:SELECT OR p:UPDATE OR p:DELETE OR p:INSERT OR p:MERGE }}
+                    OPTIONAL MATCH (n)-[:FROM|WRITES]->(t:Table {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                    WITH t, collect(n) as dml_nodes WHERE t IS NOT NULL
+                    RETURN t, dml_nodes""",
+                f"""MATCH (v:Variable {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                    RETURN v, v.scope as scope"""
+            ])
+
+            # 변수를 Local/Global로 분리
+            local_vars = []
+            self.global_vars = []
+            for var in var_results:
+                if var['scope'] == 'Global':
+                    v_node = var['v']
+                    self.global_vars.append({
+                        'name': v_node['name'],
+                        'type': v_node.get('type', 'Unknown'),
+                        'role': v_node.get('role', ''),
+                        'scope': 'Global',
+                        'value': v_node.get('value', '')
+                    })
+                else:
+                    local_vars.append(var)
             
-            # * 엔티티 이름 변환
-            entity_camel_name = convert_to_camel_case(entity_pascal_name)
+            # 변수 인덱스 생성
+            self.var_index = build_variable_index(local_vars)
             
-            # * 쿼리 메서드 들여쓰기 처리
-            merged_methods = '\n\n'.join(
-                textwrap.indent(method.strip().replace('\n\n', '\n'),  '    ')
-                for method in query_method
-            )
+            # 결과 컨테이너 초기화
+            self.all_used_query_methods = {}
+            self.all_sequence_methods = set()
+            self.aggregated_query_methods = {}
 
-            # * 데이터 삽입
-            repository_interface_template = jpa_template.format(
-                project_name=project_name,
-                entity_pascal_name=entity_pascal_name,
-                entity_camel_name=entity_camel_name,
-                merged_methods=merged_methods
-            )
+            # 모든 DML 노드를 한 번에 처리
+            all_dml_nodes = [node for result in table_dml_results if (dml_nodes := result.get('dml_nodes')) for node in dml_nodes]
+            if all_dml_nodes:
+                await self._process_dml_nodes(all_dml_nodes)
 
-            # * 파일 저장
-            filename = f"{entity_pascal_name}Repository.java"
-            await save_file(
-                content=repository_interface_template, 
-                filename=filename, 
-                base_path=save_path
-            )
+            # Repository 파일 생성
+            repository_list = await self._save_repository_files()
             
-            # * 생성된 리포지토리 정보 저장
-            repository_list.append({
-                "repositoryName": f"{entity_pascal_name}Repository",
-                "code": repository_interface_template
-            })
+            logging.info("모든 Repository Interface 생성이 완료되었습니다.\n")
+            return self.all_used_query_methods, self.global_vars, list(self.all_sequence_methods), repository_list
 
-        return repository_list
+        except Exception as e:
+            logging.error(f"Repository Interface 생성 중 오류: {str(e)}")
+            raise ConvertingError(f"Repository Interface 생성 중 오류: {str(e)}")
+        finally:
+            await connection.close()
 
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"리포지토리 인터페이스 파일 저장 중 오류가 발생: {str(e)}"
-        logging.error(err_msg)
-        raise GenerateTargetError(err_msg)
+    # ----- 내부 처리 메서드 -----
 
-
-# 역할: 테이블 연관 노드들을 토큰 제한에 맞춰 처리하는 메인 로직입니다.
-#
-# 매개변수: 
-#   - repository_nodes : 테이블과 직접 연결된 Neo4j 노드 리스트
-#   - local_variable_nodes : 모든 지역 변수 노드 정보 리스트
-#   - global_variable_nodes : 모든 전역 변수 노드 정보 리스트
-#   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-#   - project_name : 프로젝트 이름
-#
-# 반환값: 
-#   - used_repository_methodss_list : 생성된 쿼리 메서드들의 정보 리스트
-async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, user_id: str, api_key: str, project_name: str, locale: str) -> list:
-    
-    try:
+    async def _process_dml_nodes(self, dml_nodes: list) -> None:
+        """
+        DML 노드를 배치 단위로 처리하여 Repository 메서드 생성
+        결과는 클래스 속성에 직접 누적됩니다.
+        
+        Args:
+            dml_nodes: 처리할 DML 노드 리스트
+        """
         current_tokens = 0
-        repository_data_chunk = []
-        used_variable_nodes = defaultdict(list)
-        all_query_methods = {}
-        used_query_methods_list = {}
-        sequence_methods = []
+        batch_codes = []
+        batch_vars = defaultdict(list)
 
-
-        # 역할: LLM 분석 결과를 처리하여 리포지토리 인터페이스 정보를 생성합니다.
-        async def prcoess_repository_interface_code() -> None:
-            nonlocal all_query_methods, current_tokens, repository_data_chunk, used_variable_nodes, current_tokens, sequence_methods    
-
-            try:
-                # * LLM을 통한 코드 변환
-                analysis_data = convert_repository_code(
-                    repository_data_chunk, 
-                    used_variable_nodes, 
-                    len(repository_data_chunk),
-                    global_variable_nodes,
-                    api_key,
-                    locale
-                )
-
-
-                # * 분석 결과 처리
-                for method in analysis_data['analysis']:
-                    table_name = method['tableName'].split('.')[-1]
-                    entity_name = convert_to_pascal_case(table_name)
-
-                    # * 테이블별 메서드 정보 저장
-                    methods = all_query_methods.setdefault(entity_name, [])
-                    methods.append(method['method'])
-                    
-                    # * 사용된 메서드 범위 저장
-                    for range in method['range']:
-                        range_str = f"{range['startLine']}~{range['endLine']}"
-                        used_query_methods_list[range_str] = method['method']
-                    
-
-                # * 시퀀스 메서드 저장
-                if analysis_data.get('seq_method'):
-                    sequence_methods.extend(analysis_data['seq_method'])
-
-
-                # * 다음 사이클을 위한 상태 초기화
-                repository_data_chunk = []
-                used_variable_nodes.clear()
-                current_tokens = 0
-            
-            except ConvertingError:
-                raise
-            except Exception as e:
-                err_msg = f"리포지토리 인터페이스 생성을 위한 LLM 결과 처리 도중 문제가 발생했습니다: {str(e)}"
-                logging.error(err_msg)
-                raise ConvertingError(err_msg)
-
-
-        # * 리포지토리 노드 처리
-        for node in repository_nodes:
-            # * 노드 정보 추출
-            try:
-                node_tokens = node['token']
-                node_code = node.get('summarized_code', node['node_code'])
-                node_start_line = node['startLine']
-            except KeyError as e:
-                logging.warning(f"리포지토리 노드에 필요한 속성이 없습니다: {e}")
+        for node in dml_nodes:
+            # 필수 필드 체크
+            if 'token' not in node or 'startLine' not in node:
                 continue
             
-            # * 변수 노드 처리
-            var_nodes, var_tokens = await extract_used_variable_nodes(node_start_line, local_variable_nodes)
-            total_tokens = current_tokens + node_tokens + var_tokens
-
-            # * 토큰 제한 초과시 처리
-            if repository_data_chunk and total_tokens >= MAX_TOKENS:
-                await prcoess_repository_interface_code()
-                
-            # * 현재 노드 데이터 추가
-            repository_data_chunk.append(node_code)
-            [used_variable_nodes[key].extend(value) for key, value in var_nodes.items()]
-            current_tokens = total_tokens
-
-
-        # * 남은 데이터 처리
-        if repository_data_chunk:
-            await prcoess_repository_interface_code()
-
-
-        # * 리포지토리 인터페이스 및 노드 생성
-        await generate_repository_interface(all_query_methods, sequence_methods, user_id, api_key, project_name)
-        return used_query_methods_list, all_query_methods, sequence_methods
-
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"리포지토리 인터페이스 처리 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ConvertingError(err_msg)
-
-
-# 역할: 리포지토리 인터페이스 생성 프로세스의 시작점입니다.
-#
-# 매개변수: 
-#   - file_names : 처리할 파일 이름과 객체 이름 튜플의 리스트 [(file_name, object_name), ...]
-#   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-#   - project_name : 프로젝트 이름
-#
-# 반환값: 
-#   - query_method_list : 생성된 모든 쿼리 메서드 정보 리스트
-#   - global_variables : 전역 변수 목록
-async def start_repository_processing(file_names: list, user_id: str, api_key: str, project_name: str, locale: str = 'ko'):
-    
-    logging.info("Repository Interface 생성을 시작합니다.")
-    connection = Neo4jConnection()
-    repository_list = []
-    all_used_query_methods = {}
-    all_global_variables = []
-    all_sequence_methods = []
-
-    try:
-        # file_names에서 object_name 추출
-        object_names = [obj_name for _, obj_name in file_names]
-        object_names_str = "', '".join(object_names)
-        
-        # 테이블과 DML 노드를 한 번에 가져오는 쿼리
-        table_dml_query = f"""
-        MATCH (t:Table {{user_id: '{user_id}'}})--(m) 
-        WHERE m.object_name IN ['{object_names_str}'] AND m.user_id = '{user_id}' 
-        AND (m:SELECT OR m:UPDATE OR m:DELETE)
-        RETURN t, COLLECT(m) as dml_nodes
-        """
-        
-        # 전역 변수와 지역 변수 가져오기
-        vars_query = f"""
-        MATCH (v:Variable) 
-        WHERE v.user_id = '{user_id}' AND v.object_name IN ['{object_names_str}']
-        RETURN v, v.scope as scope
-        """
-        
-        # 쿼리 실행
-        table_dml_results, var_results = await connection.execute_queries([table_dml_query, vars_query])
-        
-        print(table_dml_results)
-
-        # 변수 결과 처리
-        local_vars = []
-        global_variable_nodes = []
-        
-        for var in var_results:
-            var_node = var['v']
-            if var['scope'] == 'Global':
-                global_variable_nodes.append({
-                    'name': var_node['name'],
-                    'type': var_node.get('type', 'Unknown'),
-                    'role': var_node.get('role', ''),
-                    'scope': 'Global',
-                    'value': var_node.get('value', '')
-                })
-            else:
-                local_vars.append(var)
-        
-        all_global_variables.extend(global_variable_nodes)
-        
-        # 각 테이블에 대해 처리
-        for result in table_dml_results:
-            table_node = result['t']
-            dml_nodes = result['dml_nodes']
-            table_name = table_node['name']
+            # DML 코드 추출
+            code = node.get('summarized_code') or node.get('node_code', '')
             
-            logging.info(f"{table_name} 테이블의 Repository Interface 생성 중...")
+            # 관련 변수 추출
+            var_nodes, var_tokens = await extract_used_variable_nodes(node['startLine'], self.var_index)
+            total = current_tokens + node['token'] + var_tokens
+
+            # 배치 토큰 한도 초과 시 즉시 처리
+            if batch_codes and total >= MAX_TOKENS:
+                await self._flush_batch(batch_codes, batch_vars)
+                batch_codes, batch_vars, current_tokens = [], defaultdict(list), 0
+
+            # 배치에 추가
+            batch_codes.append(code)
+            for k, v in var_nodes.items():
+                batch_vars[k].extend(v)
+            current_tokens = total
+
+        # 마지막 남은 배치 처리
+        if batch_codes:
+            await self._flush_batch(batch_codes, batch_vars)
+
+    async def _flush_batch(self, codes: list, vars_dict: dict) -> None:
+        """
+        배치를 LLM으로 변환하고 결과를 클래스 속성에 즉시 누적
+        
+        Args:
+            codes: DML 코드 리스트
+            vars_dict: 변수 정보 딕셔너리
+        """
+        analysis_data = convert_repository_code(codes, vars_dict, len(codes), self.global_vars, self.api_key, self.locale)
+        
+        # 메서드를 Entity별로 그룹화하여 누적
+        for method in analysis_data['analysis']:
+            method_code = method['method']
+            entity_name = convert_to_pascal_case(method['tableName'].split('.')[-1])
             
-            if dml_nodes:
-                # 이 테이블에 대한 리포지토리 인터페이스 생성
-                used_query_methods, table_query_methods, sequence_methods = await process_repository_by_token_limit(
-                    dml_nodes, 
-                    local_vars, 
-                    global_variable_nodes,
-                    user_id,
-                    api_key,
-                    project_name,
-                    locale
-                )
-                
-                all_used_query_methods.update(used_query_methods)
-                all_sequence_methods.extend(sequence_methods)
-                
-                # 이 테이블에 대한 리포지토리 생성
-                table_repositories = await generate_repository_interface(
-                    table_query_methods, 
-                    sequence_methods, 
-                    user_id, 
-                    api_key, 
-                    project_name
-                )
-                
-                repository_list.extend(table_repositories)
-                logging.info(f"{table_name} 테이블의 Repository Interface 생성 완료")
-            else:
-                logging.info(f"{table_name} 테이블에 연결된 DML 노드가 없습니다.")
+            self.aggregated_query_methods.setdefault(entity_name, []).append(method_code)
+            
+            # 라인 범위별 메서드 매핑
+            for r in method['range']:
+                self.all_used_query_methods[f"{r['startLine']}~{r['endLine']}"] = method_code
+        
+        # 시퀀스 메서드 누적
+        if seq := analysis_data.get('seq_method'):
+            self.all_sequence_methods.update(seq)
 
-        logging.info("모든 Repository Interface 생성이 완료되었습니다.\n")
-        return all_used_query_methods, all_global_variables, all_sequence_methods, repository_list
-    
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"Repository Interface를 생성하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ConvertingError(err_msg)
-    finally:
-        await connection.close() 
-
+    async def _save_repository_files(self) -> list:
+        """
+        Entity별로 Repository 인터페이스 파일 생성
+        
+        Returns:
+            list: 생성된 Repository 정보 리스트
+        """
+        if not self.aggregated_query_methods:
+            return []
+        
+        results = []
+        for entity_name, methods in self.aggregated_query_methods.items():
+            camel_name = convert_to_camel_case(entity_name)
+            repo_name = f"{entity_name}Repository"
+            
+            # 메서드 병합
+            merged = '\n\n'.join(
+                textwrap.indent(m.strip().replace('\n\n', '\n'), '    ') 
+                for m in methods
+            )
+            
+            # 템플릿 적용
+            code = JPA_TEMPLATE.format(
+                project_name=self.project_name,
+                entity_pascal_name=entity_name,
+                entity_camel_name=camel_name,
+                merged_methods=merged
+            )
+            
+            # 파일 저장 및 결과 누적
+            await save_file(code, f"{repo_name}.java", self.save_path)
+            results.append({"repositoryName": repo_name, "code": code})
+        
+        return results

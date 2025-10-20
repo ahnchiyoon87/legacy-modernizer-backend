@@ -1,62 +1,68 @@
-import os
 import logging
+from util.exception import ConvertingError
+from util.utility_tool import save_file, build_java_base_path
 
-from util.exception import ConvertingError, GenerateTargetError
-from util.utility_tool import save_file
 
-# 프로젝트 이름은 함수 매개변수로 받음
-
-# 역할: Spring Boot 애플리케이션의 시작점이 되는 메인 클래스 파일을 생성합니다.
-#
-# 매개변수:
-#   - user_id : 사용자 ID
-#   - project_name : 프로젝트 이름
-async def start_main_processing(user_id:str, project_name:str) -> str:
-    logging.info("메인 클래스 생성을 시작합니다.")
-
-    try:
-        # 메인 클래스명과 경로 생성
-        main_class_name = f"{project_name.capitalize()}Application.java"
-        main_class_path = f'{project_name}/src/main/java/com/example/{project_name}'
-        
-        # JPA 메인 클래스 템플릿 생성
-        main_template = f"""
-package com.example.{project_name};
+# ----- Main 클래스 템플릿 -----
+MAIN_TEMPLATE = """package com.example.{project_name};
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class {project_name.capitalize()}Application {{
+public class {class_name} {{
 
     public static void main(String[] args) {{
-        SpringApplication.run({project_name.capitalize()}Application.class, args);
+        SpringApplication.run({class_name}.class, args);
     }}
 
 }}
 """
 
-        # * 저장 경로 설정
-        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, main_class_path)
-        else:
-            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, main_class_path)
 
+# ----- Main 클래스 생성 관리 클래스 -----
+class MainClassGenerator:
+    """
+    Spring Boot 애플리케이션의 메인 클래스를 자동 생성하는 클래스
+    프로젝트명을 기반으로 Application 클래스를 생성합니다.
+    """
 
-        # * 메인 클래스 파일 생성
-        await save_file(
-            content=main_template, 
-            filename=main_class_name, 
-            base_path=save_path
-        )
+    def __init__(self, project_name: str, user_id: str):
+        """
+        MainClassGenerator 초기화
         
-        logging.info("메인 클래스가 생성되었습니다.\n")
-        return main_template
-    
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"스프링부트의 메인 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise GenerateTargetError(err_msg)
+        Args:
+            project_name: 프로젝트 이름
+            user_id: 사용자 식별자
+        """
+        self.project_name = project_name
+        self.class_name = f"{project_name.capitalize()}Application"
+        self.file_name = f"{self.class_name}.java"
+        self.save_path = build_java_base_path(project_name, user_id)
+
+    async def generate(self) -> str:
+        """
+        Main 클래스 생성의 메인 진입점
+        Spring Boot Application 클래스를 생성하고 파일로 저장합니다.
+        
+        Returns:
+            str: 생성된 메인 클래스 코드
+        
+        Raises:
+            ConvertingError: 메인 클래스 생성 중 오류 발생 시
+        """
+        logging.info("메인 클래스 생성을 시작합니다.")
+        
+        try:
+            # 템플릿 적용
+            main_code = MAIN_TEMPLATE.format(project_name=self.project_name, class_name=self.class_name)
+            
+            # 파일 저장
+            await save_file(main_code, self.file_name, self.save_path)
+            
+            logging.info("메인 클래스가 생성되었습니다.\n")
+            return main_code
+        
+        except Exception as e:
+            logging.error(f"메인 클래스 생성 중 오류: {str(e)}")
+            raise ConvertingError(f"메인 클래스 생성 중 오류: {str(e)}")

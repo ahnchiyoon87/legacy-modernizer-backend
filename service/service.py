@@ -13,14 +13,13 @@ import textwrap
 #-------------------------------------------------------------------------#
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
-from convert.create_pomxml import start_pomxml_processing
-from convert.create_properties import start_APLproperties_processing
+from convert.create_config_files import ConfigFilesGenerator
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing
-from convert.create_service_skeleton import start_service_skeleton_processing
-from convert.create_main import start_main_processing
+from convert.create_service_skeleton import ServiceSkeletonGenerator
+from convert.create_main import MainClassGenerator
 from prompt.understand_ddl import understand_ddl
 from prompt.understand_variables_prompt import resolve_table_variable_type
 from prompt.understand_column_prompt import understand_column_roles
@@ -579,45 +578,49 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
         def emit(data_type: str, **kwargs) -> bytes:
             return json.dumps({"data_type": data_type, **kwargs}).encode('utf-8') + b"send_stream"
 
-        # 프로젝트 이름: 요청에서 전달된 값을 사용
         logging.info(f"프로젝트 이름 수신: {project_name}")
         yield emit("data", file_type="project_name", project_name=project_name)
 
         file_count = len(file_names)
         logging.info(f"변환할 파일 개수: {file_count}")
 
-        for current_index, (file_name, object_name) in enumerate(file_names, start=1):
+        for current_index, (folder_name, file_name) in enumerate(file_names, start=1):
+            base_name = os.path.splitext(file_name)[0]
+            
             # Step 1: Entity per object
-            yield emit("message", step=1, content=f"{object_name} - Generating Entity Class")
-            entity_result_list = await start_entity_processing([(file_name, object_name)], user_id, api_key, project_name, locale)
+            yield emit("message", step=1, content=f"{base_name} - Generating Entity Class")
+            entity_result_list = await start_entity_processing([(folder_name, file_name)], user_id, api_key, project_name, locale)
             for entity in entity_result_list:
                 yield emit("data", file_type="entity_class", file_name=f"{entity['entityName']}.java", code=entity['entityCode'])
             yield emit("Done", step=1, file_count=file_count, current_count=current_index)
 
             # Step 2: Repository per object
-            yield emit("message", step=2, content=f"{object_name} - Generating Repository Interface")
+            yield emit("message", step=2, content=f"{base_name} - Generating Repository Interface")
             used_query_methods, global_variables, sequence_methods, repository_list = await start_repository_processing(
-                [(file_name, object_name)], user_id, api_key, project_name, locale
+                [(folder_name, file_name)], user_id, api_key, project_name, locale
             )
             for repo in repository_list:
                 yield emit("data", file_type="repository_class", file_name=f"{repo['repositoryName']}.java", code=repo['code'])
             yield emit("Done", step=2, file_count=file_count, current_count=current_index)
 
+            # Step 3: Service Skeleton per object
             yield emit("message", step=3, content="Business Logic Processing")
-            logging.info(f"Start converting {object_name}\n")
+            logging.info(f"Start converting {base_name}\n")
 
-            yield emit("message", step=3, content=f"{object_name} - Service Skeleton")
+            yield emit("message", step=3, content=f"{base_name} - Service Skeleton")
+            svc_skeleton_gen = ServiceSkeletonGenerator(project_name, user_id, api_key, locale)
             service_creation_info, service_skeleton, service_class_name, exist_command_class, command_class_list = (
-                await start_service_skeleton_processing(entity_result_list, object_name, global_variables, user_id, api_key, project_name, locale)
+                await svc_skeleton_gen.generate(entity_result_list, folder_name, file_name, global_variables)
             )
-            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class, project_name)
+            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(base_name, exist_command_class, project_name)
 
-            yield emit("message", step=3, content=f"{object_name} - Command Class")
+            yield emit("message", step=3, content=f"{base_name} - Command Class")
             for command in command_class_list:
                 yield emit("data", file_type="command_class", file_name=f"{command['commandName']}.java", code=command['commandCode'])
             yield emit("Done", step=3, file_count=file_count, current_count=current_index)
 
-            yield emit("message", step=4, content=f"{object_name} - Service Controller Processing")
+            # Step 4: Service Controller Processing per object
+            yield emit("message", step=4, content=f"{base_name} - Service Controller Processing")
             merge_method_code = ""
             merge_controller_method_code = ""
             for svc in service_creation_info:
@@ -626,7 +629,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     svc['command_class_variable'],
                     svc['procedure_name'],
                     used_query_methods,
-                    object_name,
+                    folder_name,
+                    file_name,
                     sequence_methods,
                     user_id,
                     api_key,
@@ -639,7 +643,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     merge_method_code = f"{merge_method_code}\n\n{completed}"
                 else:
                     merge_method_code = await start_service_postprocessing(
-                        svc['method_skeleton_code'], svc['procedure_name'], object_name, merge_method_code, user_id
+                        svc['method_skeleton_code'], svc['procedure_name'], folder_name, file_name, merge_method_code, user_id
                     )
                 merge_controller_method_code = await start_controller_processing(
                     svc['method_signature'],
@@ -649,7 +653,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     svc['node_type'],
                     merge_controller_method_code,
                     controller_skeleton,
-                    object_name,
+                    base_name,
                     user_id,
                     api_key,
                     project_name,
@@ -663,20 +667,18 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
 
         yield emit("Done", step=4)
 
-        yield emit("message", step=5, content="Generating pom.xml")
-        pom_xml_code = await start_pomxml_processing(user_id, project_name)
+        yield emit("message", step=5, content="Generating Configuration Files")
+        config_gen = ConfigFilesGenerator(project_name, user_id)
+        pom_xml_code, properties_code = await config_gen.generate()
         yield emit("data", file_type="pom", file_name="pom.xml", code=pom_xml_code)
+        yield emit("data", file_type="properties", file_name="application.properties", code=properties_code)
         yield emit("Done", step=5)
 
-        yield emit("message", step=6, content="Generating application.properties")
-        properties_code = await start_APLproperties_processing(user_id, project_name)
-        yield emit("data", file_type="properties", file_name="application.properties", code=properties_code)
-        yield emit("Done", step=6)
-
-        yield emit("message", step=7, content="Generating Main Application")
-        main_code = await start_main_processing(user_id, project_name)
+        yield emit("message", step=6, content="Generating Main Application")
+        main_gen = MainClassGenerator(project_name, user_id)
+        main_code = await main_gen.generate()
         yield emit("data", file_type="main", file_name=f"{project_name.capitalize()}Application.java", code=main_code)
-        yield emit("Done", step=7)
+        yield emit("Done", step=6)
 
     except ConvertingError as e:
         raise

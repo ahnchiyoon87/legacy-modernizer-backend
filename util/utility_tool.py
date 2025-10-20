@@ -58,6 +58,29 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 
 
 #==============================================================================
+# 경로 유틸리티
+#==============================================================================
+
+def build_java_base_path(project_name: str, user_id: str, *sub_paths: str) -> str:
+    """
+    역할: Java 소스 저장을 위한 베이스 경로를 생성합니다.
+    예) <workspace or docker>/target/java/<user_id>/<project>/src/main/java/com/example/<project>[/sub_paths...]
+    """
+    try:
+        java_root = f"{project_name}/src/main/java/com/example/{project_name}"
+        relative_path = os.path.join(java_root, *sub_paths) if sub_paths else java_root
+        docker_ctx = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        if docker_ctx:
+            return os.path.join(docker_ctx, 'target', 'java', user_id, relative_path)
+        parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return os.path.join(parent_workspace_dir, 'target', 'java', user_id, relative_path)
+    except Exception as e:
+        err_msg = f"Java 베이스 경로 생성 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise UtilProcessingError(err_msg)
+
+
+#==============================================================================
 # 문자열 변환 유틸리티
 #==============================================================================
 
@@ -198,39 +221,74 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
         raise UtilProcessingError(err_msg)
 
 
+def calculate_code_token(code: Union[str, Dict, List]) -> int:
+    """
+    전달된 코드의 토큰 길이를 계산
+    
+    Args:
+        code: 토큰 수를 계산할 코드 (문자열, 딕셔너리, 리스트 등 다양한 타입 가능)
+        
+    Returns:
+        코드의 토큰 수
+    """
+    try:
+        text_json = json.dumps(code, ensure_ascii=False)
+        return len(ENCODER.encode(text_json))
+    except Exception as e:
+        err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
+        logging.error(err_msg)
+        raise UtilProcessingError(err_msg)
+
+
+def build_variable_index(local_variable_nodes: List[Dict]) -> Dict:
+    """
+    변수 노드를 startLine 기준으로 인덱싱 (extract_used_variable_nodes에서 사용)
+    
+    Returns:
+        { startLine(int): {'nodes': {range_key: [var_list]}, 'tokens': int} }
+    """
+    index = {}
+    for variable_node in local_variable_nodes:
+        node_data = variable_node.get('v', {})
+        var_type = node_data.get('type', 'Unknown')
+        var_name = node_data.get('name')
+        if not var_name:
+            continue
+        for key in node_data:
+            if '_' in key and all(part.isdigit() for part in key.split('_')):
+                s, e = key.split('_', 1)
+                start_line = int(s)
+                range_key = f"{start_line}~{int(e)}"
+                entry = index.setdefault(start_line, {'nodes': defaultdict(list), 'tokens': None})
+                entry['nodes'][range_key].append(f"{var_type}: {var_name}")
+    return index
+
+
 async def extract_used_variable_nodes(startLine: int, local_variable_nodes: List[Dict]) -> Tuple[Dict, int]:
     """
-    특정 코드 라인에서 사용된 변수들의 정보를 추출
+    특정 코드 라인에서 사용된 변수들의 정보를 추출 (성능 개선 버전)
     
     Args:
         startLine: 분석할 코드의 시작 라인 번호
-        local_variable_nodes: Neo4j에서 조회한 모든 변수 노드 정보
+        local_variable_nodes: Neo4j에서 조회한 변수 노드 리스트 또는 인덱스
         
     Returns:
         (used_variables, variable_tokens): 사용된 변수 정보와 토큰 수
     """
     try:
-        used_variables = defaultdict(list)
+        # 인덱스면 그대로 사용, 리스트면 인덱스 생성
+        if isinstance(local_variable_nodes, dict) and 'nodes' in str(local_variable_nodes):
+            var_index = local_variable_nodes
+        else:
+            var_index = build_variable_index(local_variable_nodes)
         
-        for variable_node in local_variable_nodes:
-            for used_range in variable_node['v']:
-                # 라인 범위 형식 검증 (예: "1_5")
-                if not ('_' in used_range and all(part.isdigit() for part in used_range.split('_'))):
-                    continue
-                    
-                # 시작 라인이 일치하는 경우만 처리
-                used_startLine, used_endLine = map(int, used_range.split('_'))
-                if used_startLine != startLine:
-                    continue
-                    
-                # 변수 정보 저장
-                range_key = f'{used_startLine}~{used_endLine}'
-                var_type = variable_node['v'].get('type', 'Unknown')
-                var_name = variable_node['v']['name']
-                used_variables[range_key].append(f"{var_type}: {var_name}")
-                break
-
-        return used_variables, calculate_code_token(used_variables)
+        entry = var_index.get(startLine)
+        if entry:
+            var_nodes = entry['nodes']
+            if entry['tokens'] is None:
+                entry['tokens'] = calculate_code_token(var_nodes)
+            return var_nodes, entry['tokens']
+        return {}, 0
     
     except UtilProcessingError:
         raise

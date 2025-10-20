@@ -58,7 +58,7 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 # 매개변수: 
 #   - method_signature: 서비스 메서드의 시그니처
 #   - procedure_name: 원본 프로시저/함수 이름
-#   - object_name: 대상 객체 이름 (로깅용)
+#   - object_name: 대상 객체 이름
 #   - command_class_variable: Command DTO 필드 목록
 #   - command_class_name: Command 클래스 이름
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
@@ -108,7 +108,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #   - node_type: 대상 노드 타입
 #   - merge_controller_method_code: 병합될 컨트롤러 메서드 코드
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
-#   - object_name: 대상 객체 이름 (로깅용)
+#   - object_name: 대상 객체 이름
 #   - user_id: 사용자 ID
 #   - api_key: Claude API 키
 #   - project_name: 프로젝트 이름

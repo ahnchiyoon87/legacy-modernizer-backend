@@ -1,199 +1,144 @@
-import os
 import logging
-import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, GenerateTargetError
-from util.utility_tool import calculate_code_token, save_file
+from util.exception import ConvertingError
+from util.utility_tool import calculate_code_token, save_file, build_java_base_path
 
 
-MAX_TOKENS = 3000
-# project_name은 함수 매개변수로 받음
-encoder = tiktoken.get_encoding("cl100k_base")
+# ----- 상수 정의 -----
+MAX_TOKENS = 3000  # LLM 처리를 위한 배치당 최대 토큰 수
 
 
-# 역할: Neo4j 데이터베이스에서 가져온 테이블 정보를 LLM이 처리할 수 있는 크기로 나누어 Java 엔티티 클래스를 생성합니다.
-# 
-# 매개변수: 
-#   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
-#   user_id (str): 사용자 ID
-#   api_key (str): OpenAI API 키
-#   project_name (str): 프로젝트 이름
-#
-# 반환값:
-#   entity_result_list (list): 생성된 Java 엔티티 클래스의 이름과 코드를 포함한 딕셔너리 목록
-async def process_table_by_token_limit(table_data_list: list, user_id: str, api_key: str, project_name: str, locale: str) -> list[dict]:
- 
-    try:
+# ----- Entity 생성 관리 클래스 -----
+class EntityGenerator:
+    """
+    레거시 데이터베이스 테이블 정보를 기반으로 JPA Entity 클래스를 자동 생성하는 클래스
+    Neo4j에서 테이블 스키마 정보를 조회하고, LLM을 활용하여 Spring Boot JPA Entity로 변환합니다.
+    """
+
+    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
+        """
+        EntityGenerator 초기화
+        
+        Args:
+            project_name: 프로젝트 이름
+            user_id: 사용자 식별자
+            api_key: LLM API 키
+            locale: 언어 설정 (기본값: 'ko')
+        """
+        self.project_name = project_name or ''
+        self.user_id = user_id
+        self.api_key = api_key
+        self.locale = locale
+        self.save_path = build_java_base_path(self.project_name, self.user_id, 'entity')
+
+    # ----- 공개 메서드 -----
+
+    async def generate(self) -> list[dict]:
+        """
+        Entity 클래스 생성의 메인 진입점
+        Neo4j에서 테이블 정보를 조회하고, 배치 단위로 LLM 변환을 수행하여
+        Java Entity 클래스 파일을 생성합니다.
+        
+        Returns:
+            list[dict]: 생성된 Entity 정보 리스트
+                       [{'entityName': str, 'entityCode': str}, ...]
+        
+        Raises:
+            ConvertingError: Entity 생성 중 오류 발생 시
+        """
+        logging.info("엔티티 생성을 시작합니다.")
+        connection = Neo4jConnection()
+        
+        try:
+            # Neo4j에서 테이블 및 컬럼 정보 조회
+            table_rows = (await connection.execute_queries([f"""
+                MATCH (t:Table {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                WITH t, collect({{
+                    name: c.name,
+                    dtype: coalesce(c.dtype, ''),
+                    nullable: toBoolean(c.nullable),
+                    comment: coalesce(c.description, ''),
+                    pk: coalesce(c.pk_constraint,'') <> ''
+                }}) AS columns
+                RETURN coalesce(t.schema,'') AS schema, t.name AS name, columns
+                ORDER BY name
+            """]))[0]
+            
+            if not table_rows:
+                logging.info("테이블이 발견되지 않았습니다.")
+                return []
+            
+            # 배치 단위로 처리하여 Entity 생성
+            self.entity_results = []
+            await self._process_tables(table_rows)
+            
+            logging.info(f"총 {len(self.entity_results)}개의 엔티티가 생성되었습니다.")
+            return self.entity_results
+        
+        except ConvertingError:
+            raise
+        except Exception as e:
+            logging.error(f"엔티티 클래스 생성 중 오류: {str(e)}")
+            raise ConvertingError(f"엔티티 클래스 생성 중 오류: {str(e)}")
+        finally:
+            await connection.close()
+
+    # ----- 내부 처리 메서드 -----
+
+    async def _process_tables(self, table_rows: list) -> None:
+        """
+        테이블 목록을 배치 단위로 처리하여 Entity 생성
+        토큰 수 제한을 고려하여 테이블을 배치로 묶고, 각 배치를 LLM으로 변환합니다.
+        결과는 self.entity_results에 직접 누적됩니다.
+        
+        Args:
+            table_rows: Neo4j에서 조회한 테이블 정보 리스트
+        """
         current_tokens = 0
-        table_data_chunk = []
-        entity_result_list = []
+        batch = []
 
-
-        # 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
-        async def process_entity_class_code() -> None:
-            nonlocal entity_result_list, current_tokens, table_data_chunk
-
-            try:
-                # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
-                analysis_data = convert_entity_code(table_data_chunk, api_key, project_name, locale)
-
-
-                # * 각 엔티티별로 파일 생성
-                for entity in analysis_data['analysis']:
-                    entity_name = entity['entityName']
-                    entity_code = entity['code']
-                    
-                    # * 엔티티 클래스 파일 생성
-                    await generate_entity_class(entity_name, entity_code, user_id, project_name)
-                                        
-                    # * 엔티티 클래스 정보 저장
-                    entity_result_list.append({
-                        'entityName': entity_name,
-                        'entityCode': entity_code
-                    })
-
-
-                # * 다음 사이클을 위한 상태 초기화
-                table_data_chunk = []
-                current_tokens = 0
-                
+        for row in table_rows:
+            # 테이블 정보 구성
+            columns = row.get('columns') or []
+            name = row.get('name')
+            schema = row.get('schema') or ''
             
-            except ConvertingError:
-                raise
-            except Exception as e:
-                err_msg = f"LLM을 통한 엔티티 분석 중 오류가 발생: {str(e)}"
-                logging.error(err_msg)
-                raise ConvertingError(err_msg)
-    
-
-
-        # * 테이블 데이터 처리
-        for table in table_data_list:
-            table_tokens = calculate_code_token(table)
-            total_tokens = current_tokens + table_tokens
-
-            # * 토큰 제한 초과시 처리
-            if table_data_chunk and total_tokens >= MAX_TOKENS:
-                await process_entity_class_code()
+            # Primary Key 추출
+            pk_list = [col['name'] for col in columns if col.get('pk')] if columns else []
             
-            # * 현재 테이블 추가
-            table_data_chunk.append(table)
-            current_tokens += table_tokens
-
-
-        # * 남은 데이터 처리
-        if table_data_chunk:
-            await process_entity_class_code()
-
-
-        return entity_result_list
-
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"테이블 데이터 처리 중 토큰 계산 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ConvertingError(err_msg)
-
-
-# 역할: LLM을 사용하여 테이블 정보를 분석하고, 이를 바탕으로 Java 엔티티 클래스 파일을 생성합니다.
-#
-# 매개변수:
-#   entity_name (str): 생성할 엔티티 클래스의 이름
-#   entity_code (str): 생성할 엔티티 클래스의 코드
-#   user_id (str): 사용자 ID
-#   project_name (str): 프로젝트 이름
-async def generate_entity_class(entity_name: str, entity_code: str, user_id: str, project_name: str) -> None:
-    try:
-        # 엔티티 경로 생성
-        entity_path = f'{project_name}/src/main/java/com/example/{project_name}/entity'
-        
-        # * 저장 경로 설정
-        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, entity_path)
-        else:
-            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, entity_path)
-
-
-        # * Entity Class 파일 생성
-        await save_file(
-            content=entity_code, 
-            filename=f"{entity_name}.java", 
-            base_path=save_path
-        )
-    
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"엔티티 클래스 파일 생성 중 오류가 발생: {str(e)}"
-        logging.error(err_msg)
-        raise GenerateTargetError(err_msg)
-
-
-# 역할: 전체 엔티티 생성 프로세스를 관리하는 메인 함수입니다.
-#
-# 매개변수:
-#   file_names (list): 파일 이름과 객체 이름의 튜플 리스트 [(file_name, object_name), ...]
-#   user_id (str): 사용자 ID
-#   api_key (str): OpenAI API 키
-#   project_name (str): 프로젝트 이름(선택적)
-#
-# 반환값:
-#   entity_result_list (list): 생성된 모든 Java 엔티티 클래스의 이름과 코드를 포함한 딕셔너리 목록
-async def start_entity_processing(file_names: list, user_id: str, api_key: str, project_name: str = None, locale: str = 'ko') -> list[dict]:
-
-    connection = Neo4jConnection()
-    logging.info(f"엔티티 생성을 시작합니다.")
-    
-    try:
-        # 사용자 ID 기준으로 해당 사용자의 모든 테이블 조회 (object_name 필터 제거)
-        query = [f"""
-        MATCH (n:Table)--()
-        WHERE n.user_id = '{user_id}'
-        RETURN DISTINCT n
-        """]
-        table_nodes = (await connection.execute_queries(query))[0]
-        
-        # 테이블 데이터 구조화
-        METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 'user_id',
-                          'foreign_keys', 'reference_tables'}
-        table_data_list = []
-        
-        # 테이블 데이터의 구조를 사용하기 쉽게 변경
-        for node in table_nodes:
-            node_data = node['n']
-            table_name = node_data['name']
+            # 테이블 정보 딕셔너리
+            table_info = {'name': name, 'schema': schema, 'fields': columns}
+            if pk_list:
+                table_info['primary_keys'] = pk_list
             
-            table_info = {
-                'name': table_name,
-                'fields': [
-                    (key, value) for key, value in node_data.items() 
-                    if key not in METADATA_FIELDS and value
-                ]
-            }
+            tokens = calculate_code_token(table_info)
             
-            # 기본키 정보 추가
-            if primary_keys := node_data.get('primary_keys'):
-                table_info['primary_keys'] = primary_keys
+            # 배치 토큰 한도 초과 시 즉시 처리
+            if batch and (current_tokens + tokens) >= MAX_TOKENS:
+                await self._flush_batch(batch)
+                batch, current_tokens = [], 0
             
-            table_data_list.append(table_info)
+            batch.append(table_info)
+            current_tokens += tokens
+
+        # 마지막 남은 배치 처리
+        if batch:
+            await self._flush_batch(batch)
+
+    async def _flush_batch(self, batch: list) -> None:
+        """
+        배치를 LLM으로 변환하고 파일 저장 후 결과 누적
+        배치 내 테이블들을 LLM에 전달하여 Entity 코드를 생성하고,
+        생성된 코드를 Java 파일로 저장한 후 self.entity_results에 추가합니다.
         
-        # 엔티티 클래스 생성
-        if table_data_list:
-            entity_result_list = await process_table_by_token_limit(table_data_list, user_id, api_key, project_name, locale)
-            logging.info(f"총 {len(entity_result_list)}개의 엔티티가 생성되었습니다.")
-            return entity_result_list
-        else:
-            logging.info("테이블이 발견되지 않았습니다.")
-            return []
+        Args:
+            batch: LLM 변환할 테이블 정보 리스트
+        """
+        analysis_data = convert_entity_code(batch, self.api_key, self.project_name, self.locale)
         
-    except ConvertingError:
-        raise
-    except Exception as e:
-        err_msg = f"엔티티 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ConvertingError(err_msg)
-    finally:
-        await connection.close()
+        for entity in analysis_data['analysis']:
+            name, code = entity['entityName'], entity['code']
+            await save_file(code, f"{name}.java", self.save_path)
+            self.entity_results.append({'entityName': name, 'entityCode': code})

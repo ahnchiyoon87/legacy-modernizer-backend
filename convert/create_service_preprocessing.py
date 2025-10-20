@@ -24,7 +24,8 @@ class ServicePreprocessor:
       - command_class_variable(dict): 커맨드 클래스 필드 정의 정보
       - service_skeleton(str): 서비스 메서드 스켈레톤 템플릿
       - query_method_list(list|dict): 사용 가능한 JPA 쿼리 메서드 목록
-      - object_name(str): 오브젝트(패키지)명
+      - folder_name(str): 폴더(시스템)명
+      - file_name(str): 파일명
       - procedure_name(str): 프로시저명
       - sequence_methods(list): 시퀀스 메서드 목록
       - user_id(str): 사용자 ID
@@ -38,7 +39,7 @@ class ServicePreprocessor:
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, connection: Neo4jConnection,
                  command_class_variable: dict, service_skeleton: str, query_method_list: dict,
-                 object_name: str, procedure_name: str, sequence_methods: list, user_id: str,
+                 folder_name: str, file_name: str, procedure_name: str, sequence_methods: list, user_id: str,
                  api_key: str, locale: str) -> None:
         self.traverse_nodes = traverse_nodes
         self.variable_nodes = variable_nodes
@@ -46,7 +47,8 @@ class ServicePreprocessor:
         self.command_class_variable = command_class_variable
         self.service_skeleton = service_skeleton
         self.query_method_list = query_method_list
-        self.object_name = object_name
+        self.folder_name = folder_name
+        self.file_name = file_name
         self.procedure_name = procedure_name
         self.sequence_methods = sequence_methods
         self.user_id = user_id
@@ -297,7 +299,7 @@ class ServicePreprocessor:
         역할:
           - 전체 노드를 순회하며 단일 컨텍스트 누적과 대용량 스켈레톤 병합, 임계 분석 트리거를 수행
         """
-        logging.info(f"📋 처리 시작: object={self.object_name} procedure={self.procedure_name}")
+        logging.info(f"📋 처리 시작: folder={self.folder_name} file={self.file_name} procedure={self.procedure_name}")
         for record in self.traverse_nodes:
             start_node = record['n']
             type = start_node.get('labels', 'UNKNOWN')
@@ -337,7 +339,7 @@ class ServicePreprocessor:
 
 
 async def start_service_preprocessing(service_skeleton: str, command_class_variable: dict, procedure_name: str,
-                                      query_method_list: dict, object_name: str, sequence_methods: list, user_id: str,
+                                      query_method_list: dict, folder_name: str, file_name: str, sequence_methods: list, user_id: str,
                                       api_key: str, locale: str) -> tuple:
     """
     역할:
@@ -359,13 +361,13 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
     """
     
     connection = Neo4jConnection() 
-    logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
+    logging.info(f"[{folder_name}/{file_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
     
     try:
         node_query = [
             f"""
             MATCH (p)
-            WHERE p.object_name = '{object_name}'
+            WHERE p.folder_name = '{folder_name}' AND p.file_name = '{file_name}'
                 AND p.procedure_name = '{procedure_name}'
                 AND p.user_id = '{user_id}'
                 AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:TRIGGER)
@@ -374,7 +376,7 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
             MATCH path = (c)-[:PARENT_OF*0..]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
-            WHERE m.object_name = '{object_name}'
+            WHERE m.folder_name = '{folder_name}' AND m.file_name = '{file_name}'
                 AND m.user_id = '{user_id}'
                 AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:SPEC)
                 AND NOT type(r) CONTAINS 'CALL'
@@ -384,7 +386,7 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
             """,
             f"""
             MATCH (n)
-            WHERE n.object_name = '{object_name}'
+            WHERE n.folder_name = '{folder_name}' AND n.file_name = '{file_name}'
             AND n.procedure_name = '{procedure_name}'
             AND n.user_id = '{user_id}'
             AND (n:DECLARE)
@@ -402,7 +404,8 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
             command_class_variable, 
             service_skeleton, 
             query_method_list, 
-            object_name, 
+            folder_name,
+            file_name,
             procedure_name,
             sequence_methods,
             user_id,
@@ -412,7 +415,7 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
         await processor.process()
 
         final_code = processor.merged_java_code.strip()
-        logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
+        logging.info(f"[{folder_name}/{file_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
         return variable_nodes, final_code
     except ConvertingError: 
         raise
