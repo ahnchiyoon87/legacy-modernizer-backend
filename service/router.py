@@ -1,14 +1,8 @@
-###########################################################################
-# Imports
-###########################################################################
 import logging
 import os
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import delete_all_temp_data, process_project_zipping
-from service.service import generate_and_execute_cypherQuery
-from service.service import generate_spring_boot_project
-from service.service import validate_anthropic_api_key
+from service.service import ServiceOrchestrator, BASE_DIR
 from dotenv import load_dotenv
 
 
@@ -42,18 +36,9 @@ async def _resolve_user_and_api_key(request: Request, missing_env_status: int) -
         return user_id, api_key
 
     api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
-    print("api_key: ", api_key)
     if not api_key:
         raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
     return user_id, api_key
-
-
-async def _ensure_valid_key(user_id: str, api_key: str) -> None:
-    """API 키를 검증합니다. 테스트 세션은 검증을 생략합니다."""
-    if user_id in TEST_SESSIONS:
-        return
-    if not await validate_anthropic_api_key(api_key):
-        raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
 
 
 def _locale(request: Request) -> str:
@@ -62,27 +47,23 @@ def _locale(request: Request) -> str:
 
 
 def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]]]:
-    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트를 추출합니다.
-
-    매개변수:
-    - file_data: 요청 JSON
-
-    반환값:
-    - (projectName, [(systemName, fileName), ...])
-    """
+    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트를 추출"""
     project_name = file_data.get('projectName')
     dbms = (file_data.get('dbms') or 'postgres').strip().lower()
+    
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName이 없습니다.")
-    systems = file_data.get('systems') or []
-    files: list[tuple[str, str]] = []
-    for system in systems:
-        system_name = system.get('name')
-        for sp_name in system.get('sp') or []:
-            if system_name and sp_name:
-                files.append((system_name, sp_name))
+    
+    files = [
+        (system.get('name'), sp_name)
+        for system in (file_data.get('systems') or [])
+        for sp_name in (system.get('sp') or [])
+        if system.get('name') and sp_name
+    ]
+    
     if not files:
         raise HTTPException(status_code=400, detail="시스템 또는 파일 정보가 없습니다.")
+    
     return project_name, dbms, files
 
 
@@ -91,110 +72,95 @@ def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]]]:
 #-------------------------------------------------------------------------#
 @router.post("/cypherQuery/")
 async def understand_data(request: Request):
-    """전달받은 파일로 Neo4j 사이퍼 쿼리를 생성/실행하고 그래프 데이터를 스트리밍합니다.
-
-    매개변수:
-    - request: fileInfos를 포함한 요청 객체
-
-    반환값:
-    - StreamingResponse
-    """
+    """Neo4j 사이퍼 쿼리 생성 및 실행 - PL/SQL 파일을 분석하여 그래프 데이터를 생성"""
     try:
-        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=401)
-        await _ensure_valid_key(user_id, api_key)
-        locale = _locale(request)
         file_data = await request.json()
+        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=401)
         project_name, dbms, file_names = _extract_payload(file_data)
-        logging.info("User ID: %s, Project: %s, DBMS: %s, File Infos: %s", user_id, project_name, dbms, file_names)
-        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key, locale, project_name, dbms))
+        
+        logging.info("User ID: %s, Project: %s, DBMS: %s, Files: %d", user_id, project_name, dbms, len(file_names))
+        
+        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms)
+        await orchestrator.validate_api_key()
+        
+        return StreamingResponse(orchestrator.understand_project(file_names))
     
+    except HTTPException:
+        raise
     except Exception as e:
-        error_message = f"Understanding 처리 중 오류 발생: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
+        logger.exception("Understanding 처리 중 오류")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/springBoot/")
-async def covnert_spring_project(request: Request):
-    """PL/SQL 파일을 스프링 부트 프로젝트로 변환하고 결과를 스트리밍합니다.
-
-    매개변수:
-    - request: fileInfos를 포함한 요청 객체
-
-    반환값:
-    - StreamingResponse
-    """
+async def convert_spring_project(request: Request):
+    """Spring Boot 프로젝트 생성 - PL/SQL을 Spring Boot로 변환"""
     try:
-        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
-        await _ensure_valid_key(user_id, api_key)
-        locale = _locale(request)
         file_data = await request.json()
+        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
         project_name, dbms, file_names = _extract_payload(file_data)
-        logging.info("Received Convert Spring Boot: project=%s, dbms=%s, files=%s", project_name, dbms, file_names)
-        return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key, locale, project_name), media_type="text/plain")
+        
+        logging.info("Convert Spring Boot: project=%s, files=%d", project_name, len(file_names))
+        
+        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms)
+        await orchestrator.validate_api_key()
+        
+        return StreamingResponse(orchestrator.convert_to_springboot(file_names), media_type="text/plain")
     
+    except HTTPException:
+        raise
     except Exception as e:
-        error_message = f"스프링 부트 프로젝트 생성 도중 오류 발생: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
+        logger.exception("스프링 부트 변환 중 오류")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
 
 @router.post("/downloadJava/")
 async def download_spring_project(request: Request):
-    """생성된 스프링 부트 프로젝트를 ZIP으로 압축해 반환합니다.
-
-    매개변수:
-    - request: projectName을 포함한 요청 객체
-
-    반환값:
-    - FileResponse
-    """
+    """생성된 Spring Boot 프로젝트를 ZIP으로 압축하여 다운로드"""
     try:
         user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
+        
         body = await request.json()
         project_name = body.get('projectName', 'project')
-
-        base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.getcwd())
-        target_path = os.path.join(base_dir, 'target', 'java', user_id, project_name)
-        zipfile_dir = os.path.join(base_dir, 'data', user_id, 'zipfile')
-        os.makedirs(zipfile_dir, exist_ok=True)
-        output_zip_path = os.path.join(zipfile_dir, f'{project_name}.zip')
-
-        await process_project_zipping(target_path, output_zip_path)
+        user_java_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
+        output_zip_path = os.path.join(BASE_DIR, 'data', user_id, 'zipfile', f'{project_name}.zip')
+        
+        os.makedirs(os.path.dirname(output_zip_path), exist_ok=True)
+        
+        await ServiceOrchestrator(user_id, '', '', project_name, '').zip_project(
+            os.path.join(user_java_dir, project_name), 
+            output_zip_path
+        )
 
         return FileResponse(path=output_zip_path, filename=f"{project_name}.zip", media_type='application/octet-stream')
     
+    except HTTPException:
+        raise
     except Exception as e:
-        error_message = f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
+        logger.exception("프로젝트 압축 중 오류")
+        raise HTTPException(status_code=500, detail=str(e))
     
 
 
 
 @router.delete("/deleteAll/")
 async def delete_all_data(request: Request):
-    """사용자의 임시 파일과 그래프 데이터를 삭제합니다.
-
-    매개변수:
-    - request: 세션 헤더를 포함한 요청 객체
-
-    반환값:
-    - dict: 삭제 결과 메시지
-    """
+    """사용자 데이터 전체 삭제 - 임시 파일 및 Neo4j 그래프 데이터"""
     try:
         user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-        logging.info("User ID: %s", user_id)
-        await delete_all_temp_data(user_id)
+        
+        await ServiceOrchestrator(user_id, '', '', '', '').cleanup_all_data()
+        
         return {"message": "모든 임시 파일이 삭제되었습니다."}
         
+    except HTTPException:
+        raise
     except Exception as e:
-        error_message = f"임시 파일 삭제 중 오류 발생: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
+        logger.exception("데이터 삭제 중 오류")
+        raise HTTPException(status_code=500, detail=str(e))
