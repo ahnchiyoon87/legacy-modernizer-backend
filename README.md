@@ -144,9 +144,9 @@ Frontend → Backend API → Neo4j 그래프 조회 → 코드 생성 → Spring
 
 #### 🔧 Service 변환 상세 흐름
 
-Service 계층 변환은 **전처리(Preprocessing)** 와 **후처리(Postprocessing)** 2단계로 나뉩니다:
+Service 계층 변환은 **토큰 임계 기반 배치 처리**로 수행됩니다:
 
-**📌 전처리 단계 (`create_service_preprocessing.py`)**
+**📌 Service 생성 단계 (`create_service_preprocessing.py`)**
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -156,7 +156,7 @@ Service 계층 변환은 **전처리(Preprocessing)** 와 **후처리(Postproces
    [노드 순회 시작]
          ↓
    ┌─────────────────┐
-   │ 노드 분류 판단   │ ← 토큰≥1500 & 자식 있음?
+   │ 노드 분류 판단   │ ← 토큰≥1000 & 자식 있음?
    └─────────────────┘
       ↙           ↘
   [YES]          [NO]
@@ -167,7 +167,7 @@ LLM 스켈레톤    sp_code에 누적
      ↓              ↓
      └──────┬───────┘
             ↓
-   total_tokens ≥ 1500?
+   total_tokens ≥ 1000?
             ↓ YES
    ┌─────────────────────────┐
    │ 🎯 변수/JPA 수집 시작   │
@@ -201,50 +201,13 @@ LLM 스켈레톤    sp_code에 누적
 ```
 
 **핵심 메커니즘:**
-1. **배치 처리**: 토큰이 1500에 도달할 때까지 노드를 누적한 후, 한 번에 LLM 호출
+1. **배치 처리**: 토큰이 1000에 도달할 때까지 노드를 누적한 후, 한 번에 LLM 호출
 2. **변수/JPA 수집**: 임계 도달 시에만 `sp_range` 범위에서 필요한 변수/JPA 메서드 필터링
 3. **대용량 노드 처리**: 큰 노드(IF/FOR/LOOP 등)는 스켈레톤만 생성하고 `...code...` 플레이스홀더 삽입
 4. **단일 컨텍스트**: `merged_java_code`에 모든 결과를 순차적으로 누적
 5. **Parent Context 전달**: 자식 노드 처리 시 부모의 Java 스켈레톤을 함께 전달하여 변수 스코프 및 제어 흐름 이해 향상
-6. **LLM 임의 로직 방지**: 프롬프트에 "원본 PL/SQL 구조를 정확히 따르고, 임의로 return 문이나 검증 로직을 추가하지 마세요" 지침 포함
-
-**📌 후처리 단계 (`create_service_postprocessing.py`)**
-
-```
-┌──────────────────────────────────────────────────────┐
-│     TRY-CATCH 조립 및 최종 코드 완성                   │
-└──────────────────────────────────────────────────────┘
-         ↓
-   [노드 순회 시작]
-         ↓
-   ┌─────────────────┐
-   │ 노드 타입 확인   │
-   └─────────────────┘
-      ↙     ↓     ↘
-   [TRY] [EXCEPTION] [일반]
-     ↓       ↓        ↓
-try_catch_code  케이스 분류  all_java_code
-    버퍼에 누적         ↓         에 누적
-              ┌──────┴──────┐
-              ↓              ↓
-        TRY 있음?       TRY 없음
-              ↓              ↓
-    try_catch_code를   all_java_code를
-    EXCEPTION의        EXCEPTION의
-    CodePlaceHolder에  CodePlaceHolder에
-    삽입               삽입
-              ↓              ↓
-        └──────┬──────┘
-               ↓
-    [최종 코드 완성]
-```
-
-**EXCEPTION 노드 처리 규칙:**
-1. **TRY 노드**: `try_catch_code` 버퍼에 임시 저장
-2. **EXCEPTION 노드 감지 시**:
-   - TRY 있음: TRY 코드를 EXCEPTION의 try 블록에 삽입
-   - TRY 없음: 지금까지의 모든 코드를 EXCEPTION의 try 블록에 삽입
-3. **CodePlaceHolder 치환**: 1회만 치환하여 중복 방지
+6. **TRY-EXCEPTION 처리**: TRY 노드를 버퍼에 누적하고, EXCEPTION 노드 발견 시 try-catch 블록으로 조립
+7. **LLM 임의 로직 방지**: 프롬프트에 "원본 PL/SQL 구조를 정확히 따르고, 임의로 return 문이나 검증 로직을 추가하지 마세요" 지침 포함
 
 ### 📥 3단계: 다운로드 (Download)
 
@@ -452,7 +415,8 @@ NEO4J_PASSWORD=your-password-here
 # LLM API 설정 (OpenAI 호환)
 LLM_API_BASE=https://api.openai.com/v1
 LLM_API_KEY=sk-your-api-key-here
-LLM_MODEL=model
+LLM_MODEL=gpt-4.1
+LLM_MAX_TOKENS=32768
 ```
 
 **⚠️ 보안 주의사항:**
@@ -884,8 +848,7 @@ Backend/
 │   ├── create_entity.py            # JPA Entity 생성
 │   ├── create_repository.py        # Repository 인터페이스 생성
 │   ├── create_service_skeleton.py  # Service 클래스 뼈대 생성
-│   ├── create_service_preprocessing.py   # Service 전처리 (토큰 임계 기반 배치 처리)
-│   ├── create_service_postprocessing.py  # Service 후처리 (TRY-CATCH 조립)
+│   ├── create_service_preprocessing.py   # Service 전처리 (토큰 임계 기반 배치 처리 및 TRY-CATCH 조립)
 │   ├── create_controller_skeleton.py     # Controller 뼈대 생성
 │   ├── create_controller.py        # Controller 메서드 생성
 │   ├── create_main.py              # Main 클래스 생성
@@ -901,11 +864,10 @@ Backend/
 │   ├── convert_repository_prompt.py       # Repository 변환 프롬프트
 │   ├── convert_service_prompt.py          # Service 변환 프롬프트
 │   ├── convert_service_skeleton_prompt.py # Service 뼈대 프롬프트
+│   ├── convert_summarized_service_prompt.py # Service 요약 프롬프트
 │   ├── convert_controller_prompt.py       # Controller 변환 프롬프트
 │   ├── convert_command_prompt.py          # Command 클래스 프롬프트
-│   ├── convert_variable_prompt.py         # 변수 변환 프롬프트
-│   ├── convert_project_name_prompt.py     # 프로젝트명 생성 프롬프트
-│   └── convert_summarized_service_prompt.py # Service 요약 프롬프트
+│   └── convert_variable_prompt.py         # 변수 변환 프롬프트
 │
 ├── 📁 util/                        # 유틸리티
 │   ├── utility_tool.py             # 공통 유틸 함수 (라인 번호, 토큰 계산 등)
@@ -914,12 +876,8 @@ Backend/
 │
 └── 📁 test/                        # 테스트 코드
     ├── test_understanding.py       # 이해 단계 테스트
-    └── test_converting/            # 변환 단계 테스트
-        ├── test_1_entity.py
-        ├── test_2_repository.py
-        ├── test_3_service_skeleton.py
-        ├── test_4_service.py
-        └── test_5_controller.py
+    ├── test_converting.py          # 변환 단계 테스트
+    └── test_converting_results.json # 테스트 결과 저장 파일
 ```
 
 ### 주요 모듈 설명
@@ -927,45 +885,56 @@ Backend/
 #### 📡 `service/router.py`
 API 엔드포인트를 정의하고 요청을 처리합니다.
 
-**주요 함수:**
-- `understand_data()`: `/cypherQuery/` 엔드포인트
-- `covnert_spring_project()`: `/springBoot/` 엔드포인트
-- `download_spring_project()`: `/downloadJava/` 엔드포인트
-- `delete_all_data()`: `/deleteAll/` 엔드포인트
+**주요 엔드포인트:**
+- `understand_data()`: `/cypherQuery/` - PL/SQL 코드 분석
+- `convert_spring_project()`: `/springBoot/` - Spring Boot 프로젝트 생성
+- `download_spring_project()`: `/downloadJava/` - ZIP 파일 다운로드
+- `delete_all_data()`: `/deleteAll/` - 데이터 삭제
 
-#### ⚙️ `service/service.py`
-이해/변환 파이프라인의 핵심 로직을 구현합니다.
+#### ⚙️ `service/service.py` - ServiceOrchestrator 클래스
+이해/변환 파이프라인의 핵심 오케스트레이션을 담당합니다.
 
-**주요 함수:**
-- `generate_and_execute_cypherQuery()`: 이해 단계 실행
-- `process_ddl_and_table_nodes()`: DDL 파일 분석
-- `postprocess_table_variables()`: 변수 타입 보정 및 컬럼 역할 산출
-- `generate_spring_boot_project()`: 변환 단계 실행
-- `process_project_zipping()`: ZIP 압축
-- `delete_all_temp_data()`: 데이터 삭제
-- `validate_anthropic_api_key()`: API 키 검증
+**주요 메서드:**
+- `validate_api_key()`: LLM API 키 검증
+- `understand_project()`: PL/SQL 분석 파이프라인 실행
+  - `_analyze_file()`: 단일 파일 분석
+  - `_postprocess_file()`: 변수 타입 해석 및 컬럼 역할 산출
+  - `_process_ddl()`: DDL 파일 처리
+  - `_ensure_folder_node()`: 폴더 노드 생성
+- `convert_to_springboot()`: Spring Boot 프로젝트 생성 파이프라인 실행
+- `zip_project()`: 프로젝트 ZIP 압축
+- `cleanup_all_data()`: 사용자 데이터 전체 삭제 (파일 + Neo4j)
 
 #### 🔍 `understand/analysis.py`
 ANTLR AST를 DFS 순회하며 코드를 분석합니다.
 
 **주요 클래스:**
 - `Analyzer`: AST 분석기
-  - `__init__(antlr_data, file_content, send_queue, receive_queue, last_line, folder_name, file_name, user_id, api_key, locale, dbms, project_name)`: 생성자
-  - `run()`: 분석 실행 (DFS 순회 시작→잔여 배치 플러시→완료 이벤트 송신)
-  - `analyze_statement_tree(node, schedule_stack, parent_startLine, parent_statementType)`: 구문 트리 DFS 순회 및 분석
-  - `execute_analysis_and_reset_state(statement_type)`: LLM 분석 실행 및 상태 초기화
-  - `process_analysis_output_to_cypher(analysis_result)`: LLM 분석 결과를 사이퍼 쿼리로 변환
-  - `analyze_variable_declarations(declaration_code, node_startLine, statement_type)`: 변수 선언부 분석 (SPEC/DECLARE/PACKAGE_VARIABLE)
-  - `send_analysis_event_and_wait(node_end_line, statement_type)`: 분석 결과 이벤트 송신 및 완료 대기
+  - `__init__()`: 생성자 - ANTLR 데이터, 파일 내용, 큐, 사용자 정보 등 초기화
+  - `run()`: 전체 분석 파이프라인 실행 (DFS 순회→잔여 배치 플러시→완료 이벤트 송신)
+  - `analyze_statement_tree()`: 구문 트리 DFS 순회 및 분석
+    - 노드/관계 생성
+    - 요약 코드 조립
+    - 토큰 임계 도달 시 배치 플러시
+  - `execute_analysis_and_reset_state()`: LLM 분석 실행 및 상태 초기화
+  - `process_analysis_output_to_cypher()`: LLM 분석 결과를 사이퍼 쿼리로 변환
+    - 변수 사용 기록
+    - 프로시저 호출 관계 생성
+    - 테이블 관계 생성
+    - FK 관계 및 DBLink 처리
+  - `analyze_variable_declarations()`: 변수 선언부 분석 (SPEC/DECLARE/PACKAGE_VARIABLE)
+  - `send_analysis_event_and_wait()`: 분석 결과 이벤트 송신 및 Neo4j 저장 완료 대기
 
 #### 🗄️ `understand/neo4j_connection.py`
 Neo4j 데이터베이스 연결 및 쿼리 실행을 담당합니다.
 
 **주요 클래스:**
 - `Neo4jConnection`: Neo4j 비동기 드라이버 래퍼
-  - `execute_queries()`: 다중 쿼리 실행
-  - `execute_query_and_return_graph()`: 그래프 조회
-  - `node_exists()`: 노드 존재 확인
+  - `__init__()`: 환경변수에서 연결 정보를 읽어 드라이버 초기화
+  - `close()`: 데이터베이스 연결 종료
+  - `execute_queries()`: 사이퍼 쿼리 순차 실행 및 결과 반환
+  - `execute_query_and_return_graph()`: 노드/관계 조회하여 그래프 딕셔너리로 반환
+  - `node_exists()`: 노드 존재 여부 확인
 
 #### 🔨 `convert/*`
 Spring Boot 프로젝트의 각 구성 요소를 생성합니다.
@@ -974,9 +943,8 @@ Spring Boot 프로젝트의 각 구성 요소를 생성합니다.
 |-----|----------|----------|
 | `create_entity.py` | JPA Entity 클래스 | DDL 테이블을 Entity로 변환 |
 | `create_repository.py` | Repository 인터페이스 | 데이터 접근 계층 생성 |
-| `create_service_skeleton.py` | Service 클래스 뼈대 | 메서드 시그니처 생성 |
-| `create_service_preprocessing.py` | Service 메서드 바디 | **토큰 임계(1500) 기반 배치 처리**<br/>- 노드 순회하며 sp_code 누적<br/>- 임계 도달 시 변수/JPA 수집 후 LLM 호출<br/>- 대용량 노드는 스켈레톤 생성 후 자식 삽입<br/>- **Parent Context 전달**로 변수 스코프 및 제어 흐름 이해 향상 |
-| `create_service_postprocessing.py` | Service TRY-CATCH 조립 | **EXCEPTION 노드 특수 처리**<br/>- TRY 노드 버퍼 관리<br/>- EXCEPTION 노드와 매칭하여 조립<br/>- CodePlaceHolder 치환 |
+| `create_service_skeleton.py` | Service 클래스 뼈대 | 메서드 시그니처 생성<br/>- 프로시저/함수별 메서드 시그니처 생성<br/>- Command 클래스 자동 생성 |
+| `create_service_preprocessing.py` | Service 메서드 바디 | **토큰 임계(1000) 기반 배치 처리**<br/>- 노드 순회하며 sp_code 누적<br/>- 임계 도달 시 변수/JPA 수집 후 LLM 호출<br/>- 대용량 노드는 스켈레톤 생성 후 자식 삽입<br/>- **Parent Context 전달**로 변수 스코프 및 제어 흐름 이해 향상<br/>- **TRY-EXCEPTION 처리**: TRY 노드 버퍼 관리 및 조립 |
 | `create_controller_skeleton.py` | Controller 뼈대 | REST API 엔드포인트 골격 |
 | `create_controller.py` | Controller 메서드 | HTTP 요청 처리 로직 |
 | `create_main.py` | Main 클래스 | Spring Boot 애플리케이션 진입점 |
@@ -995,29 +963,51 @@ LLM에게 전달할 프롬프트를 정의합니다.
 **변환 단계 프롬프트:**
 - `convert_entity_prompt.py`: Entity 클래스 생성
 - `convert_repository_prompt.py`: Repository 인터페이스 생성
+- `convert_service_skeleton_prompt.py`: Service 메서드 시그니처 생성
 - `convert_service_prompt.py`: **Service 메서드 바디 생성** (토큰 임계 시 호출)
   - ✅ Parent Context 지원 (부모 노드의 Java 스켈레톤 전달)
   - ✅ 원본 구조 유지 지침 (임의 return/if 문 방지)
   - ✅ 변수 타입 및 제어 흐름 정확성 강화
-- `convert_service_skeleton_prompt.py`: Service 메서드 시그니처 생성
 - `convert_summarized_service_prompt.py`: **대용량 노드 스켈레톤 생성** (자식을 `...code...`로 요약)
 - `convert_controller_prompt.py`: Controller 메서드 생성
 - `convert_command_prompt.py`: Command 클래스 생성
 - `convert_variable_prompt.py`: 변수 변환
 
+#### 🛠️ `util/llm_client.py`
+LLM API 클라이언트를 생성합니다.
+
+**주요 함수:**
+- `get_llm()`: ChatOpenAI 클라이언트 생성
+  - 환경변수 또는 파라미터로 API 키, 모델, base URL 설정
+  - 기본 모델: `gpt-4.1`
+  - 기본 base URL: `https://api.openai.com/v1`
+- `resolve_defaults()`: 환경변수 기본값 해결
+- `get_openai_client()`: OpenAI 클라이언트 생성
+
 #### 🛠️ `util/utility_tool.py`
 공통 유틸리티 함수를 제공합니다.
 
-**주요 함수:**
-- `add_line_numbers()`: 코드에 라인 번호 추가
-- `calculate_code_token()`: 토큰 수 계산 (tiktoken 사용)
-- `parse_table_identifier()`: 테이블 식별자 파싱 (schema.table@dblink 분리)
-- `collect_variables_in_range()`: **특정 라인 범위 내 변수 수집** (전처리 단계에서 사용)
-- `extract_used_query_methods()`: **특정 라인 범위 내 JPA 메서드 수집** (전처리 단계에서 사용)
-- `build_variable_index()`: 변수 노드를 startLine 기준으로 인덱싱
+**파일 처리:**
+- `save_file()`: 비동기 파일 저장
+
+**경로 유틸리티:**
+- `build_java_base_path()`: Java 소스 저장 경로 생성
+
+**문자열 변환:**
 - `convert_to_pascal_case()`: 스네이크 케이스 → 파스칼 케이스
 - `convert_to_camel_case()`: 스네이크 케이스 → 카멜 케이스
-- `save_file()`: 비동기 파일 저장
+- `convert_to_upper_snake_case()`: 파스칼/카멜 케이스 → 대문자 스네이크 케이스
+- `add_line_numbers()`: 코드에 라인 번호 추가
+
+**스키마/테이블 파싱:**
+- `parse_table_identifier()`: 테이블 식별자 파싱 (schema.table@dblink 분리)
+
+**코드 분석:**
+- `calculate_code_token()`: 토큰 수 계산 (tiktoken 사용)
+- `build_variable_index()`: 변수 노드를 startLine 기준으로 인덱싱
+- `extract_used_variable_nodes()`: 특정 라인에서 사용된 변수 추출
+- `collect_variables_in_range()`: **특정 라인 범위 내 변수 수집** (전처리 단계에서 사용)
+- `extract_used_query_methods()`: **특정 라인 범위 내 JPA 메서드 수집** (전처리 단계에서 사용)
 
 ---
 
@@ -1092,10 +1082,20 @@ if (condition1) {
 테스트 실행 전 다음 환경 변수를 설정하세요:
 
 ```bash
+# 테스트 세션 UUID (실제 사용자 세션과 구분하기 위한 값)
 export TEST_SESSION_UUID="TestSession_5"
+
+# LLM API 키 (테스트 세션이 EN_TestSession 또는 KO_TestSession이 아닌 경우 필수)
 export LLM_API_KEY="your-api-key"
+
+# 응답 언어 설정
 export TEST_LOCALE="ko"
 ```
+
+**테스트 세션 특수 처리:**
+- `Session-UUID`가 `EN_TestSession` 또는 `KO_TestSession`인 경우
+- 환경 변수의 `LLM_API_KEY` 또는 `API_KEY`를 자동으로 사용
+- 헤더에 API 키를 포함하지 않아도 됨
 
 ### 이해 단계 테스트
 
@@ -1111,29 +1111,15 @@ python test/test_understanding.py
 
 ### 변환 단계 테스트
 
-변환 테스트는 **순서대로** 실행해야 합니다:
-
 ```bash
-# 1. Entity 생성 테스트
-python test/test_converting/test_1_entity.py
-
-# 2. Repository 생성 테스트
-python test/test_converting/test_2_repository.py
-
-# 3. Service 스켈레톤 생성 테스트
-python test/test_converting/test_3_service_skeleton.py
-
-# 4. Service 생성 테스트
-python test/test_converting/test_4_service.py
-
-# 5. Controller 생성 테스트
-python test/test_converting/test_5_controller.py
+# 변환 단계 통합 테스트
+python test/test_converting.py
 ```
 
-**중요:**
-- 각 테스트는 이전 단계의 결과를 사용합니다
-- `test/test_converting/test_results.json`에 중간 결과가 저장됩니다
-- 순서를 지키지 않으면 오류가 발생할 수 있습니다
+**동작:**
+- Entity, Repository, Service, Controller, Main 클래스, Config 파일을 순차적으로 생성
+- `test/test_converting_results.json`에 중간 결과가 저장됨
+- 각 단계는 이전 단계의 결과를 사용하므로 순서대로 실행됨
 
 ### 테스트 데이터 준비
 
