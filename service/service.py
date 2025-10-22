@@ -470,6 +470,7 @@ class ServiceOrchestrator:
                     await start_service_preprocessing(
                         svc_skeleton, cmd_var, proc_name,
                         used_query_methods, folder_name, file_name, sequence_methods,
+                        self.project_name,
                         *common_params
                     )
                     

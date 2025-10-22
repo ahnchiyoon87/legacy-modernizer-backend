@@ -44,7 +44,7 @@ class ServicePreprocessingGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.project_name = project_name
+        self.project_name = project_name or "demo"
 
         # 상태 초기화
         self.merged_java_code = ""
@@ -341,10 +341,10 @@ async def start_service_preprocessing(
     folder_name: str,
     file_name: str,
     sequence_methods: list,
+    project_name: str,
     user_id: str,
     api_key: str,
-    locale: str,
-    project_name: str = "demo"
+    locale: str
 ) -> tuple:
     """
     서비스 전처리 시작
