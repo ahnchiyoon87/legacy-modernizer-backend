@@ -15,6 +15,7 @@ class EntityGenerator:
     레거시 데이터베이스 테이블 정보를 기반으로 JPA Entity 클래스를 자동 생성하는 클래스
     Neo4j에서 테이블 스키마 정보를 조회하고, LLM을 활용하여 Spring Boot JPA Entity로 변환합니다.
     """
+    __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 'entity_results')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
         """
@@ -47,7 +48,9 @@ class EntityGenerator:
         Raises:
             ConvertingError: Entity 생성 중 오류 발생 시
         """
-        logging.info("엔티티 생성을 시작합니다.")
+        logging.info("\n" + "="*80)
+        logging.info("📦 STEP 1: Entity 클래스 생성 시작")
+        logging.info("="*80)
         connection = Neo4jConnection()
         
         try:
@@ -67,14 +70,18 @@ class EntityGenerator:
             """]))[0]
             
             if not table_rows:
-                logging.info("테이블이 발견되지 않았습니다.")
+                logging.info("⚠️  발견된 테이블 없음")
                 return []
+            
+            logging.info(f"📊 조회된 테이블: {len(table_rows)}개")
             
             # 배치 단위로 처리하여 Entity 생성
             self.entity_results = []
             await self._process_tables(table_rows)
             
-            logging.info(f"총 {len(self.entity_results)}개의 엔티티가 생성되었습니다.")
+            logging.info("\n" + "-"*80)
+            logging.info(f"✅ STEP 1 완료: {len(self.entity_results)}개 Entity 클래스 생성 완료")
+            logging.info("-"*80 + "\n")
             return self.entity_results
         
         except ConvertingError:

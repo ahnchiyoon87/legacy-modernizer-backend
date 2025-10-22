@@ -2,10 +2,10 @@ import json
 import logging
 import os
 import time
-from langchain.globals import set_llm_cache
+from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain.prompts import PromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
+from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
 from util.exception import LLMCallError
 from langchain_core.output_parsers import JsonOutputParser
@@ -17,7 +17,7 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 jpa_prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 Stored Procedure Code 전체를 기반으로 서비스 클래스의 메서드 바디 부분을 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
+주어진 Stored Procedure Code 전체를 기반으로 서비스 클래스의 메서드 바디 부분만 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
 
 
 사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
@@ -39,27 +39,107 @@ JPA Method List:
 Sequence Method List:
 {sequence_methods}
 
+Parent Context (부모 노드의 Java 스켈레톤):
+{parent_code}
 
-[SECTION 1] 입력 데이터 설명 및 작업 지시
+
+[SECTION 1] 입력 데이터 설명
 ===============================================
-입력 데이터
-   - Stored Procedure Code: 자바로 변환할 전체 프로시저 코드 블록
-   - Service Signature: 구현할 메서드의 시그니처와 기본 구조
-   - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
-   - JPA Method List: 사용 가능한 JPA 쿼리 메서드 목록
-   - Sequence Method List: 사용 가능한 시퀀스 메서드 목록
+1. Stored Procedure Code
+   - 자바로 변환할 전체 프로시저 코드 블록
+   
+2. Service Signature
+   - 구현할 메서드의 시그니처와 기본 구조
+   - CodePlaceHolder 위치에 코드를 삽입해야 함
+   
+3. Used Variable
+   - 현재 변수들의 할당값 정보 (이전 작업 결과)
+   
+4. JPA Method List
+   - 사용 가능한 JPA 쿼리 메서드 목록
+   
+5. Sequence Method List
+   - 사용 가능한 시퀀스 메서드 목록
 
-주요 작업
-   - 'Service Signature'을 참고하여, CodePlaceHolder 위치에 들어갈 코드를 구현하세요.
-   - 'Service Signature'는 제외하고 메서드 내부의 실제 구현 코드만 결과로 반환하세요.
-   - 자바코드는 클린코드 및 가독성이 좋아야 하며, 들여쓰기가 적용된 상태로 반환하세요.
+6. Parent Context (부모 노드의 Java 스켈레톤)
+   - 현재 처리 중인 코드가 큰 부모 노드의 자식인 경우, 부모의 Java 스켈레톤이 제공됩니다
+   - 부모 스켈레톤에는 '...code...' 플레이스홀더가 있으며, 현재 코드는 이 안에 들어갈 내용입니다
+   - 부모 구조를 참고하여 if/else 조건, 변수 스코프 등을 올바르게 처리하세요
+   - Parent Context가 비어있으면 최상위 레벨 코드입니다
 
 
-[SECTION 2] 전체 코드 블록 처리 규칙
+[SECTION 2] 작업 지침 (반드시 준수)
 ===============================================
-1. 본 작업은 단일 코드 블록을 입력으로 받아, 단일 Java 코드 문자열을 산출합니다.
-2. 별도의 라인 범위 분할/중첩 처리는 수행하지 않습니다.
-3. CHR(10)가 식별되는 경우 줄바꿈 \n으로 처리하지 말고 무시하세요.
+
+⚠️⚠️⚠️ 최우선 원칙: SP 코드의 의미와 흐름을 그대로 유지 ⚠️⚠️⚠️
+
+1. Parent Context 활용 (부모 노드가 있는 경우)
+   - Parent Context가 제공되면, 현재 SP 코드는 부모 Java 스켈레톤의 '...code...' 부분에 들어갈 코드입니다
+   - 부모 스켈레톤의 if/else/while/for 구조를 참고하여 현재 코드의 위치를 파악하세요
+   - 부모에서 이미 선언된 변수는 재선언하지 마세요
+   - 부모의 조건문 내부에 있다면, 해당 스코프에 맞게 코드를 생성하세요
+   - Parent Context가 비어있으면 최상위 레벨 코드입니다.
+
+2. 로직 충실성 (가장 중요!)
+   - 원본 Stored Procedure의 로직 흐름, 순서, 의미를 절대 변경하지 마세요
+   - SP 코드에 있는 그대로를 Java로 충실히 번역만 하세요
+   - 임의로 로직을 재구성, 최적화, 단순화하지 마세요
+   - 코드 순서를 바꾸지 마세요
+
+3. 제어 구조 정확성
+   A. IF-ELSIF-ELSE 변환 (매우 중요!)
+      원칙:
+      - SP의 IF-ELSIF-ELSE는 반드시 Java의 if-else if-else로 변환하세요
+      - ELSIF를 중첩 if로 변환하면 안 됩니다! (절대 금지)
+      - 조건의 순서를 절대 바꾸지 마세요
+      - 조건을 병합하거나 분리하지 마세요
+      
+      예시 1) 원본 SP 코드:
+      IF vCount = 0 AND pAction = 'A' THEN
+         코드블록1
+      ELSIF vCount = 0 THEN
+         코드블록2
+      END IF;
+      
+      ✅ 올바른 Java 변환 (else if 사용):
+      if (vCount == 0 && pAction.equals("A")) {{
+         코드블록1
+      }} else if (vCount == 0) {{
+         코드블록2
+      }}
+      
+      ❌ 절대 금지 - 잘못된 변환 (중첩 if):
+      if (vCount == 0 && pAction.equals("A")) {{
+         코드블록1
+         if (vCount == 0) {{  // ← 이렇게 중첩하면 안됨!
+            코드블록2
+         }}
+      }}
+      
+      핵심 차이:
+      - ELSIF는 첫 번째 IF와 **같은 레벨**의 조건 분기입니다
+      - else if는 첫 번째 if가 **거짓일 때** 실행됩니다
+      - 중첩 if는 첫 번째 if가 **참일 때** 실행됩니다 (완전히 반대 의미!)
+      
+   B. 중첩 구조 유지
+      - 원본에 중첩된 IF가 있다면 Java에서도 정확히 같은 레벨로 중첩하세요
+      - 중첩 깊이(depth)를 변경하지 마세요
+      
+   C. 반복문 구조
+      - LOOP, FOR 등 반복 로직을 정확히 유지하세요
+      - 반복 순서, 조건, 범위를 변경하지 마세요
+      
+   D. RETURN 문 위치
+      - SP 코드의 RETURN 위치를 정확히 유지하세요
+      - 임의로 early return으로 변경하지 마세요
+
+   즉, SP 코드의 원본 의미 및 순서 흐름을 그대로 유지하고 커스텀 및 변형하지 말 것
+
+3. 출력 형식
+   - 전달된 Stored Procedure Code만 정확히 자바로 전환하세요
+   - 메서드 시그니처(public ... method(...))는 절대 포함하지 마세요!
+   - 오직 메서드 내부의 실행 코드만 반환하세요!
+   - 클린코드 및 가독성이 좋아야 하며, 들여쓰기를 적용하세요
 
 
 [SECTION 3] 프로시저 호출 처리 규칙
@@ -146,42 +226,16 @@ Sequence Method List:
 5. DELETE 구문
    - 적절한 삭제 메서드 사용
 
-  
-[SECTION 5] 예외 처리 규칙
-===============================================
-1. 기본 원칙
-   - 'EXCEPTION' 키워드가 있는 코드 범위만 try-catch로 변환
-   - 다른 모든 코드는 예외 처리 없이 순수 자바 코드로 변환
-   - try 블록 내용은 항상 'CodePlaceHolder' 문자열로 유지
-
-2. 예외 처리 패턴   
-   try {{
-      CodePlaceHolder
-   }} catch (Exception e) {{
-      * // EXCEPTION 블록의 변환 코드
-   }}
-
-   예시:
-      * 원본 PL/SQL:
-      203: 203: INSERT INTO TABLE VALUES row;
-      204: 204: EXCEPTION WHEN OTHERS THEN
-      205: 205:     RAISE_APPLICATION_ERROR(-20102, SQLERRM);
+6. 시퀀스 처리
+   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)이 식별되면 Sequence Method List 확인
+   - Sequence Method List에 해당 시퀀스 필드가 존재하는 경우, 해당 시퀀스 메서드를 사용
    
-      * 자바 변환 결과:
-      203~203: "repository.save(entity);"  
-      204~205: "try {{ 
-                  CodePlaceHolder 
-               }} catch (Exception e) {{ 
-                     throw new RuntimeException(\"Cannot insert: \" + e.getMessage());
-               }}"
-      
-3. 주의사항
-   - try 블록에는 반드시 'CodePlaceHolder' 문자열만 사용
-   - EXCEPTION 키워드가 없는 코드는 절대 try-catch로 감싸지 않음
-   - 코드 포맷은 들여쓰기가 적용된 상태로 반환하세요.
+   * 예시:
+   - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
+   - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
 
-    
-[SECTION 6] 변수 처리 규칙
+
+[SECTION 5] 변수 처리 규칙
 ===============================================
 1. 변수 추적 원칙
    A. 추적 대상
@@ -203,7 +257,11 @@ Sequence Method List:
    A. 기본 원칙
       - 'Used Variable' 목록의 변수는 재선언 금지
       - 'Service Signature'에 있는 필드(변수)는 재선언 금지
-      - 필요한 경우에만 새 변수 선언
+      - 새 변수 선언 조건:
+        * 'Service Signature'에 존재하지 않는 변수 AND
+        * 'Used Variable' 목록에도 정보가 없는 경우
+        * → 해당 변수를 새로 선언하세요
+      - 변수 선언 시 SP 코드의 데이터 타입을 Java 타입으로 매핑하여 선언
 
    B. 객체 타입 변수 처리
       올바른 예:    
@@ -228,7 +286,7 @@ Sequence Method List:
          Integer vCount = 1;
 
               
-[SECTION 7] 날짜/시간 처리 규칙
+[SECTION 6] 날짜/시간 처리 규칙
 ===============================================
 1. 필드명에 Time이 포함된 경우(*Time, *DateTime, *At으로 끝나는 필드)
    - 해당 필드는 무조건 LocalDateTime 타입이므로, 형변환이 필요하다면 아래
@@ -242,19 +300,8 @@ Sequence Method List:
    * 올바른 예
    vRow.setEndTime(vCurrentTime.atTime(LocalTime.now()));     // 현재 시간 포함
 
-   
-[SECTION 8] SQL 구문 처리 규칙
-=============================================== 
-1. 시퀀스 처리
-   - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)이 식별되면 Sequence Method List 확인
-   - Sequence Method List에 해당 시퀀스 필드가 존재하는 경우, 해당 시퀀스 메서드를 사용
-   
-   * 예시:
-   - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
-   - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
-
               
-[SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙
+[SECTION 7] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
    줄바꿈은 반드시 \n으로 표현할 것 (실제 줄바꿈 사용 금지)
@@ -277,25 +324,38 @@ Sequence Method List:
 
     
 [ **IMPORTANT 반드시 지켜야하는 필수 사항  ** ]
-1. 프로시저 호출 로직 식별시 절대로 JPA 쿼리 메서드를 사용하지마세요. 이건 단순히 서비스 클래스 내에 메서드 호출일 뿐입니다:
+
+1. 가장 중요: 메서드 바디만 반환
+- 절대로 메서드 시그니처를 포함하지 마세요!
+- 오직 메서드 {{ }} 안의 내용만 반환하세요!
+
+잘못된 예시:
+public ResponseEntity<?> handleMethod(...) {{
+      int x = 0;
+      return ResponseEntity.ok("success");
+}}
+
+올바른 예시:
+int x = 0;
+return ResponseEntity.ok("success");
+
+2. 프로시저 호출 로직 식별시 절대로 JPA 쿼리 메서드를 사용하지마세요. 이건 단순히 서비스 클래스 내에 메서드 호출일 뿐입니다:
    올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
    잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // JPA 쿼리 메서드를 사용하면 안됨
    프로시저 호출시 이름이 GET_ROW, INPUT, DELETE 등의 이름이 포함되어 있어도, 그냥 메서드 호출 로직으로만 전환하고, Mapper 메서드는 절대 사용하지 않습니다.
    * 예 : p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환, INPUT(vRow) -> input(vRow) // 프로시저 호출을 단순 메서드 호출 형태로 전환
    
-2. 본 작업은 단일 코드 변환이며, 결과의 'code'는 반드시 하나의 문자열이어야 합니다.
-
-3. Exception에 해당하는 구문 처리시 try문에는 'CodePlaceHolder'만 있어야합니다. 
+3. 본 작업은 단일 코드 변환이며, 결과의 'code'는 반드시 하나의 문자열이어야 합니다.
 
 4. 'CHR(10)'가 식별되는 경우 줄바꿈 '\n'으로 처리하지 말고 무시하세요.
 
 
-[SECTION 10] JSON 출력 형식
+[SECTION 8] JSON 출력 형식
 ===============================================
 부가 설명 없이 결과만을 포함하여, 백틱이 없이 다음과 같은 dictionary(사전) 형태의 순수 JSON 형식으로 반환하세요:
 {{
    "analysis": {{
-      "code": "Java Code",
+      "code": "메서드 바디 내용만 (메서드 시그니처 제외, 중괄호 제외)",
       "variables": {{
          "name": "initialized value and role",
          "name": "initialized value and role"
@@ -305,7 +365,7 @@ Sequence Method List:
 """)
 
 
-def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, query_method_list: str, sequence_methods:list, api_key: str, locale: str) -> dict:
+def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, query_method_list: str, sequence_methods:list, api_key: str, locale: str, parent_code: str = "") -> dict:
     
     try:  
         command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
@@ -316,7 +376,8 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
             "command_variables": command_class_variable,
             "query_method_list": query_method_list,
             "sequence_methods": sequence_methods,
-            "locale": locale
+            "locale": locale,
+            "parent_code": parent_code
         }
         
         llm = get_llm(max_tokens=8192, api_key=api_key)

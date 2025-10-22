@@ -3,164 +3,106 @@ import json
 import logging
 import re
 from prompt.understand_summarized_prompt import understand_summary
-import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
 from util.exception import (LLMCallError, UnderstandingError, ProcessAnalyzeCodeError)
 from util.utility_tool import calculate_code_token, parse_table_identifier
 
 
-encoder = tiktoken.get_encoding("cl100k_base")
-
-
-
 # ==================== 섹션: 상수 정의 ====================
-# 본 모듈 전반에서 사용하는 구문 타입/분석 제어용 상수를 정의합니다.
-PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER"]
-NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE","FUNCTION", "DECLARE", "TRIGGER", "FOLDER", "SPEC"]
-NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"]
-
+PROCEDURE_TYPES = ("PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER")
+NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "FOLDER", "SPEC"])
+NON_NEXT_RECURSIVE_TYPES = frozenset(["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"])
+LINE_NUMBER_PATTERN = re.compile(r'^\d+\s*:')
+PROCEDURE_PATTERN = re.compile(
+    r"\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?)?"
+    r"(?:PROCEDURE|FUNCTION|TRIGGER)\s+"
+    r"((?:\"[^\"]+\"|[A-Za-z_][\w$#]*)"
+    r"(?:\s*\.\s*(?:\"[^\"]+\"|[A-Za-z_][\w$#]*)){0,2})",
+    re.IGNORECASE
+)
+_TABLE_RELATIONSHIP_MAP = {
+    "SELECT": "FROM", "FETCH": "FROM",
+    "UPDATE": "WRITES", "INSERT": "WRITES", "DELETE": "WRITES", "MERGE": "WRITES",
+    "EXECUTE_IMMEDIATE": "EXECUTE", "ASSIGNMENT": "EXECUTE", "CALL": "EXECUTE"
+}
+_LINE_NUMBER_WITH_RANGE_PATTERN = re.compile(r'^(\d+)(?:~\d+)?:\s')
+_LINE_NUMBER_PREFIX_PATTERN = re.compile(r'^\d+\s*:\s*', re.MULTILINE)
+_DOT_SPLIT_PATTERN = re.compile(r"\s*\.\s*")
+_CYPHER_ESCAPE_TABLE = str.maketrans({'\n': '\\n', "'": "\\'"})
+_VARIABLE_ROLE_MAP = {
+    'PACKAGE_VARIABLE': '패키지 전역 변수',
+    'DECLARE': '변수 선언및 초기화',
+    'SPEC': '함수 및 프로시저 입력 매개변수'
+}
 
 # ==================== 섹션: 유틸리티 헬퍼 ====================
 # 공통적으로 사용하는 문자열 처리, 범위 추출, 토큰 기준 판단 등의 헬퍼입니다.
 def get_statement_type(start_line: int, end_line: int, node_statement_types: set[str]) -> str | None:
-    """역할:
-    - 저장된 `"TYPE_start_end"` 표기 집합에서 `(start_line, end_line)`과 일치하는 항목을 찾아 TYPE을 반환합니다.
-
-    매개변수:
-    - start_line (int): 구문 노드의 시작 라인 번호.
-    - end_line (int): 구문 노드의 종료 라인 번호.
-    - node_statement_types (set[str]): `"TYPE_start_end"` 형식의 식별자 문자열 집합.
-
-    반환값:
-    - Optional[str]: 매칭되는 TYPE 문자열. 매칭이 없으면 None.
-    """
-    entry = next((e for e in node_statement_types if e.endswith(f"_{start_line}_{end_line}")), None)
+    """저장된 TYPE_start_end 표기에서 TYPE 추출 (최적화: suffix 직접 생성)"""
+    suffix = f"_{start_line}_{end_line}"
+    entry = next((e for e in node_statement_types if e.endswith(suffix)), None)
     return entry.rsplit('_', 2)[0] if entry else None
 
 
 def get_table_relationship(statement_type: str | None) -> str | None:
-    """역할:
-    - 구문 타입을 테이블 관계 라벨로 매핑합니다. SELECT→FROM, DML→WRITES, EXECUTE_IMMEDIATE→EXECUTE.
-
-    매개변수:
-    - statement_type (Optional[str]): 구문 타입 라벨.
-
-    반환값:
-    - Optional[str]: 테이블 관계 라벨(FROM/WRITES/EXECUTE). 매핑되지 않으면 None.
-    """
-    if statement_type in ["SELECT", "FETCH"]:
-        return "FROM"
-    if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"]:
-        return "WRITES"
-    if statement_type in ["EXECUTE_IMMEDIATE", "ASSIGNMENT", "CALL"]:
-        return "EXECUTE"
-    return None
+    """구문 타입을 테이블 관계 라벨로 매핑 (O(1) 딕셔너리 조회)"""
+    return _TABLE_RELATIONSHIP_MAP.get(statement_type) if statement_type else None
 
 
 def is_over_token_limit(node_token: int, sp_token: int, context_len: int) -> bool:
-    """역할:
-    - 토큰 임계치(개별 노드/누적/범위 개수) 도달 여부를 판단해 배치 플러시 필요성을 결정합니다.
-
-    매개변수:
-    - node_token (int): 현재 노드 코드의 토큰 수.
-    - sp_token (int): 누적된 스토어드 프로시저 컨텍스트 토큰 수.
-    - context_len (int): 누적된 분석 범위(context_range) 구간 수.
-
-    반환값:
-    - bool: 임계치 도달 시 True, 아니면 False.
-    """
-    return (
-        (node_token >= 1000 and context_len and node_token + sp_token >= 1000)
-        or (sp_token >= 1000 and context_len)
-        or (context_len >= 10)
-    )
+    """토큰 임계치 도달 여부 판단 (배치 플러시 필요성 결정)"""
+    return (context_len >= 10) or (context_len and (
+        (sp_token >= 1000) or (node_token >= 1000 and node_token + sp_token >= 1000)
+    ))
 
 
 def escape_for_cypher_multiline(text: str) -> str:
-    """역할:
-    - Cypher 쿼리에 안전하게 포함되도록 개행과 작은따옴표를 이스케이프합니다.
+    """Cypher 쿼리용 이스케이프 (최적화: translate 사용)"""
+    return text.translate(_CYPHER_ESCAPE_TABLE)
 
-    매개변수:
-    - text (str): 원본 문자열.
-
-    반환값:
-    - str: 이스케이프 처리된 문자열.
-    """
-    return text.replace('\n', '\\n').replace("'", "\\'")
-    
 
 def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str, int]:
-    """역할:
-    - 라인 번호 접두가 포함된 `code`에서 `context_range`의 최소 시작~최대 종료 라인 사이만 발췌합니다.
-
-    매개변수:
-    - code (str): 라인 번호 접두가 포함된 누적 코드 문자열.
-    - context_range (list[dict]): `{"startLine": int, "endLine": int}` 형태의 구간 리스트.
-
-    반환값:
-    - tuple[str, int]: (발췌된 코드 문자열, 최종 end_line).
-    """
+    """라인 번호 접두가 포함된 code에서 context_range의 범위만 발췌"""
     try:
-        if not (code and context_range):
+        if not context_range:
             return "", 0
+        if not code:
+            return "", max(r['endLine'] for r in context_range)
 
-        start_line = min(range_item['startLine'] for range_item in context_range)
-        end_line = max(range_item['endLine'] for range_item in context_range)
-        code_lines = code.split('\n')
-        line_number_pattern = r'^(\d+)(?:~\d+)?:\s'
+        start_line = min(r['startLine'] for r in context_range)
+        end_line = max(r['endLine'] for r in context_range)
         
-        extracted_lines = []
-        for line in code_lines:
-            match = re.match(line_number_pattern, line)
-            if match:
-                line_number = int(match.group(1))
-                if start_line <= line_number <= end_line:
-                    extracted_lines.append(line)
+        # 리스트 컴프리헨션으로 최적화
+        extracted_lines = [
+            line for line in code.split('\n')
+            if (match := _LINE_NUMBER_WITH_RANGE_PATTERN.match(line))
+            and start_line <= int(match.group(1)) <= end_line
+        ]
 
-        extracted_code = '\n'.join(extracted_lines)
-        return extracted_code, end_line
+        return '\n'.join(extracted_lines), end_line
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 범위내에 코드 추출 도중에 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessAnalyzeCodeError(err_msg)
 
-
 def get_procedure_name(code: str) -> tuple[str | None, str | None]:
-    """역할:
-    - PL/SQL 선언부(또는 CREATE 구문)에서 PROCEDURE/FUNCTION/TRIGGER의 이름을 정규식으로 추출합니다.
-
-    매개변수:
-    - code (str): 라인 번호 접두가 포함될 수 있는 원본 코드 조각.
-
-    반환값:
-    - tuple[Optional[str], Optional[str]]: (schema_name, name)
-
-    """
+    """PL/SQL 선언부에서 PROCEDURE/FUNCTION/TRIGGER 이름 추출"""
     try:
-        normalized = re.sub(r'^\d+\s*:\s*', '', code, flags=re.MULTILINE)
-
-        # 전체 식별자에서 최대 2개의 점까지 허용
-        pattern = re.compile(
-            r"\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?)?"
-            r"(?:PROCEDURE|FUNCTION|TRIGGER)\s+"
-            r"((?:\"[^\"]+\"|[A-Za-z_][\w$#]*)"
-            r"(?:\s*\.\s*(?:\"[^\"]+\"|[A-Za-z_][\w$#]*)){0,2})",
-            re.IGNORECASE
-        )
-
-        match = pattern.search(normalized)
+        normalized = _LINE_NUMBER_PREFIX_PATTERN.sub('', code)
+        match = PROCEDURE_PATTERN.search(normalized)
         if not match:
             return None, None
 
-        full = match.group(1)
-        parts = [p.strip().strip('"') for p in re.split(r"\s*\.\s*", full)]
-        if len(parts) == 3:
+        parts = [p.strip().strip('"') for p in _DOT_SPLIT_PATTERN.split(match.group(1))]
+        parts_len = len(parts)
+        
+        if parts_len == 3:
             return parts[0], f"{parts[1]}.{parts[2]}"
-        if len(parts) == 2:
+        if parts_len == 2:
             return parts[0], parts[1]
-        if len(parts) == 1:
+        if parts_len == 1:
             return None, parts[0]
         return None, None
     except Exception as e:
@@ -168,68 +110,47 @@ def get_procedure_name(code: str) -> tuple[str | None, str | None]:
         return None, None
 
 
+def _format_line_with_number(line: str, line_number: int) -> str:
+    """라인 번호 접두 처리 헬퍼"""
+    return f"{line}\n" if LINE_NUMBER_PATTERN.match(line) else f"{line_number}: {line}\n"
+
+
 def summarize_with_placeholders(file_content: str, node: dict) -> str:
-    """역할:
-    - 노드 범위의 코드를 가져오되 자식 범위는 `"start: ... code ..."` 플레이스홀더로 치환합니다.
-    - 라인 번호 접두를 유지하여 추후 라인 매핑을 가능케 합니다.
-
-    매개변수:
-    - file_content (str): 전체 파일 내용.
-    - node (dict): `{"startLine": int, "endLine": int, "children": list[dict]}` 형태의 노드.
-
-    반환값:
-    - str: 요약된 코드 문자열.
-    """
-
-    def summarize_code(start_line, end_line, children):
-
-        lines = file_content.split('\n')  
-        code_lines = lines[start_line-1:end_line]
+    """노드 범위의 코드를 가져오되 자식 범위는 플레이스홀더로 치환"""
+    try:
+        start_line, end_line = node['startLine'], node['endLine']
+        code_lines = file_content.split('\n')[start_line-1:end_line]
+        children = node.get('children')
+        
+        if not children:
+            return ''.join(_format_line_with_number(line, i + start_line) for i, line in enumerate(code_lines))
+        
+        # 자식이 있는 경우 - 최적화: extend 사용
         summarized_code = []
         last_end_line = start_line - 1
-        line_number_pattern = r'^\d+\s*:'
-
-        for child in children:
-            before_child_code = code_lines[last_end_line-start_line+1:child['startLine']-start_line]
-            
-            for i, line in enumerate(before_child_code):
-                line_number = i + last_end_line + 1
-                if re.match(line_number_pattern, line):
-                    summarized_code.append(f"{line}\n")
-                else:
-                    summarized_code.append(f"{line_number}: {line}\n")
-            
-            summarized_code.append(f"{child['startLine']}: ... code ...\n")
-            last_end_line = child['endLine']
-
-        after_last_child_code = code_lines[last_end_line-start_line+1:]
+        offset = start_line
         
-        for i, line in enumerate(after_last_child_code):
-            line_number = i + last_end_line + 1
-            if re.match(line_number_pattern, line):
-                summarized_code.append(f"{line}\n")
-            else:
-                summarized_code.append(f"{line_number}: {line}\n")
+        for child in children:
+            # 자식 이전 코드
+            child_start = child['startLine']
+            before_start_idx = last_end_line - offset + 1
+            before_end_idx = child_start - offset
+            
+            summarized_code.extend(
+                _format_line_with_number(line, i + last_end_line + 1)
+                for i, line in enumerate(code_lines[before_start_idx:before_end_idx])
+            )
+            
+            summarized_code.append(f"{child_start}: ... code ...\n")
+            last_end_line = child['endLine']
+        
+        # 마지막 자식 이후 코드
+        summarized_code.extend(
+            _format_line_with_number(line, i + last_end_line + 1)
+            for i, line in enumerate(code_lines[last_end_line-offset+1:])
+        )
         
         return ''.join(summarized_code)
-    
-
-    try:
-        if not node.get('children'):
-            lines = file_content.split('\n')  
-            code_lines = lines[node['startLine']-1:node['endLine']] 
-            line_number_pattern = r'^\d+\s*:'
-
-            result = []
-            for i, line in enumerate(code_lines):
-                line_number = i + node['startLine']
-                if re.match(line_number_pattern, line):
-                    result.append(f"{line}\n")
-                else:
-                    result.append(f"{line_number}: {line}\n")
-            return ''.join(result)
-        else:
-            return summarize_code(node['startLine'], node['endLine'], node.get('children', []))
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 코드를 요약하는 도중 오류가 발생했습니다: {str(e)}"
@@ -238,35 +159,26 @@ def summarize_with_placeholders(file_content: str, node: dict) -> str:
 
 
 def build_sp_code(current_schedule: dict, schedule_stack: list) -> str:
-    """역할:
-    - 현재 스케줄에서 시작하여 상위 스케줄을 역순 적용, ...code... 플레이스홀더를 실제 요약 코드로 치환하여, 실제 분석할 sp 코드를 생성합니다
-
-    매개변수:
-    - current_schedule (dict): 현재 노드의 요약 스케줄.
-    - schedule_stack (list[dict]): 상위 노드들의 요약 스케줄 스택.
-
-    반환값:
-    - str: 분석할 sp 코드.
-    """
+    """현재 스케줄에서 시작하여 상위 스케줄을 역순 적용, 플레이스홀더를 실제 코드로 치환"""
     try:
         focused_code = current_schedule["code"]
         current_start_line = current_schedule["startLine"]
+        
         for schedule in reversed(schedule_stack):
             placeholder = f"{current_start_line}: ... code ..."
             schedule_code = schedule["code"]
-            replaced = False
+            
             if placeholder in schedule_code:
-                schedule_code = schedule_code.replace(placeholder, focused_code, 1)
-                replaced = True
-            else:
-                # 요약 앵커(예: "{start}~{end}: summary")도 치환 대상으로 허용
-                anchor_pat = re.compile(rf"^{current_start_line}~\d+:\s.*$", re.MULTILINE)
-                if anchor_pat.search(schedule_code):
-                    schedule_code = anchor_pat.sub(focused_code, schedule_code, count=1)
-                    replaced = True
-            if replaced:
-                focused_code = schedule_code
+                focused_code = schedule_code.replace(placeholder, focused_code, 1)
                 current_start_line = schedule["startLine"]
+            else:
+                # 요약 앵커 치환 (정규식 컴파일 캐싱)
+                if f"{current_start_line}~" in schedule_code:
+                    anchor_pat = re.compile(rf"^{current_start_line}~\d+:\s.*$", re.MULTILINE)
+                    if anchor_pat.search(schedule_code):
+                        focused_code = anchor_pat.sub(focused_code, schedule_code, count=1)
+                        current_start_line = schedule["startLine"]
+        
         return focused_code
 
     except Exception as e:
@@ -276,52 +188,20 @@ def build_sp_code(current_schedule: dict, schedule_stack: list) -> str:
     
 
 def get_original_node_code(file_content: str, start_line: int, end_line: int) -> str:
-    """역할:
-    - 지정 라인 범위를 추출하고 각 라인에 라인 번호 접두(`"N: "`)가 존재하도록 보장합니다.
-
-    매개변수:
-    - file_content (str): 전체 파일 내용.
-    - start_line (int): 추출 시작 라인.
-    - end_line (int): 추출 종료 라인(0이면 시작 라인과 동일 처리).
-
-    반환값:
-    - str: 라인 번호 접두가 보장된 텍스트.
-    """
+    """지정 라인 범위를 추출하고 라인 번호 접두 보장"""
     try:
-        if end_line == 0:
-            end_line = start_line
-        lines = file_content.split('\n')
-        extracted_lines = lines[start_line-1:end_line]
-        line_number_pattern = r'^\d+\s*:'
-        extracted_node_code = []
-        for i, line in enumerate(extracted_lines):
-            if re.match(line_number_pattern, line):
-                extracted_node_code.append(line)
-            else:
-                extracted_node_code.append(f"{i + start_line}: {line}")
+        end_line = end_line if end_line else start_line
+        lines = file_content.split('\n')[start_line-1:end_line]
         
-        return '\n'.join(extracted_node_code)
+        return '\n'.join(
+            line if LINE_NUMBER_PATTERN.match(line) else f"{i + start_line}: {line}"
+            for i, line in enumerate(lines)
+        )
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 노드에 맞게 코드를 추출 도중에 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessAnalyzeCodeError(err_msg)
-
-
-def clean_field_name(field_name: str) -> str:
-    """역할:
-    - `"{TYPE:NAME}"` 또는 유사 표기에서 NAME만 추출합니다.
-
-    매개변수:
-    - field_name (str): 원본 필드 표기 문자열.
-
-    반환값:
-    - str: 추출된 이름 또는 원본 문자열.
-    """
-    match = re.search(r'\{(.+?)\}', field_name)
-    if match:
-        return match.group(1)
-    return field_name
 
 
 # ==================== 섹션: 분석 Understanding 파이프라인(엔트리 포인트) ====================
@@ -336,21 +216,17 @@ class Analyzer:
     - 기존 기능/사이드이펙트(큐 프로토콜, 사이퍼 쿼리, 토큰 임계치, 요약/관계 생성)와 완전 동일하게 동작합니다.
     """
 
-    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, folder_name: str, file_name: str, user_id: str, api_key: str, locale: str, dbms: str, project_name: str):
-        """생성자
+    __slots__ = (
+        'antlr_data', 'file_content', 'send_queue', 'receive_queue', 'last_line',
+        'folder_name', 'file_name', 'user_id', 'api_key', 'locale', 'dbms', 'project_name',
+        'folder_file', 'node_base_props', 'folder_props', 'table_base_props',
+        'schedule_stack', 'context_range', 'cypher_query', 'summary_dict', 
+        'node_statement_types', 'procedure_name', 'extract_code', 'focused_code', 
+        'sp_token_count', 'schema_name'
+    )
 
-        매개변수:
-        - antlr_data: ANTLR 파서가 생성한 AST 루트 노드
-        - file_content: 라인 번호 접두가 포함된 원본 코드 텍스트
-        - send_queue: 생성된 사이퍼 쿼리 배치를 송신하는 큐
-        - receive_queue: 사이퍼 처리 완료 신호를 수신하는 큐
-        - last_line: 파일 마지막 라인 번호(잔여 배치 플러시용)
-        - folder_name: 폴더 이름(Neo4j 키)
-        - file_name: 파일 이름(Neo4j 키)
-        - user_id: 사용자 식별자(Neo4j 파티셔닝)
-        - api_key: LLM 호출에 사용할 API 키
-        - locale: 로케일 코드('ko'|'en')
-        """
+    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, folder_name: str, file_name: str, user_id: str, api_key: str, locale: str, dbms: str, project_name: str):
+        """Analyzer 초기화"""
         self.antlr_data = antlr_data
         self.file_content = file_content
         self.send_queue = send_queue
@@ -363,7 +239,16 @@ class Analyzer:
         self.locale = locale
         self.dbms = (dbms or 'postgres').lower()
         self.project_name = project_name or ''
-
+        
+        # 자주 사용하는 문자열 캐싱
+        self.folder_file = f"{folder_name}-{file_name}"
+        
+        # Cypher 쿼리 공통 속성 (반복 사용)
+        self.node_base_props = f"folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}', project_name: '{project_name or ''}'"
+        self.folder_props = f"user_id: '{user_id}', name: '{folder_name}', project_name: '{project_name or ''}'"
+        self.table_base_props = f"user_id: '{user_id}'"  # Table MERGE용 캐싱
+        
+        # 분석 상태
         self.schedule_stack = []
         self.context_range = []
         self.cypher_query = []
@@ -373,22 +258,25 @@ class Analyzer:
         self.extract_code = ""
         self.focused_code = ""
         self.sp_token_count = 0
+        self.schema_name = None
 
+
+    def _build_table_merge(self, table_name: str, schema: str = '') -> str:
+        """Table MERGE 구문 생성 헬퍼 (최적화: 캐시된 속성 사용)"""
+        schema_part = f", schema: '{schema}'" if schema else ""
+        return f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
 
     async def run(self):
-        """전체 분석 파이프라인 실행.
-
-        - DFS 순회 시작→잔여 배치 플러시→완료 이벤트 송신까지 담당합니다.
-        - 오류 발생 시 큐로 에러 이벤트를 전송하고 예외를 전파합니다.
-        """
-        logging.info(f"📋 [{self.folder_name}/{self.file_name}] 코드 분석을 시작합니다 (총 {self.last_line}줄)")
+        """전체 분석 파이프라인 실행"""
+        logging.info(f"📋 [{self.folder_file}] 코드 분석 시작 (총 {self.last_line}줄)")
         try:
             await self.analyze_statement_tree(self.antlr_data, self.schedule_stack)
 
             if self.context_range and self.focused_code:
                 self.extract_code, _ = extract_code_within_range(self.focused_code, self.context_range)
                 await self.send_analysis_event_and_wait(self.last_line)
-            logging.info(f"✅ [{self.folder_name}/{self.file_name}] 코드 분석이 완료되었습니다")
+            
+            logging.info(f"✅ [{self.folder_file}] 코드 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except UnderstandingError as e:
@@ -402,43 +290,35 @@ class Analyzer:
 
 
     async def execute_analysis_and_reset_state(self, statement_type: str) -> list:
-        """누적 컨텍스트를 LLM에 전달해 실제 분석을 실행하고, 내부 상태를 초기화합니다.
-
-        매개변수:
-        - statement_type: 플러시 기준 상위 구문 타입(PROCEDURE/FUNCTION 등)
-
-        반환값:
-        - list[str]: 생성된 사이퍼 쿼리 문자열 리스트
-        """
+        """LLM 분석 실행 및 상태 초기화"""
         try:
-            context_range_count = len(self.context_range)
-            self.context_range = sorted(self.context_range, key=lambda x: x['startLine'])
+            # context_range 정렬 (in-place)
+            context_range = self.context_range
+            context_range.sort(key=lambda x: x['startLine'])
+            context_range_count = len(context_range)
 
-            analysis_result = understand_code(self.extract_code, self.context_range, context_range_count, self.api_key, self.locale)
+            analysis_result = understand_code(self.extract_code, context_range, context_range_count, self.api_key, self.locale)
             cypher_queries = await self.process_analysis_output_to_cypher(analysis_result)
 
-            actual_count = len(analysis_result["analysis"])
-            if actual_count != context_range_count:
+            # 결과 개수 검증
+            if (actual_count := len(analysis_result["analysis"])) != context_range_count:
                 logging.error(f"분석 결과 개수가 일치하지 않습니다. 예상: {context_range_count}, 실제: {actual_count}")
 
             if statement_type in PROCEDURE_TYPES:
-                logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name} 프로시저의 요약 정보 추출 완료")
+                logging.info(f"[{self.folder_file}] {self.procedure_name} 프로시저의 요약 정보 추출 완료")
                 summary = understand_summary(self.summary_dict, self.api_key, self.locale)
                 self.cypher_query.append(f"""
-                    MATCH (n:{statement_type})
-                    WHERE n.folder_name = '{self.folder_name}' AND n.file_name = '{self.file_name}'
-                        AND n.procedure_name = '{self.procedure_name}' AND n.project_name = '{self.project_name}'
-                        AND n.user_id = '{self.user_id}' AND n.project_name = '{self.project_name}'
+                    MATCH (n:{statement_type} {{procedure_name: '{self.procedure_name}', {self.node_base_props}}})
                     SET n.summary = {json.dumps(summary['summary'])}
                 """)
                 self.schedule_stack.clear()
                 self.node_statement_types.clear()
                 self.summary_dict.clear()
 
-            self.focused_code = ""
-            self.extract_code = ""
+            # 상태 초기화
+            self.focused_code = self.extract_code = ""
             self.sp_token_count = 0
-            self.context_range.clear()
+            context_range.clear()
             return cypher_queries
 
         except UnderstandingError:
@@ -450,205 +330,174 @@ class Analyzer:
 
 
     async def process_analysis_output_to_cypher(self, analysis_result: dict) -> list:
-        """LLM 분석 결과를 처리하여 Neo4j 사이퍼 쿼리를 생성합니다.
-
-        매개변수:
-        - analysis_result: LLM 분석 결과(JSON 호환 dict)
-
-        반환값:
-        - list[str]: 현재까지 누적된 사이퍼 쿼리 리스트
-        """
+        """LLM 분석 결과를 처리하여 Neo4j 사이퍼 쿼리를 생성"""
         try:
-            for result in analysis_result['analysis']:
-                start_line = result['startLine']
-                end_line = result['endLine']
-                summary = result['summary']
-                local_tables = result.get('localTables', [])
-                db_links = result.get('dbLinks', [])
-                called_nodes = result.get('calls', [])
-                variables = result.get('variables', [])
-                var_range = f"{start_line}_{end_line}"
+            analysis_list = analysis_result['analysis']
+            node_statement_types = self.node_statement_types
+            node_base_props = self.node_base_props
+            schedule_stack = self.schedule_stack
+            summary_dict = self.summary_dict
+            cypher_query = self.cypher_query
+            
+            for result in analysis_list:
+                start_line, end_line, summary = result['startLine'], result['endLine'], result['summary']
+                local_tables, db_links, called_nodes, variables = (
+                    result.get('localTables', []), result.get('dbLinks', []),
+                    result.get('calls', []), result.get('variables', [])
+                )
 
-                statement_type = get_statement_type(start_line, end_line, self.node_statement_types)
+                statement_type = get_statement_type(start_line, end_line, node_statement_types)
                 table_relationship_type = get_table_relationship(statement_type)
 
+                # Summary 저장 및 쿼리 생성 (최적화: 키 재사용)
                 summary_key = f"{statement_type}_{start_line}_{end_line}"
-                self.summary_dict[summary_key] = summary
+                summary_json = json.dumps(summary)
+                summary_dict[summary_key] = summary
+                cypher_query.append(f"""
+                    MATCH (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                    SET n.summary = {summary_json}
+                """)
 
-                summary_query = f"""
-                    MATCH (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET n.summary = {json.dumps(summary)}
-                """
-                self.cypher_query.append(summary_query)
+                # schedule["code"] 플레이스홀더 치환 (최적화: 정규식 최소화)
+                placeholder_str = f"{start_line}: ... code ..."
+                for schedule in schedule_stack:
+                    if placeholder_str in schedule["code"]:
+                        schedule["code"] = schedule["code"].replace(placeholder_str, f"{start_line}~{end_line}: {summary}", 1)
+                        break
 
-                pattern = re.compile(rf"^{start_line}: \.\.\. code \.\.\.$", re.MULTILINE)
-                for schedule in self.schedule_stack:
-                    if pattern.search(schedule["code"]):
-                        schedule["code"] = pattern.sub(f"{start_line}~{end_line}: {summary}", schedule["code"])
+                # Variable 사용 기록 (최적화: 반복 접근 제거)
+                if variables:
+                    var_range = f"{start_line}_{end_line}"
+                    procedure_name = self.procedure_name
+                    for var_name in variables:
+                        cypher_query.append(f"""
+                            MATCH (v:Variable {{name: '{var_name}', procedure_name: '{procedure_name}', {node_base_props}}})
+                            SET v.`{var_range}` = 'Used'
+                        """)
 
-                for var_name in variables:
-                    variable_usage_query = f"""
-                        MATCH (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                        SET v.`{var_range}` = 'Used'
-                    """
-                    self.cypher_query.append(variable_usage_query)
-
-                if statement_type in ["CALL", "ASSIGNMENT"]:
-                    if statement_type == "ASSIGNMENT" and called_nodes:
-                        label_change_query = f"""
-                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                # CALL/ASSIGNMENT 처리 (최적화: 로컬 변수 캐싱)
+                if called_nodes and statement_type in ("CALL", "ASSIGNMENT"):
+                    if statement_type == "ASSIGNMENT":
+                        cypher_query.append(f"""
+                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, {node_base_props}}})
                             REMOVE a:ASSIGNMENT
                             SET a:CALL, a.name = 'CALL[{start_line}]'
-                        """
-                        self.cypher_query.append(label_change_query)
+                        """)
                         statement_type = "CALL"
 
-                    if called_nodes:
-                        for name in called_nodes:
-                            if '.' in name:
-                                package_name, proc_name = name.split('.')
-                                package_name = package_name.upper()
-                                proc_name = proc_name.upper()
+                    user_id, project_name = self.user_id, self.project_name
+                    for name in called_nodes:
+                        if '.' in name:
+                            package_name, proc_name = name.upper().split('.')
+                            cypher_query.append(f"""
+                                MATCH (c:{statement_type} {{startLine: {start_line}, {node_base_props}}}) 
+                                OPTIONAL MATCH (p)
+                                WHERE (p:PROCEDURE OR p:FUNCTION)
+                                AND p.folder_name = '{package_name}' 
+                                AND p.procedure_name = '{proc_name}'
+                                AND p.user_id = '{user_id}'
+                                WITH c, p
+                                FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
+                                    CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{user_id}', project_name: '{project_name}'}})
+                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
+                                )
+                                FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
+                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(p)
+                                )
+                            """)
+                        else:
+                            cypher_query.append(f"""
+                                MATCH (c:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                                WITH c
+                                MATCH (p {{procedure_name: '{name}', {node_base_props}}})
+                                WHERE p:PROCEDURE OR p:FUNCTION
+                                MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
+                            """)
 
-                                call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}) 
-                                    OPTIONAL MATCH (p)
-                                    WHERE (p:PROCEDURE OR p:FUNCTION)
-                                    AND p.folder_name = '{package_name}' 
-                                    AND p.procedure_name = '{proc_name}'
-                                    AND p.user_id = '{self.user_id}'
-                                    WITH c, p
-                                    FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
-                                        CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                                        MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
-                                    )
-                                    FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-                                        MERGE (c)-[:CALL {{scope: 'external'}}]->(p)
-                                    )
-                                """
-                                self.cypher_query.append(call_relation_query)
-                            else:
-                                call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                                    WITH c
-                                    MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}} )
-                                    WHERE p:PROCEDURE OR p:FUNCTION
-                                    MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
-                                """
-                                self.cypher_query.append(call_relation_query)
+                # Table 관계 처리 (최적화: 중복 MERGE 제거)
+                if table_relationship_type and local_tables:
+                    folder_name, folder_props, dbms = self.folder_name, self.folder_props, self.dbms
+                    node_merge = f"MERGE (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})"
+                    folder_merge = f"MERGE (folder:Folder {{{folder_props}}})"
+                    
+                    for tn in local_tables:
+                        if qualified := str(tn).strip().upper():
+                            schema_part, name_part, _ = parse_table_identifier(qualified)
+                            
+                            cypher_query.append(f"""
+                                {node_merge}
+                                WITH n
+                                {self._build_table_merge(name_part, schema_part)}
+                                ON CREATE SET t.folder_name = '{folder_name}'
+                                ON MATCH  SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{folder_name}' ELSE t.folder_name END
+                                WITH n, t
+                                {folder_merge}
+                                MERGE (folder)-[:CONTAINS]->(t)
+                                SET t.db = coalesce(t.db, '{dbms}')
+                                MERGE (n)-[:{table_relationship_type}]->(t)
+                            """)
 
-                for tn in local_tables:
-                    qualified = str(tn).strip().upper()
-                    if not qualified:
-                        continue
-                    schema_part, name_part, _ = parse_table_identifier(qualified)
-                    relationship_label = table_relationship_type
-                    if not relationship_label:
-                        continue
-
-                    merge_table = (
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}', db: '{self.dbms}', project_name: '{self.project_name}'}})\n"
-                        if schema_part else
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', db: '{self.dbms}', project_name: '{self.project_name}'}})\n"
-                    )
-
-                    table_relationship_query = f"""
-                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                        WITH n
-                        {merge_table}
-                        ON CREATE SET t.folder_name = '{self.folder_name}'
-                        ON MATCH  SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END
-                        WITH n, t
-                        MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
-                        MERGE (folder)-[:CONTAINS]->(t)
-                        SET t.db = coalesce(t.db, '{self.dbms}')
-                        MERGE (n)-[:{relationship_label}]->(t)
-                    """
-                    self.cypher_query.append(table_relationship_query)
-
-                # fkRelations 병합 처리: FK(소스) → PK/UK(타겟)
+                # FK 관계 처리 (최적화: 빈 체크 + 캐싱)
                 fk_relations = result.get('fkRelations', [])
-                for fk in fk_relations:
-                    src_table = (fk.get('sourceTable') or '').strip().upper()
-                    src_column = (fk.get('sourceColumn') or '').strip()
-                    tgt_table = (fk.get('targetTable') or '').strip().upper()
-                    tgt_column = (fk.get('targetColumn') or '').strip()
-                    if not (src_table and src_column and tgt_table and tgt_column):
-                        continue
+                if fk_relations:
+                    user_id, dbms, project_name = self.user_id, self.dbms, self.project_name
+                    
+                    for fk in fk_relations:
+                        src_table, src_column, tgt_table, tgt_column = (
+                            (fk.get('sourceTable') or '').strip().upper(),
+                            (fk.get('sourceColumn') or '').strip(),
+                            (fk.get('targetTable') or '').strip().upper(),
+                            (fk.get('targetColumn') or '').strip()
+                        )
+                        if not (src_table and src_column and tgt_table and tgt_column):
+                            continue
 
-                    # 기존 파서 재사용으로 스키마 빈문자 통일
-                    src_schema, src_table_name, _ = parse_table_identifier(src_table)
-                    tgt_schema, tgt_table_name, _ = parse_table_identifier(tgt_table)
+                        src_schema, src_table_name, _ = parse_table_identifier(src_table)
+                        tgt_schema, tgt_table_name, _ = parse_table_identifier(tgt_table)
 
-                    # Table 노드 MERGE (소스/타겟)
-                    src_t_merge_key = {
-                        'user_id': self.user_id,
-                        'schema': (src_schema or ''),
-                        'name': src_table_name,
-                        'db': self.dbms,
-                        'project_name': self.project_name,
-                    }
-                    tgt_t_merge_key = {
-                        'user_id': self.user_id,
-                        'schema': (tgt_schema or ''),
-                        'name': tgt_table_name,
-                        'db': self.dbms,
-                        'project_name': self.project_name,
-                    }
-                    src_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_t_merge_key.items())
-                    tgt_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_t_merge_key.items())
+                        # Table FK 관계
+                        src_t_props = f"user_id: '{user_id}', schema: '{src_schema or ''}', name: '{src_table_name}', db: '{dbms}', project_name: '{project_name}'"
+                        tgt_t_props = f"user_id: '{user_id}', schema: '{tgt_schema or ''}', name: '{tgt_table_name}', db: '{dbms}', project_name: '{project_name}'"
+                        
+                        cypher_query.append(
+                            f"MATCH (st:Table {{{src_t_props}}})\n"
+                            f"MATCH (tt:Table {{{tgt_t_props}}})\n"
+                            f"SET st.db = coalesce(st.db, 'postgres'), tt.db = coalesce(tt.db, 'postgres')\n"
+                            f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
+                        )
 
-                    # FK_TO_TABLE 관계 (카티전 곱 방지: MATCH 분리 후 MERGE)
-                    self.cypher_query.append(
-                        f"MATCH (st:Table {{{src_t_merge_key_str}}})\n"
-                        f"MATCH (tt:Table {{{tgt_t_merge_key_str}}})\n"
-                        f"SET st.db = coalesce(st.db, 'postgres')\n"
-                        f"SET tt.db = coalesce(tt.db, 'postgres')\n"
-                        f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
-                    )
+                        # Column FK 관계
+                        src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
+                        tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
+                        
+                        cypher_query.append(
+                            f"MATCH (sc:Column {{user_id: '{user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
+                            f"MATCH (dc:Column {{user_id: '{user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
+                            f"MERGE (sc)-[:FK_TO]->(dc)"
+                        )
 
-                    # Column 노드 MERGE 및 FK_TO 관계
-                    src_fqn = '.'.join([p for p in [(src_schema or ''), src_table_name, src_column] if p]).lower()
-                    tgt_fqn = '.'.join([p for p in [(tgt_schema or ''), tgt_table_name, tgt_column] if p]).lower()
+                # DBLink 처리 (최적화: 빈 체크 + 캐싱)
+                if table_relationship_type and db_links:
+                    user_id, project_name = self.user_id, self.project_name
+                    
+                    for link_item in db_links:
+                        mode = (link_item.get('mode') or 'r').lower()
+                        name = (link_item.get('name') or '').strip().upper()
+                        schema_part, name_part, link_name = parse_table_identifier(name)
 
-                    src_c_key = { 'user_id': self.user_id, 'name': src_column, 'fqn': src_fqn }
-                    tgt_c_key = { 'user_id': self.user_id, 'name': tgt_column, 'fqn': tgt_fqn }
-                    src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
-                    tgt_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_c_key.items())
-
-                    # 컬럼 FK 관계 (카티전 곱 방지: MATCH 분리 후 MERGE)
-                    self.cypher_query.append(
-                        f"MATCH (sc:Column {{{src_c_key_str}}})\n"
-                        f"MATCH (dc:Column {{{tgt_c_key_str}}})\n"
-                        f"MERGE (sc)-[:FK_TO]->(dc)"
-                    )
-
-                for link_item in db_links:
-                    mode = (link_item.get('mode') or 'r').lower()
-                    name = (link_item.get('name') or '').strip().upper()
-                    schema_part, name_part, link_name = parse_table_identifier(name)
-                    relationship_label = table_relationship_type
-                    if not relationship_label:
-                        continue
-
-                    merge_table = (
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}', project_name: '{self.project_name}'}})\n"
-                        if schema_part else
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', project_name: '{self.project_name}'}})\n"
-                    )
-
-                    table_relationship_query = f"""
-                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                        WITH n
-                        {merge_table}
-                        ON CREATE SET t.folder_name = ''
-                        SET t.db_link = '{link_name}'
-                        WITH n, t
-                        MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})
-                        MERGE (l)-[:CONTAINS]->(t)
-                        MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)
-                    """
-                    self.cypher_query.append(table_relationship_query)
+                        merge_table = self._build_table_merge(name_part, schema_part).replace(f", db: '{self.dbms}'", "")
+                        
+                        cypher_query.append(f"""
+                            MERGE (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                            WITH n
+                            {merge_table}
+                            ON CREATE SET t.folder_name = ''
+                            SET t.db_link = '{link_name}'
+                            WITH n, t
+                            MERGE (l:DBLink {{user_id: '{user_id}', name: '{link_name}', project_name: '{project_name}'}})
+                            MERGE (l)-[:CONTAINS]->(t)
+                            MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)
+                        """)
 
             return self.cypher_query
 
@@ -658,69 +507,51 @@ class Analyzer:
             raise ProcessAnalyzeCodeError(err_msg)
 
 
+    
     def analyze_variable_declarations(self, declaration_code: str, node_startLine: int, statement_type: str):
-        """변수 선언부(SPEC/DECLARE/PACKAGE_VARIABLE)를 분석하고 Variable 노드/Scope 관계를 생성합니다.
-
-        매개변수:
-        - declaration_code: 선언부 코드 조각
-        - node_startLine: 선언 노드 시작 라인
-        - statement_type: 선언 유형(SPEC/DECLARE/PACKAGE_VARIABLE)
-        """
+        """변수 선언부 분석 및 Variable 노드 생성"""
         try:
-            role = ('패키지 전역 변수' if statement_type == 'PACKAGE_VARIABLE' else
-                    '변수 선언및 초기화' if statement_type == 'DECLARE' else
-                    '함수 및 프로시저 입력 매개변수' if statement_type == 'SPEC' else
-                    '알 수 없는 매개변수')
-            logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name}의 변수 분석 시작")
+            role = _VARIABLE_ROLE_MAP.get(statement_type, '알 수 없는 매개변수')
+            
+            logging.info(f"[{self.folder_file}] {self.procedure_name}의 변수 분석 시작")
             analysis_result = understand_variables(declaration_code, self.api_key, self.locale)
-            logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name}의 변수 분석 완료")
+            logging.info(f"[{self.folder_file}] {self.procedure_name}의 변수 분석 완료")
+            
             var_summary = json.dumps(analysis_result.get("summary", "unknown"))
-            for variable in analysis_result["variables"]:
-                var_parameter_type = variable["parameter_type"]
-                var_name = variable["name"]
-                var_type = variable["type"]
-                var_value = variable["value"]
-                var_value = '' if var_value is None else var_value
-
-                if statement_type == 'DECLARE':
-                    cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+            variables = analysis_result["variables"]
+            is_package = statement_type == 'PACKAGE_VARIABLE'
+            scope = 'Global' if is_package else 'Local'
+            
+            # 공통 부분 캐싱
+            node_base = self.node_base_props
+            folder_props = self.folder_props
+            procedure_name = self.procedure_name
+            
+            cypher_query = self.cypher_query
+            
+            # node_match_props 사전 계산 (반복 제거)
+            if is_package:
+                node_match_props = f"startLine: {node_startLine}, {node_base}"
+                base_var_props = f"{node_base}, role: '{role}', scope: '{scope}'"
+            else:
+                node_match_props = f"startLine: {node_startLine}, procedure_name: '{procedure_name}', {node_base}"
+                base_var_props = f"{node_base}, procedure_name: '{procedure_name}', role: '{role}', scope: '{scope}'"
+            
+            for variable in variables:
+                var_name, var_type, var_param_type = variable["name"], variable["type"], variable["parameter_type"]
+                var_value = variable["value"] if variable["value"] is not None else ''
+                
+                cypher_query.append(f"""
+                    MERGE (v:Variable {{name: '{var_name}', {base_var_props}, type: '{var_type}', parameter_type: '{var_param_type}', value: {json.dumps(var_value)}}})
                     WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                    MATCH (p:{statement_type} {{{node_match_props}}})
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
                     WITH v
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder:Folder {{{folder_props}}})
                     MERGE (folder)-[:CONTAINS]->(v)
-                    """
-                    self.cypher_query.append(cypher_query)
-                elif statement_type == 'PACKAGE_VARIABLE':
-                    cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET p.summary = {var_summary}
-                    WITH p, v
-                    MERGE (p)-[:SCOPE]->(v)
-                    WITH v
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
-                    MERGE (folder)-[:CONTAINS]->(v)
-                    """
-                    self.cypher_query.append(cypher_query)
-                else:
-                    cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET p.summary = {var_summary}
-                    WITH p, v
-                    MERGE (p)-[:SCOPE]->(v)
-                    WITH v
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
-                    MERGE (folder)-[:CONTAINS]->(v)
-                    """
-                    self.cypher_query.append(cypher_query)
+                """)
 
         except LLMCallError:
             raise
@@ -731,24 +562,19 @@ class Analyzer:
 
 
     async def send_analysis_event_and_wait(self, node_end_line: int, statement_type: str = None):
-        """분석 결과 이벤트를 송신하고 처리 완료 이벤트를 수신할 때까지 대기합니다.
-
-        매개변수:
-        - node_end_line: 해당 배치의 기준이 되는 마지막 라인 번호
-        - statement_type: 플러시 기준 상위 구문 타입
-        """
+        """분석 결과 이벤트를 송신하고 처리 완료 대기"""
         try:
-            logging.info(f"🤖 [{self.folder_name}-{self.file_name}] AI 분석을 시작합니다.")
+            logging.info(f"🤖 [{self.folder_file}] AI 분석 시작")
             results = await self.execute_analysis_and_reset_state(statement_type)
-            logging.info(f"📤 [{self.folder_name}-{self.file_name}] 분석 결과를 전송합니다 (Cypher 쿼리 {len(results)}개)")
+            logging.info(f"📤 [{self.folder_file}] 분석 결과 전송 (Cypher 쿼리 {len(results)}개)")
             await self.send_queue.put({"type": "analysis_code", "query_data": results, "line_number": node_end_line})
 
             while True:
                 response = await self.receive_queue.get()
                 if response['type'] == 'process_completed':
-                    logging.info(f"✅ [{self.folder_name}] NEO4J에 저장이 완료되었습니다\n")
-                    self.cypher_query.clear();
-                    break;
+                    logging.info(f"✅ [{self.folder_name}] NEO4J 저장 완료\n")
+                    self.cypher_query.clear()
+                    break
 
         except UnderstandingError:
             raise
@@ -759,142 +585,141 @@ class Analyzer:
 
 
     async def analyze_statement_tree(self, node: dict, schedule_stack: list, parent_startLine: int = None, parent_statementType: str = None):
-        """문(statement) 트리를 분석하며 노드/관계 생성, 요약 조립, 배치 플러시를 수행합니다.
-
-        매개변수:
-        - node: 현재 방문할 노드
-        - schedule_stack: 상위 노드들의 요약 스케줄 스택
-        - parent_startLine: 부모 노드 시작 라인
-        - parent_statementType: 부모 노드 타입
-        """
+        """문 트리를 분석하며 노드/관계 생성, 요약 조립, 배치 플러시 수행"""
         start_line, end_line, statement_type = node['startLine'], node['endLine'], node['type']
+        children = node.get('children', [])
+        has_children = 'true' if children else 'false'
+        
+        # 코드 생성 (메모리 최적화)
         summarized_code = summarize_with_placeholders(self.file_content, node)
         node_code = get_original_node_code(self.file_content, start_line, end_line)
         node_size = calculate_code_token(node_code)
-        children = node.get('children', [])
-        has_children_value = str(bool(children)).lower()
-        logging.info(f"🚀 노드 정보 : 타입 :{statement_type} 시작 라인 :{start_line} 종료 라인 :{end_line} 사이즈 :{node_size} 자식 여부 :{has_children_value}")
+        
+        logging.info(f"🚀 노드: {statement_type} {start_line}-{end_line} (크기:{node_size}, 자식:{has_children})")
 
+        # current_schedule 생성 (최적화: 직접 할당)
         current_schedule = {
-            "startLine": start_line,
-            "endLine": end_line,
-            "code": summarized_code,
-            "child": children,
-            "type": statement_type
+            "startLine": start_line, "endLine": end_line, "code": summarized_code,
+            "child": children, "type": statement_type
         }
 
         if statement_type in PROCEDURE_TYPES:
             self.schema_name, self.procedure_name = get_procedure_name(node_code)
             logging.info(f"🚀 프로시저/함수/트리거 이름: {self.procedure_name}")
 
-        self.extract_code, line_number = extract_code_within_range(self.focused_code, self.context_range)
+        # 토큰 리밋 체크 전 extract_code 생성
+        context_range = self.context_range
+        if context_range:
+            self.extract_code, line_number = extract_code_within_range(self.focused_code, context_range)
+            self.sp_token_count = calculate_code_token(self.extract_code)
+            
+            if is_over_token_limit(node_size, self.sp_token_count, len(context_range)):
+                logging.info(f"⚠️ [{self.folder_file}] 리미트 도달, 중간 분석 실행 (토큰: {self.sp_token_count})")
+                await self.send_analysis_event_and_wait(line_number)
+        else:
+            self.extract_code = ""
 
-        self.sp_token_count = calculate_code_token(self.extract_code)
-        if is_over_token_limit(node_size, self.sp_token_count, len(self.context_range)):
-            logging.info(f"⚠️ [{self.folder_name}-{self.file_name}] 리미트에 도달하여 중간 분석을 실행합니다 (토큰: {self.sp_token_count})")
-            await self.send_analysis_event_and_wait(line_number)
-
-        if not self.focused_code:
+        # focused_code 업데이트 (최적화: 중복 조건 제거)
+        placeholder = f"{start_line}: ... code ..."
+        if not self.focused_code or placeholder not in self.focused_code:
             self.focused_code = build_sp_code(current_schedule, schedule_stack)
         else:
-            placeholder = f"{start_line}: ... code ..."
-            if not self.focused_code or placeholder not in self.focused_code:
-                self.focused_code = build_sp_code(current_schedule, schedule_stack)
-            else:
-                self.focused_code = self.focused_code.replace(placeholder, summarized_code, 1)
+            self.focused_code = self.focused_code.replace(placeholder, summarized_code, 1)
 
+        # 노드 생성 쿼리 (최적화: 공통 부분 캐싱)
+        node_base_props = self.node_base_props
+        folder_props = self.folder_props
+        cypher_query = self.cypher_query
+        
         if not children and statement_type not in NON_ANALYSIS_TYPES:
-            self.context_range.append({"startLine": start_line, "endLine": end_line})
-            self.cypher_query.append(f"""
-                MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                SET n.endLine = {end_line},
-                    n.name = '{statement_type}[{start_line}]',
-                    n.node_code = '{node_code.replace("'", "\\'")}',
-                    n.token = {node_size},
-                    n.procedure_name = '{self.procedure_name}',
-                    n.has_children = {has_children_value}
+            context_range.append({"startLine": start_line, "endLine": end_line})
+            escaped_code = node_code.replace("'", "\\'")
+            cypher_query.append(f"""
+                MERGE (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{escaped_code}',
+                    n.token = {node_size}, n.procedure_name = '{self.procedure_name}', n.has_children = {has_children}
                 WITH n
-                        MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
+                MERGE (folder:Folder {{{folder_props}}})
                 MERGE (folder)-[:CONTAINS]->(n)
             """)
         else:
+            # escape 호출은 필요한 경우에만 (최적화)
+            escaped_code, escaped_summary = escape_for_cypher_multiline(node_code), escape_for_cypher_multiline(summarized_code)
+            
             if statement_type == "FILE":
                 file_summary = 'File Start Node' if self.locale == 'en' else '파일 노드'
-                self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET n.endLine = {end_line},
-                        n.name = '{self.file_name}',
-                        n.summary = '{file_summary}',
-                        n.has_children = {has_children_value}
+                cypher_query.append(f"""
+                    MERGE (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                    SET n.endLine = {end_line}, n.name = '{self.file_name}', n.summary = '{file_summary}', n.has_children = {has_children}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
+                    MERGE (folder:Folder {{{folder_props}}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
-            elif statement_type in ["PROCEDURE", "FUNCTION"]:
-                self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET n.startLine = {start_line},
-                        n.endLine = {end_line},
-                        n.name = '{statement_type}[{start_line}]',
-                        n.summarized_code = '{escape_for_cypher_multiline(summarized_code)}',
-                        n.node_code = '{escape_for_cypher_multiline(node_code)}',
-                        n.token = {node_size},
-                        n.has_children = {has_children_value}
+            elif statement_type in ("PROCEDURE", "FUNCTION"):
+                remove_label = 'FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE'
+                cypher_query.append(f"""
+                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', {node_base_props}}})
+                    SET n.startLine = {start_line}, n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]',
+                        n.summarized_code = '{escaped_summary}', n.node_code = '{escaped_code}', n.token = {node_size}, n.has_children = {has_children}
                     WITH n
-                    REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
+                    REMOVE n:{remove_label}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
+                    MERGE (folder:Folder {{{folder_props}}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
             else:
-                self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    SET n.endLine = {end_line},
-                        n.name = '{statement_type}[{start_line}]',
-                        n.summarized_code = '{escape_for_cypher_multiline(summarized_code)}',
-                        n.node_code = '{escape_for_cypher_multiline(node_code)}',
-                        n.token = {node_size},
-                        n.procedure_name = '{self.procedure_name}',
-                        n.has_children = {has_children_value}
+                cypher_query.append(f"""
+                    MERGE (n:{statement_type} {{startLine: {start_line}, {node_base_props}}})
+                    SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{escaped_summary}',
+                        n.node_code = '{escaped_code}', n.token = {node_size}, n.procedure_name = '{self.procedure_name}', n.has_children = {has_children}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
+                    MERGE (folder:Folder {{{folder_props}}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
 
-        if (self.procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
+        # 변수 선언부 분석 (최적화: 튜플 사용)
+        if statement_type == "PACKAGE_VARIABLE" or (self.procedure_name and statement_type in ("SPEC", "DECLARE")):
             self.analyze_variable_declarations(node_code, start_line, statement_type)
 
         schedule_stack.append(current_schedule)
         self.node_statement_types.add(f"{statement_type}_{start_line}_{end_line}")
 
+        # PARENT_OF 관계 생성
         if parent_statementType:
-            self.cypher_query.append(f"""
-                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+            cypher_query.append(f"""
+                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, {node_base_props}}})
                 WITH parent
-                MATCH (child:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
+                MATCH (child:{statement_type} {{startLine: {start_line}, {node_base_props}}})
                 MERGE (parent)-[:PARENT_OF]->(child)
             """)
-        prev_statement = prev_id = None
-
-        for child in children:
-            await self.analyze_statement_tree(child, schedule_stack, start_line, statement_type)
-
-            if prev_id and prev_statement not in NON_NEXT_RECURSIVE_TYPES:
-                self.cypher_query.append(f"""
-                    MATCH (prev:{prev_statement} {{startLine: {prev_id}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    WITH prev
-                    MATCH (current:{child['type']} {{startLine: {child['startLine']}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    MERGE (prev)-[:NEXT]->(current)
-                """)
-            prev_statement, prev_id = child['type'], child['startLine']
-
+        
+        # 자식 노드 순회 및 NEXT 관계 생성 (최적화: 캐싱 + 조건 개선)
         if children:
-            if (statement_type in PROCEDURE_TYPES) and (self.context_range and self.focused_code):
-                self.extract_code, line_number = extract_code_within_range(self.focused_code, self.context_range)
-                logging.info(f"📤 [{self.folder_name}-{self.file_name}] 중간 플러시 실행 (토큰: {self.sp_token_count})")
+            prev_statement = prev_id = None
+            cypher_query = self.cypher_query
+            non_next_types = NON_NEXT_RECURSIVE_TYPES
+            
+            for child in children:
+                await self.analyze_statement_tree(child, schedule_stack, start_line, statement_type)
+
+                if prev_id and prev_statement not in non_next_types:
+                    child_type, child_start = child['type'], child['startLine']
+                    cypher_query.append(f"""
+                        MATCH (prev:{prev_statement} {{startLine: {prev_id}, {node_base_props}}})
+                        WITH prev
+                        MATCH (current:{child_type} {{startLine: {child_start}, {node_base_props}}})
+                        MERGE (prev)-[:NEXT]->(current)
+                    """)
+                prev_statement, prev_id = child['type'], child['startLine']
+            
+            # 중간 플러시 또는 context_range 추가
+            if statement_type in PROCEDURE_TYPES and context_range and self.focused_code:
+                self.extract_code, line_number = extract_code_within_range(self.focused_code, context_range)
+                logging.info(f"📤 [{self.folder_file}] 중간 플러시 실행 (토큰: {self.sp_token_count})")
                 await self.send_analysis_event_and_wait(line_number, statement_type)
             elif statement_type not in NON_ANALYSIS_TYPES:
-                self.context_range.append({"startLine": start_line, "endLine": end_line})
+                context_range.append({"startLine": start_line, "endLine": end_line})
 
-        schedule_stack[:] = filter(lambda schedule: schedule['child'] and schedule['endLine'] > current_schedule['startLine'], schedule_stack)
+        # schedule_stack 필터링 (최적화: start_line 재사용)
+        schedule_stack[:] = [s for s in schedule_stack if s['child'] and s['endLine'] > start_line]
 

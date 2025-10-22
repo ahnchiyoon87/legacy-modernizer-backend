@@ -140,6 +140,110 @@ Frontend → Backend API → Neo4j 그래프 조회 → 코드 생성 → Spring
 ```
 각 단계는 이전 단계의 결과를 사용하므로, 순서를 지켜야 합니다.
 
+#### 🔧 Service 변환 상세 흐름
+
+Service 계층 변환은 **전처리(Preprocessing)** 와 **후처리(Postprocessing)** 2단계로 나뉩니다:
+
+**📌 전처리 단계 (`create_service_preprocessing.py`)**
+
+```
+┌──────────────────────────────────────────────────────┐
+│     ServicePreprocessor - 토큰 임계 기반 배치 처리     │
+└──────────────────────────────────────────────────────┘
+         ↓
+   [노드 순회 시작]
+         ↓
+   ┌─────────────────┐
+   │ 노드 분류 판단   │ ← 토큰≥1500 & 자식 있음?
+   └─────────────────┘
+      ↙           ↘
+  [YES]          [NO]
+대용량 노드    작은/리프 노드
+     ↓              ↓
+LLM 스켈레톤    sp_code에 누적
+생성 후 저장    total_tokens += 토큰
+     ↓              ↓
+     └──────┬───────┘
+            ↓
+   total_tokens ≥ 1500?
+            ↓ YES
+   ┌─────────────────────────┐
+   │ 🎯 변수/JPA 수집 시작   │
+   │ - sp_range 범위에서     │
+   │   변수 필터링             │
+   │ - JPA 메서드 필터링      │
+   └─────────────────────────┘
+            ↓
+   ┌─────────────────────────┐
+   │ 🤖 LLM 호출              │
+   │ - sp_code 전달           │
+   │ - 수집된 변수/JPA 컨텍스트│
+   │ - 자바 코드 생성         │
+   └─────────────────────────┘
+            ↓
+   ┌─────────────────────────┐
+   │ 📦 코드 병합             │
+   │ - 부모 진행 중?          │
+   │   YES → java_buffer     │
+   │   NO → merged_java_code │
+   └─────────────────────────┘
+            ↓
+   ┌─────────────────────────┐
+   │ 🔄 컨텍스트 초기화       │
+   │ - total_tokens = 0      │
+   │ - sp_code = ""          │
+   │ - sp_range 초기화       │
+   └─────────────────────────┘
+            ↓
+   [다음 노드로 계속...]
+```
+
+**핵심 메커니즘:**
+1. **배치 처리**: 토큰이 1500에 도달할 때까지 노드를 누적한 후, 한 번에 LLM 호출
+2. **변수/JPA 수집**: 임계 도달 시에만 `sp_range` 범위에서 필요한 변수/JPA 메서드 필터링
+3. **대용량 노드 처리**: 큰 노드(IF/FOR/LOOP 등)는 스켈레톤만 생성하고 `...code...` 플레이스홀더 삽입
+4. **단일 컨텍스트**: `merged_java_code`에 모든 결과를 순차적으로 누적
+5. **Parent Context 전달**: 자식 노드 처리 시 부모의 Java 스켈레톤을 함께 전달하여 변수 스코프 및 제어 흐름 이해 향상
+6. **LLM 임의 로직 방지**: 프롬프트에 "원본 PL/SQL 구조를 정확히 따르고, 임의로 return 문이나 검증 로직을 추가하지 마세요" 지침 포함
+
+**📌 후처리 단계 (`create_service_postprocessing.py`)**
+
+```
+┌──────────────────────────────────────────────────────┐
+│     TRY-CATCH 조립 및 최종 코드 완성                   │
+└──────────────────────────────────────────────────────┘
+         ↓
+   [노드 순회 시작]
+         ↓
+   ┌─────────────────┐
+   │ 노드 타입 확인   │
+   └─────────────────┘
+      ↙     ↓     ↘
+   [TRY] [EXCEPTION] [일반]
+     ↓       ↓        ↓
+try_catch_code  케이스 분류  all_java_code
+    버퍼에 누적         ↓         에 누적
+              ┌──────┴──────┐
+              ↓              ↓
+        TRY 있음?       TRY 없음
+              ↓              ↓
+    try_catch_code를   all_java_code를
+    EXCEPTION의        EXCEPTION의
+    CodePlaceHolder에  CodePlaceHolder에
+    삽입               삽입
+              ↓              ↓
+        └──────┬──────┘
+               ↓
+    [최종 코드 완성]
+```
+
+**EXCEPTION 노드 처리 규칙:**
+1. **TRY 노드**: `try_catch_code` 버퍼에 임시 저장
+2. **EXCEPTION 노드 감지 시**:
+   - TRY 있음: TRY 코드를 EXCEPTION의 try 블록에 삽입
+   - TRY 없음: 지금까지의 모든 코드를 EXCEPTION의 try 블록에 삽입
+3. **CodePlaceHolder 치환**: 1회만 치환하여 중복 방지
+
 ### 📥 3단계: 다운로드 (Download)
 
 ```
@@ -669,6 +773,8 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 | `CALL` | 프로시저 호출 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
 | `ASSIGNMENT` | 변수 할당 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
 | `EXECUTE_IMMEDIATE` | 동적 SQL 실행 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
+| `TRY` | TRY 블록 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `java_code`, `token`, `has_children` |
+| `EXCEPTION` | EXCEPTION 블록 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `java_code`, `token`, `has_children` |
 | `SPEC` | 매개변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
 | `DECLARE` | 변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
 | `PACKAGE_VARIABLE` | 패키지 전역 변수 | `user_id`, `project_name`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
@@ -687,7 +793,8 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 - `name`: 노드 표시명
 - `summary`: LLM이 생성한 요약
 - `summarized_code`: 자식 노드를 플레이스홀더로 치환한 코드
-- `node_code`: 원본 코드
+- `node_code`: 원본 PL/SQL 코드
+- `java_code`: 변환된 Java 코드 (전처리 단계에서 생성, TRY/EXCEPTION 노드에 주로 존재)
 - `token`: 토큰 수
 - `has_children`: 자식 노드 존재 여부
 - `fqn`: Fully Qualified Name (schema.table.column)
@@ -767,13 +874,12 @@ Backend/
 │   ├── create_entity.py            # JPA Entity 생성
 │   ├── create_repository.py        # Repository 인터페이스 생성
 │   ├── create_service_skeleton.py  # Service 클래스 뼈대 생성
-│   ├── create_service_preprocessing.py   # Service 전처리
-│   ├── create_service_postprocessing.py  # Service 후처리
+│   ├── create_service_preprocessing.py   # Service 전처리 (토큰 임계 기반 배치 처리)
+│   ├── create_service_postprocessing.py  # Service 후처리 (TRY-CATCH 조립)
 │   ├── create_controller_skeleton.py     # Controller 뼈대 생성
 │   ├── create_controller.py        # Controller 메서드 생성
 │   ├── create_main.py              # Main 클래스 생성
-│   ├── create_properties.py        # application.properties 생성
-│   └── create_pomxml.py            # pom.xml 생성
+│   └── create_config_files.py      # pom.xml 및 application.properties 생성
 │
 ├── 📁 prompt/                      # LLM 프롬프트 정의
 │   ├── understand_ddl.py           # DDL 분석 프롬프트
@@ -854,41 +960,122 @@ Neo4j 데이터베이스 연결 및 쿼리 실행을 담당합니다.
 #### 🔨 `convert/*`
 Spring Boot 프로젝트의 각 구성 요소를 생성합니다.
 
-| 파일 | 생성 대상 |
-|-----|----------|
-| `create_entity.py` | JPA Entity 클래스 |
-| `create_repository.py` | Repository 인터페이스 |
-| `create_service_skeleton.py` | Service 클래스 뼈대 |
-| `create_service_preprocessing.py` | 변수/시퀀스/쿼리 결합 |
-| `create_service_postprocessing.py` | 최종 Service 메서드 |
-| `create_controller_skeleton.py` | Controller 뼈대 |
-| `create_controller.py` | Controller 메서드 |
-| `create_main.py` | Main 클래스 |
-| `create_properties.py` | application.properties |
-| `create_pomxml.py` | pom.xml |
+| 파일 | 생성 대상 | 주요 역할 |
+|-----|----------|----------|
+| `create_entity.py` | JPA Entity 클래스 | DDL 테이블을 Entity로 변환 |
+| `create_repository.py` | Repository 인터페이스 | 데이터 접근 계층 생성 |
+| `create_service_skeleton.py` | Service 클래스 뼈대 | 메서드 시그니처 생성 |
+| `create_service_preprocessing.py` | Service 메서드 바디 | **토큰 임계(1500) 기반 배치 처리**<br/>- 노드 순회하며 sp_code 누적<br/>- 임계 도달 시 변수/JPA 수집 후 LLM 호출<br/>- 대용량 노드는 스켈레톤 생성 후 자식 삽입<br/>- **Parent Context 전달**로 변수 스코프 및 제어 흐름 이해 향상 |
+| `create_service_postprocessing.py` | Service TRY-CATCH 조립 | **EXCEPTION 노드 특수 처리**<br/>- TRY 노드 버퍼 관리<br/>- EXCEPTION 노드와 매칭하여 조립<br/>- CodePlaceHolder 치환 |
+| `create_controller_skeleton.py` | Controller 뼈대 | REST API 엔드포인트 골격 |
+| `create_controller.py` | Controller 메서드 | HTTP 요청 처리 로직 |
+| `create_main.py` | Main 클래스 | Spring Boot 애플리케이션 진입점 |
+| `create_config_files.py` | pom.xml & application.properties | 빌드 설정 및 DB 연결 설정 |
 
 #### 💬 `prompt/*`
 LLM에게 전달할 프롬프트를 정의합니다.
 
 **이해 단계 프롬프트:**
-- DDL 해석, 코드 분석, 변수 분석, 컬럼 역할 분석 등
+- `understand_ddl.py`: DDL 테이블/컬럼 분석
+- `understand_prompt.py`: PL/SQL 구문 분석 및 관계 추출
+- `understand_summarized_prompt.py`: 큰 노드 요약 생성
+- `understand_column_prompt.py`: 컬럼 역할 파악
+- `understand_variables_prompt.py`: 변수 분석
 
 **변환 단계 프롬프트:**
-- Entity 생성, Repository 생성, Service 생성, Controller 생성 등
+- `convert_entity_prompt.py`: Entity 클래스 생성
+- `convert_repository_prompt.py`: Repository 인터페이스 생성
+- `convert_service_prompt.py`: **Service 메서드 바디 생성** (토큰 임계 시 호출)
+  - ✅ Parent Context 지원 (부모 노드의 Java 스켈레톤 전달)
+  - ✅ 원본 구조 유지 지침 (임의 return/if 문 방지)
+  - ✅ 변수 타입 및 제어 흐름 정확성 강화
+- `convert_service_skeleton_prompt.py`: Service 메서드 시그니처 생성
+- `convert_summarized_service_prompt.py`: **대용량 노드 스켈레톤 생성** (자식을 `...code...`로 요약)
+- `convert_controller_prompt.py`: Controller 메서드 생성
+- `convert_command_prompt.py`: Command 클래스 생성
+- `convert_variable_prompt.py`: 변수 변환
 
 #### 🛠️ `util/utility_tool.py`
 공통 유틸리티 함수를 제공합니다.
 
 **주요 함수:**
 - `add_line_numbers()`: 코드에 라인 번호 추가
-- `calculate_code_token()`: 토큰 수 계산
-- `parse_table_identifier()`: 테이블 식별자 파싱 (schema.table 분리)
+- `calculate_code_token()`: 토큰 수 계산 (tiktoken 사용)
+- `parse_table_identifier()`: 테이블 식별자 파싱 (schema.table@dblink 분리)
+- `collect_variables_in_range()`: **특정 라인 범위 내 변수 수집** (전처리 단계에서 사용)
+- `extract_used_query_methods()`: **특정 라인 범위 내 JPA 메서드 수집** (전처리 단계에서 사용)
+- `build_variable_index()`: 변수 노드를 startLine 기준으로 인덱싱
+- `convert_to_pascal_case()`: 스네이크 케이스 → 파스칼 케이스
+- `convert_to_camel_case()`: 스네이크 케이스 → 카멜 케이스
+- `save_file()`: 비동기 파일 저장
+
+---
+
+## 🔧 문제해결
+
+### 자주 발생하는 문제
+
+#### 1. 생성된 Java 코드에 임의 return 문이 추가됨
+
+**증상:**
+```java
+vPatientExists = tpjPatientRepository.findPatientByPatientKey(pPatientKey);
+if (vPatientExists == 0) {
+    return "환자가 존재하지 않습니다.";  // ❌ 원본에 없던 return!
+}
+// 이후 코드가 실행되지 않음
+```
+
+**원인:**
+- LLM이 SELECT 결과를 검증하는 로직을 임의로 추가
+- 원본 PL/SQL은 단순히 COUNT만 수행하는데, LLM이 "의미를 추론"하여 검증 로직 생성
+
+**해결책:**
+프롬프트에 다음 지침 강화:
+```
+⚠️ 중요: 원본 PL/SQL 구조를 정확히 따르세요. 
+- 원본에 없는 return 문, if 문, 검증 로직을 추가하지 마세요
+- SELECT는 단순히 변수에 값을 할당하는 것입니다
+- 제어 흐름은 원본과 동일해야 합니다
+```
+
+#### 2. 변수 타입이 잘못 변환됨
+
+**증상:**
+```java
+String pResultCode = 0L;  // ❌ String에 Long 할당
+```
+
+**원인:**
+- Parent Context 없이 변환하여 변수 타입 정보 부족
+
+**해결책:**
+- Parent Context 전달 기능이 구현됨 (v2.0)
+- 부모 노드의 Java 코드를 자식 노드 변환 시 참조
+
+#### 3. IF-ELSIF-ELSE 구조가 잘못 변환됨
+
+**증상:**
+```java
+if (condition1) {
+    // ...
+} else if (condition2) {  // ❌ 중괄호 누락
+    // ...
+    if (condition3) {     // ❌ 잘못된 중첩
+```
+
+**원인:**
+- LLM이 복잡한 중첩 구조를 제대로 파악하지 못함
+
+**해결책:**
+- Parent Context로 전체 제어 흐름 구조 제공
+- 프롬프트에 "IF-ELSIF는 Java의 if-else if-else로 변환" 명시
 
 ---
 
 ## 🧪 테스트
 
-이 프로젝트는 Python 스크립트 기반 테스트를 제공합니다. (pytest 미사용)
+이 프로젝트는 pytest 기반 테스트를 제공합니다.
 
 ### 환경 변수 설정
 

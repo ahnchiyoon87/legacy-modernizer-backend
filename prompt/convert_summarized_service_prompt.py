@@ -1,12 +1,12 @@
 import json
 import logging
 import os
-from langchain.globals import set_llm_cache
+from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
-from langchain.prompts import PromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
+from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from util.exception import LLMCallError
 
 
@@ -22,15 +22,86 @@ prompt = PromptTemplate.from_template(
 사용자 언어 설정: {locale}
 
 
-[입력 데이터]
+[입력 데이터 설명]
 ===============================================
-- summarized_stored_procedure_code: 요약된 Stored Procedure 코드 블록
-  * 특징: 부모 코드는 실제 SP 형태로 남아 있고, 자식은 `라인번호: ... code ...` 형태로 여러 개 나열될 수 있음
-- service_skeleton: 구현할 메서드의 시그니처와 기본 구조
-- variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
-- command_class_variable: Command 클래스에서 전달받는 파라미터 정보
-- query_method_list: 사용 가능한 JPA 쿼리 메서드 목록
-- sequence_methods: 사용 가능한 시퀀스 메서드 목록
+1. summarized_stored_procedure_code
+   - 요약된 Stored Procedure 코드 블록
+   - 특징: 부모 코드는 실제 SP 형태로 남아 있고, 자식은 `라인번호: ... code ...` 형태로 여러 개 나열될 수 있음
+
+2. service_skeleton
+   - 구현할 메서드의 시그니처와 기본 구조
+
+3. variable
+   - 현재 변수들의 할당값 정보 (이전 작업 결과)
+
+4. command_class_variable
+   - Command 클래스에서 전달받는 파라미터 정보
+
+5. query_method_list
+   - 사용 가능한 JPA 쿼리 메서드 목록
+
+6. sequence_methods
+   - 사용 가능한 시퀀스 메서드 목록
+
+
+[작업 지침 (반드시 준수)]
+===============================================
+
+⚠️⚠️⚠️ 최우선 원칙: SP 코드의 의미와 흐름을 그대로 유지 ⚠️⚠️⚠️
+
+1. 로직 충실성 (가장 중요!)
+   - 원본 Stored Procedure의 로직 흐름, 순서, 의미를 절대 변경하지 마세요
+   - SP 코드에 있는 그대로를 Java로 충실히 번역만 하세요
+   - 임의로 로직을 재구성, 최적화, 단순화하지 마세요
+   - 코드 순서를 바꾸지 마세요
+
+2. 제어 구조 정확성
+   A. IF-ELSIF-ELSE 변환 (매우 중요!)
+      원칙:
+      - SP의 IF-ELSIF-ELSE는 반드시 Java의 if-else if-else로 변환하세요
+      - ELSIF를 중첩 if로 변환하면 안 됩니다! (절대 금지)
+      - 조건의 순서를 절대 바꾸지 마세요
+      - 조건을 병합하거나 분리하지 마세요
+      
+      예시 1) 원본 SP 코드:
+      IF vCount = 0 AND pAction = 'A' THEN
+         ...code...
+      ELSIF vCount = 0 THEN
+         ...code...
+      END IF;
+      
+      ✅ 올바른 Java 변환 (else if 사용):
+      if (vCount == 0 && pAction.equals("A")) {{
+         ...code...
+      }} else if (vCount == 0) {{
+         ...code...
+      }}
+      
+      ❌ 절대 금지 - 잘못된 변환 (중첩 if):
+      if (vCount == 0 && pAction.equals("A")) {{
+         ...code...
+         if (vCount == 0) {{  // ← 이렇게 중첩하면 안됨!
+            ...code...
+         }}
+      }}
+      
+      핵심 차이:
+      - ELSIF는 첫 번째 IF와 **같은 레벨**의 조건 분기입니다
+      - else if는 첫 번째 if가 **거짓일 때** 실행됩니다
+      - 중첩 if는 첫 번째 if가 **참일 때** 실행됩니다 (완전히 반대 의미!)
+      
+   B. 중첩 구조 유지
+      - 원본에 중첩된 IF가 있다면 Java에서도 정확히 같은 레벨로 중첩하세요
+      - 중첩 깊이(depth)를 변경하지 마세요
+      
+   C. 반복문 구조
+      - LOOP, FOR 등 반복 로직을 정확히 유지하세요
+      - 반복 순서, 조건, 범위를 변경하지 마세요
+
+3. 출력 형식
+   - 메서드 시그니처(public ... method(...))는 절대 포함하지 마세요!
+   - 오직 메서드 내부의 실행 코드만 반환하세요!
+   - 클린코드 및 가독성이 좋아야 하며, 들여쓰기를 적용하세요
 
 summarized_stored_procedure_code:
 {summarized_code}
@@ -53,17 +124,44 @@ sequence_method_list:
 
 [SECTION 1] 주요 작업
 ===============================================
-1) **부모(현재 레벨) 코드만 Java로 변환**합니다. (제어구조 헤더, 현재 레벨의 프로시저 호출 등)
-2) 자식(하위 블록/세부 로직)은 입력에 `라인번호: ... code ...`가 여러 개 있더라도, **출력에서는 라인번호를 제거하고 `...code...` 단 하나만** 남깁니다.
+1) 가장 중요: 골격(제어구조)만 생성, 자식은 ...code...로 유지
+   - 이 단계는 **스켈레톤 생성** 단계입니다!
+   - 메서드 시그니처/바디 전체를 생성하지 마세요!
+   - 현재 레벨의 제어구조(if, for 등)만 Java로 변환하세요!
+   - 자식 로직은 모두 `...code...`로 남겨두세요!
+
+2) **부모(현재 레벨) 코드만 Java로 변환**합니다. (제어구조 헤더, 현재 레벨의 프로시저 호출 등)
+3) 자식(하위 블록/세부 로직)은 입력에 `라인번호: ... code ...`가 여러 개 있더라도, **출력에서는 라인번호를 제거하고 `...code...` 단 하나만** 남깁니다.
    - 즉, `라인번호: ... code ...` → `...code...` 로 통일
    - 같은 블록 내부에 `...code...`가 2회 이상 등장하면 안 됩니다.
-3) 부모가 무엇인지는 고정되어 있지 않습니다(IF/CASE/FOR/WHILE/LOOP 등). 입력의 블록 토큰으로 현재 레벨을 동적으로 식별하세요.
-4) 이 단계는 **골격 생성** 단계입니다. 세부 SQL/JPA/시퀀스/예외 구현은 작성하지 않습니다(자식으로 간주되어 축약 대상).
+4) 부모가 무엇인지는 고정되어 있지 않습니다(IF/CASE/FOR/WHILE/LOOP 등). 입력의 블록 토큰으로 현재 레벨을 동적으로 식별하세요.
+5) 이 단계는 **골격 생성** 단계입니다. 세부 SQL/JPA/시퀀스/예외 구현은 작성하지 않습니다(자식으로 간주되어 축약 대상).
+
+예시:
+   입력 (요약본):
+   IF vCount = 0 THEN
+      29: ... code ...
+      35: ... code ...
+   END IF;
+   
+   올바른 출력 (골격만):
+   if (vCount == 0) {{
+       ...code...
+   }}
+   
+   잘못된 출력 (메서드 전체):
+   public String method(...) {{
+       if (vCount == 0) {{
+           실제 코드 구현...
+       }}
+   }}
 
 
 [SECTION 2] 변환 규칙
 ===============================================
 1. 제어구조
+   - ⚠️ 중요: 원본 SP의 제어 구조를 정확히 유지하세요!
+   - IF-ELSIF-ELSE는 if-else if-else로 변환 (중첩 if가 아님!)
    - 현재 레벨의 제어구조(조건/반복 등) 헤더와 중괄호만 Java로 남기고, 내부는 `...code...` 1회로 대체합니다.
    - 어떤 제어구조든 동일 원칙을 적용합니다(예시 비한정).
 
@@ -76,12 +174,43 @@ sequence_method_list:
 3. SQL/JPA/시퀀스
    - 상세 구현은 하위 로직으로 간주하여 `...code...`로 축약합니다.
 
-4. `...code...` 수량/형태
+4. 변수 처리
+   A. 변수 초기화 및 할당 (매우 중요!)
+      ⚠️ SP 코드에서 변수에 값을 할당하는 로직이 있다면, Java에서도 동일하게 할당하세요!
+      ⚠️ 변수명 접두어(p, v, i, o)와 상관없이 SP 코드의 로직을 그대로 따르세요!
+      
+      예시) OUT 파라미터 초기화
+      SP 코드:
+      pResultCode := 0;
+      pResultMessage := '성공';
+      
+      ✅ 올바른 Java:
+      pResultCode = 0L;
+      pResultMessage = "성공";
+      
+      ❌ 잘못된 Java (초기화 생략):
+      // 할당 없음 ← 틀림!
+      
+      핵심: SP 코드에 변수 할당(`:=`)이 있으면 → Java에서도 할당(`=`)
+   
+   B. 새 변수 선언 조건
+      ⚠️ 중요: "재선언 금지"는 타입을 다시 붙이지 말라는 뜻입니다. 값 할당은 가능합니다!
+      
+      - 'Service Signature'에 있는 변수는 재선언 금지
+        * ✅ 할당 가능: pResultCode = 0L; (타입 없이 할당만)
+        * ❌ 재선언 금지: Long pResultCode = 0L; (타입 붙여서 다시 선언)
+      
+      - 새 변수 선언 조건:
+        * 'Service Signature'에 존재하지 않는 변수 AND
+        * 'Used Variable' 목록에도 정보가 없는 경우
+        * → 해당 변수를 새로 선언하세요 (타입 + 변수명)
+
+5. `...code...` 수량/형태
    - 각 블록 내부에는 **`...code...`가 정확히 1회**만 존재해야 합니다.
    - **라인번호를 포함하지 않습니다.** (예: `131: ...code...` → `...code...`)
    - 여러 개의 `라인번호: ... code ...`가 들어와도 하나로 합쳐 `...code...`로만 출력합니다.
 
-5. 포맷/스타일
+6. 포맷/스타일
    - 결과는 들여쓰기가 적용된 **단일 Java 코드 문자열**이어야 합니다.
    - 불필요한 임포트/주석/설명 금지. 백틱(```) 금지.
 
@@ -119,7 +248,7 @@ if (condition) {{
 ===============================================
 부가 설명 없이, 아래 **정확한** JSON 형식으로만 반환하세요:
 {{
-   "code": "Java Code"
+   "code": "메서드 바디 내용만 (메서드 시그니처 제외, 외부 중괄호 제외)"
 }}
 """
 )
@@ -153,7 +282,7 @@ def convert_summarized_code(summarized_code, service_skeleton, variable, command
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"summarized_code": summarized_code, "service_skeleton": service_skeleton, "variable": variable, "command_class_variable": command_class_variable, "query_method_list": query_method_list, "sequence_methods": sequence_methods, "locale": locale})
+        result = chain.invoke({"summarized_code": summarized_code, "service_skeleton": service_skeleton, "variable": variable, "command_variables": command_class_variable, "query_method_list": query_method_list, "sequence_methods": sequence_methods, "locale": locale})
         return result
     
     except Exception as e:

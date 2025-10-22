@@ -5,17 +5,15 @@ import shutil
 import zipfile
 import aiofiles
 import os
-import textwrap
 from typing import Any, AsyncGenerator
 from fastapi import HTTPException
 
-from convert.create_controller import generate_controller_class, start_controller_processing
+from convert.create_controller import start_controller_processing, finalize_controller
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_config_files import ConfigFilesGenerator
 from convert.create_repository import RepositoryGenerator
 from convert.create_entity import EntityGenerator
 from convert.create_service_preprocessing import start_service_preprocessing
-from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing
 from convert.create_service_skeleton import ServiceSkeletonGenerator
 from convert.create_main import MainClassGenerator
 from prompt.understand_ddl import understand_ddl
@@ -458,51 +456,34 @@ class ServiceOrchestrator:
 
                 # Step 4: Service & Controller
                 yield self._emit("message", step=4, content=f"{base_name} - Service Controller Processing")
-                method_codes = []
-                controller_codes = []
                 
                 # 공통 파라미터 캐싱
                 common_params = (self.user_id, self.api_key, self.locale)
-                project_params = (self.user_id, self.project_name)
                 
                 for svc in service_creation_info:
-                    svc_skeleton, cmd_var, proc_name, method_code, method_sig, cmd_name, node_type = (
+                    svc_skeleton, cmd_var, proc_name, method_sig, cmd_name, node_type = (
                         svc['service_method_skeleton'], svc['command_class_variable'], svc['procedure_name'], 
-                        svc['method_skeleton_code'], svc['method_signature'], svc['command_class_name'], svc['node_type']
+                        svc['method_signature'], svc['command_class_name'], svc['node_type']
                     )
                     
-                    variable_nodes, merged_java_code = await start_service_preprocessing(
+                    # Service 생성 및 저장 (pre에서 완료)
+                    await start_service_preprocessing(
                         svc_skeleton, cmd_var, proc_name,
                         used_query_methods, folder_name, file_name, sequence_methods,
                         *common_params
                     )
-
-                    if merged_java_code:
-                        indented = textwrap.indent(merged_java_code.strip(), '        ')
-                        completed = method_code.replace("        CodePlaceHolder", indented)
-                        method_codes.append(completed)
-                    else:
-                        postprocessed = await start_service_postprocessing(
-                            method_code, proc_name, folder_name, file_name, '\n\n'.join(method_codes), self.user_id
-                        )
-                        method_codes.append(postprocessed)
                     
-                    controller_method = await start_controller_processing(
-                        method_sig, proc_name, cmd_var, cmd_name, node_type, '\n\n'.join(controller_codes),
-                        controller_skeleton, base_name, *common_params, self.project_name
+                    # Controller 메서드 생성 (매니저에 누적)
+                    start_controller_processing(
+                        method_sig, proc_name, cmd_var, cmd_name, node_type,
+                        controller_skeleton, controller_class_name, base_name,
+                        self.user_id, self.project_name, *common_params
                     )
-                    controller_codes.append(controller_method)
                 
-                merge_method_code = '\n\n'.join(method_codes)
-                merge_controller_method_code = '\n\n'.join(controller_codes)
-
-                service_code, controller_code = await asyncio.gather(
-                    generate_service_class(service_skeleton, service_class_name, merge_method_code, *project_params),
-                    generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code, *project_params)
-                )
-                yield self._emit("data", file_type="service_class", file_name=f"{service_class_name}.java", code=service_code)
-                yield self._emit("data", file_type="controller_class", file_name=f"{controller_class_name}.java", code=controller_code)
-
+                # Controller 파일 저장 (한 번만)
+                await finalize_controller(self.user_id, base_name)
+                
+                yield self._emit("message", step=4, content=f"{base_name} - Service & Controller 생성 완료")
                 yield self._emit("Done", step=4)
 
             # Step 5 & 6: Config Files + Main Class (병렬 생성)

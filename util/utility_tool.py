@@ -23,32 +23,15 @@ ENCODER = tiktoken.get_encoding("cl100k_base")
 #==============================================================================
 
 async def save_file(content: str, filename: str, base_path: Optional[str] = None) -> str:
-    """
-    파일을 비동기적으로 저장하는 함수
-    
-    Args:
-        content: 저장할 파일 내용
-        filename: 파일명 (확장자 포함)
-        base_path: 기본 저장 경로
-        
-    Returns:
-        저장된 파일의 전체 경로
-        
-    Raises:
-        SaveFileError: 파일 저장 중 오류 발생 시
-    """
+    """파일을 비동기적으로 저장 (최적화: 경로 결합 최소화)"""
     try:
-        # 디렉토리 생성
         os.makedirs(base_path, exist_ok=True)
-            
-        # 파일 전체 경로
         file_path = os.path.join(base_path, filename)
         
-        # 파일 저장
         async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
             await file.write(content)
-            logging.info(f"파일 저장 성공: {file_path}")
-            
+        
+        logging.info(f"파일 저장 성공: {file_path}")
         return file_path
         
     except Exception as e:
@@ -61,19 +44,19 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 # 경로 유틸리티
 #==============================================================================
 
+# 모듈 레벨 캐싱 (반복 계산 방지)
+_WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 def build_java_base_path(project_name: str, user_id: str, *sub_paths: str) -> str:
-    """
-    역할: Java 소스 저장을 위한 베이스 경로를 생성합니다.
-    예) <workspace or docker>/target/java/<user_id>/<project>/src/main/java/com/example/<project>[/sub_paths...]
-    """
+    """Java 소스 저장 경로 생성 (최적화: 경로 캐싱)"""
     try:
         java_root = f"{project_name}/src/main/java/com/example/{project_name}"
         relative_path = os.path.join(java_root, *sub_paths) if sub_paths else java_root
+        
         docker_ctx = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        if docker_ctx:
-            return os.path.join(docker_ctx, 'target', 'java', user_id, relative_path)
-        parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        return os.path.join(parent_workspace_dir, 'target', 'java', user_id, relative_path)
+        base_dir = docker_ctx if docker_ctx else _WORKSPACE_DIR
+        
+        return os.path.join(base_dir, 'target', 'java', user_id, relative_path)
     except Exception as e:
         err_msg = f"Java 베이스 경로 생성 중 오류 발생: {str(e)}"
         logging.error(err_msg)
@@ -85,20 +68,12 @@ def build_java_base_path(project_name: str, user_id: str, *sub_paths: str) -> st
 #==============================================================================
 
 def convert_to_pascal_case(snake_str: str) -> str:
-    """
-    스네이크 케이스를 파스칼 케이스로 변환
-    
-    Args:
-        snake_str: 변환할 스네이크 케이스 문자열 (예: employee_payroll)
-        
-    Returns:
-        파스칼 케이스로 변환된 문자열 (예: EmployeePayroll)
-    """
+    """스네이크 케이스를 파스칼 케이스로 변환 (최적화: 조건 개선)"""
     try:
+        if not snake_str:
+            return ""
         if '_' not in snake_str:
-            # 이미 언더스코어가 없으면 첫 글자만 대문자로 변환
-            return snake_str[0].upper() + snake_str[1:] if snake_str else ""
-        
+            return snake_str[0].upper() + snake_str[1:]
         return ''.join(word.capitalize() for word in snake_str.split('_'))
     except Exception as e:
         err_msg = f"파스칼 케이스 변환 중 오류 발생: {str(e)}"
@@ -107,16 +82,10 @@ def convert_to_pascal_case(snake_str: str) -> str:
 
 
 def convert_to_camel_case(snake_str: str) -> str:
-    """
-    스네이크 케이스를 카멜 케이스로 변환
-    
-    Args:
-        snake_str: 변환할 스네이크 케이스 문자열 (예: user_profile_service)
-        
-    Returns:
-        카멜 케이스로 변환된 문자열 (예: userProfileService)
-    """
+    """스네이크 케이스를 카멜 케이스로 변환 (최적화: 빈 체크)"""
     try:
+        if not snake_str:
+            return ""
         words = snake_str.split('_')
         return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
     except Exception as e:
@@ -126,30 +95,20 @@ def convert_to_camel_case(snake_str: str) -> str:
 
 
 def convert_to_upper_snake_case(camel_str: str) -> str:
-    """
-    파스칼/카멜 케이스를 대문자 스네이크 케이스로 변환
-    
-    Args:
-        camel_str: 변환할 파스칼/카멜 케이스 문자열 (예: UserProfileService)
-        
-    Returns:
-        대문자 스네이크 케이스로 변환된 문자열 (예: USER_PROFILE_SERVICE)
-    """
+    """파스칼/카멜 케이스를 대문자 스네이크 케이스로 변환 (최적화: 리스트 사용)"""
     try:
         if not camel_str:
             return ""
         
-        # 첫 번째 대문자 앞에는 '_'를 추가하지 않음
-        result = camel_str[0].upper()
-        
-        # 나머지 문자들을 순회하면서 대문자를 '_대문자'로 변환
+        result = [camel_str[0].upper()]
         for char in camel_str[1:]:
             if char.isupper():
-                result += '_' + char
+                result.append('_')
+                result.append(char)
             else:
-                result += char.upper()
-                
-        return result
+                result.append(char.upper())
+        
+        return ''.join(result)
     except Exception as e:
         err_msg = f"대문자 스네이크 케이스 변환 중 오류 발생: {str(e)}"
         logging.error(err_msg)
@@ -157,20 +116,10 @@ def convert_to_upper_snake_case(camel_str: str) -> str:
 
 
 def add_line_numbers(plsql: List[str]) -> Tuple[str, List[str]]:
-    """
-    PL/SQL 코드의 각 라인에 번호를 추가
-    
-    Args:
-        plsql: 원본 PL/SQL 코드 (라인 단위 리스트)
-        
-    Returns:
-        (numbered_plsql, numbered_lines): 라인 번호가 추가된 코드와 라인 리스트
-    """
-    try: 
-        # 각 라인에 번호를 추가
-        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(plsql)]
-        numbered_plsql = "".join(numbered_lines)
-        return numbered_plsql, numbered_lines
+    """PL/SQL 코드에 라인 번호 추가 (최적화: enumerate 인덱스 조정)"""
+    try:
+        numbered_lines = [f"{i}: {line}" for i, line in enumerate(plsql, start=1)]
+        return "".join(numbered_lines), numbered_lines
     except Exception as e:
         err_msg = f"코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
@@ -181,56 +130,22 @@ def add_line_numbers(plsql: List[str]) -> Tuple[str, List[str]]:
 # 스키마/테이블 파싱 & 정규화 유틸리티
 #==============================================================================
 def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | None]:
-    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출.
-    스키마가 없으면 '' 반환. 결과는 원본 케이스를 보존합니다.
-    """
+    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출 (최적화: 조건 개선)"""
     if not qualified_table_name:
         return '', '', None
+    
     text = qualified_table_name.strip()
-    link = None
-    if '@' in text:
-        left, link = text.split('@', 1)
-    else:
-        left = text
-    if '.' in left:
-        s, t = left.split('.', 1)
-    else:
-        s, t = '', left
-    return (s.strip() or ''), t.strip(), (link or None)
+    left, _, link = text.partition('@')
+    s, _, t = left.partition('.')
+    
+    return (s.strip() if t else ''), (t.strip() if t else left.strip()), (link.strip() or None)
 
 #==============================================================================
 # 코드 분석 및 변환 유틸리티
 #==============================================================================
 
 def calculate_code_token(code: Union[str, Dict, List]) -> int:
-    """
-    전달된 코드의 토큰 길이를 계산
-    
-    Args:
-        code: 토큰 수를 계산할 코드 (문자열, 딕셔너리, 리스트 등 다양한 타입 가능)
-        
-    Returns:
-        코드의 토큰 수
-    """
-    try:
-        text_json = json.dumps(code, ensure_ascii=False)
-        return len(ENCODER.encode(text_json))
-    except Exception as e:
-        err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-
-def calculate_code_token(code: Union[str, Dict, List]) -> int:
-    """
-    전달된 코드의 토큰 길이를 계산
-    
-    Args:
-        code: 토큰 수를 계산할 코드 (문자열, 딕셔너리, 리스트 등 다양한 타입 가능)
-        
-    Returns:
-        코드의 토큰 수
-    """
+    """코드 토큰 길이 계산 (최적화: 중복 제거)"""
     try:
         text_json = json.dumps(code, ensure_ascii=False)
         return len(ENCODER.encode(text_json))
@@ -241,49 +156,34 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
 
 
 def build_variable_index(local_variable_nodes: List[Dict]) -> Dict:
-    """
-    변수 노드를 startLine 기준으로 인덱싱 (extract_used_variable_nodes에서 사용)
-    
-    Returns:
-        { startLine(int): {'nodes': {range_key: [var_list]}, 'tokens': int} }
-    """
+    """변수 노드를 startLine 기준으로 인덱싱 (최적화: split 최소화)"""
     index = {}
     for variable_node in local_variable_nodes:
         node_data = variable_node.get('v', {})
-        var_type = node_data.get('type', 'Unknown')
         var_name = node_data.get('name')
         if not var_name:
             continue
+        
+        var_info = f"{node_data.get('type', 'Unknown')}: {var_name}"
+        
         for key in node_data:
-            if '_' in key and all(part.isdigit() for part in key.split('_')):
-                s, e = key.split('_', 1)
-                start_line = int(s)
-                range_key = f"{start_line}~{int(e)}"
-                entry = index.setdefault(start_line, {'nodes': defaultdict(list), 'tokens': None})
-                entry['nodes'][range_key].append(f"{var_type}: {var_name}")
+            if '_' in key:
+                parts = key.split('_')
+                if len(parts) == 2 and all(p.isdigit() for p in parts):
+                    start_line = int(parts[0])
+                    entry = index.setdefault(start_line, {'nodes': defaultdict(list), 'tokens': None})
+                    entry['nodes'][f"{start_line}~{int(parts[1])}"].append(var_info)
     return index
 
 
 async def extract_used_variable_nodes(startLine: int, local_variable_nodes: List[Dict]) -> Tuple[Dict, int]:
-    """
-    특정 코드 라인에서 사용된 변수들의 정보를 추출 (성능 개선 버전)
-    
-    Args:
-        startLine: 분석할 코드의 시작 라인 번호
-        local_variable_nodes: Neo4j에서 조회한 변수 노드 리스트 또는 인덱스
-        
-    Returns:
-        (used_variables, variable_tokens): 사용된 변수 정보와 토큰 수
-    """
+    """특정 라인에서 사용된 변수 추출 (최적화: 타입 체크 개선)"""
     try:
         # 인덱스면 그대로 사용, 리스트면 인덱스 생성
-        if isinstance(local_variable_nodes, dict) and 'nodes' in str(local_variable_nodes):
-            var_index = local_variable_nodes
-        else:
-            var_index = build_variable_index(local_variable_nodes)
+        var_index = (local_variable_nodes if isinstance(local_variable_nodes, dict) 
+                     else build_variable_index(local_variable_nodes))
         
-        entry = var_index.get(startLine)
-        if entry:
+        if entry := var_index.get(startLine):
             var_nodes = entry['nodes']
             if entry['tokens'] is None:
                 entry['tokens'] = calculate_code_token(var_nodes)
@@ -299,32 +199,23 @@ async def extract_used_variable_nodes(startLine: int, local_variable_nodes: List
 
 
 async def collect_variables_in_range(local_variable_nodes: List[Dict], start_line: int, end_line: int) -> List[Dict]:
-    """
-    역할: 컨텍스트 범위[start_line, end_line]에 완전히 포함되는 변수들을 수집합니다.
-
-    매개변수:
-      - local_variable_nodes(List[Dict]): Neo4j에서 조회한 변수 노드 리스트({'v': Variable}).
-      - start_line(int): 컨텍스트 시작 라인.
-      - end_line(int): 컨텍스트 끝 라인.
-
-    반환값:
-      - List[Dict]: {'type': str, 'name': str} 형태의 고유 변수 리스트.
-    """
+    """범위 내 변수 수집 (최적화: 딕셔너리 구조 개선)"""
     try:
         unique = {}
         for variable_node in local_variable_nodes:
             node_data = variable_node.get('v', {})
             var_name = node_data.get('name')
-            var_type = node_data.get('type', 'Unknown')
-            if not var_name:
+            if not var_name or var_name in unique:
                 continue
+            
             for range_key in node_data:
-                if '_' not in range_key or not all(part.isdigit() for part in range_key.split('_')):
-                    continue
-                v_start, v_end = map(int, range_key.split('_'))
-                if start_line <= v_start and v_end <= end_line:
-                    unique[var_name] = {'type': var_type, 'name': var_name}
-                    break
+                if '_' in range_key:
+                    parts = range_key.split('_')
+                    if len(parts) == 2 and all(p.isdigit() for p in parts):
+                        v_start, v_end = int(parts[0]), int(parts[1])
+                        if start_line <= v_start and v_end <= end_line:
+                            unique[var_name] = {'type': node_data.get('type', 'Unknown'), 'name': var_name}
+                            break
         return list(unique.values())
     except Exception as e:
         err_msg = f"변수 범위 수집 중 오류가 발생했습니다: {str(e)}"
@@ -334,25 +225,12 @@ async def collect_variables_in_range(local_variable_nodes: List[Dict], start_lin
 async def extract_used_query_methods(start_line: int, end_line: int, 
                                    jpa_method_list: Dict, 
                                    used_jpa_method_dict: Dict) -> Dict:
-    """
-    특정 노드 범위 내에서 사용된 JPA 쿼리 메서드들을 식별하고 수집
-    
-    Args:
-        start_line: 노드의 시작 라인
-        end_line: 노드의 끝 라인
-        jpa_method_list: 노드 내에서 사용된 JPA 메서드 목록
-        used_jpa_method_dict: 사용된 JPA 메서드를 저장할 딕셔너리
-        
-    Returns:
-        사용된 JPA 메서드를 저장한 딕셔너리
-    """
+    """범위 내 JPA 메서드 수집 (최적화: 직접 업데이트)"""
     try:
         for range_key, method in jpa_method_list.items():
             method_start, method_end = map(int, range_key.split('~'))
-            # 컨텍스트 범위에 완전히 포함되는 경우만 수집 (포함 조건)
             if start_line <= method_start and method_end <= end_line:
                 used_jpa_method_dict[range_key] = method
-
         return used_jpa_method_dict
         
     except Exception as e:

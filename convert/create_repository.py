@@ -32,6 +32,9 @@ class RepositoryGenerator:
     Neo4j에서 DML 노드(SELECT, INSERT, UPDATE, DELETE)와 변수 정보를 조회하고,
     LLM을 활용하여 JPA Repository 메서드로 변환합니다.
     """
+    __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 
+                 'global_vars', 'var_index', 'all_used_query_methods', 
+                 'all_sequence_methods', 'aggregated_query_methods')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
         """
@@ -65,12 +68,17 @@ class RepositoryGenerator:
         logging.info("Repository Interface 생성을 시작합니다.")
         connection = Neo4jConnection()
         
+        logging.info("\n" + "="*80)
+        logging.info("🗄️  STEP 2: Repository Interface 생성 시작")
+        logging.info("="*80)
+        
         try:
             # Neo4j에서 DML 노드 및 변수 정보 조회
+            logging.info("📊 Neo4j에서 DML 노드 및 변수 조회 중...")
             table_dml_results, var_results = await connection.execute_queries([
                 f"""MATCH (n {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                    WHERE n:SELECT OR n:UPDATE OR n:DELETE OR n:INSERT OR n:MERGE
-                    AND NOT EXISTS {{ MATCH (p)-[:PARENT_OF]->(n) WHERE p:SELECT OR p:UPDATE OR p:DELETE OR p:INSERT OR p:MERGE }}
+                    WHERE n:SELECT OR n:UPDATE OR n:DELETE OR n:MERGE
+                    AND NOT EXISTS {{ MATCH (p)-[:PARENT_OF]->(n) WHERE p:SELECT OR p:UPDATE OR p:DELETE OR p:MERGE }}
                     OPTIONAL MATCH (n)-[:FROM|WRITES]->(t:Table {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     WITH t, collect(n) as dml_nodes WHERE t IS NOT NULL
                     RETURN t, dml_nodes""",
@@ -108,9 +116,14 @@ class RepositoryGenerator:
                 await self._process_dml_nodes(all_dml_nodes)
 
             # Repository 파일 생성
+            logging.info(f"💾 Repository 파일 저장 중...")
             repository_list = await self._save_repository_files()
             
-            logging.info("모든 Repository Interface 생성이 완료되었습니다.\n")
+            logging.info("\n" + "-"*80)
+            logging.info(f"✅ STEP 2 완료: {len(repository_list)}개 Repository 생성 완료")
+            logging.info(f"   - JPA 쿼리 메서드: {len(self.all_used_query_methods)}개")
+            logging.info(f"   - 시퀀스 메서드: {len(self.all_sequence_methods)}개")
+            logging.info("-"*80 + "\n")
             return self.all_used_query_methods, self.global_vars, list(self.all_sequence_methods), repository_list
 
         except Exception as e:

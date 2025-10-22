@@ -90,6 +90,7 @@ class ConfigFilesGenerator:
     Spring Boot 프로젝트의 설정 파일(pom.xml, application.properties)을 자동 생성하는 클래스
     Maven 의존성 설정과 애플리케이션 설정을 생성합니다.
     """
+    __slots__ = ('project_name', 'project_path', 'resources_path')
 
     def __init__(self, project_name: str, user_id: str):
         """

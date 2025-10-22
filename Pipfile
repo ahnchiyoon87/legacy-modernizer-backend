@@ -7,19 +7,19 @@ name = "pypi"
 fastapi = "*"
 uvicorn = "*"
 aiofiles = "*"
-python-multipart = "*"
 langchain-community = "*"
 langchain = "*"
+langchain-core = "*"
 openai = "*"
-langserve = "*"
 langchain-openai = "*"
 neo4j = "*"
 anthropic = "*"
 langchain-anthropic = "*"
 pyjson5 = "*"
-numpy = "*"
 
 [dev-packages]
+pytest = "*"
+pytest-asyncio = "*"
 
 [requires]
 python_version = "3.12"

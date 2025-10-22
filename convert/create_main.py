@@ -26,6 +26,7 @@ class MainClassGenerator:
     Spring Boot 애플리케이션의 메인 클래스를 자동 생성하는 클래스
     프로젝트명을 기반으로 Application 클래스를 생성합니다.
     """
+    __slots__ = ('project_name', 'class_name', 'file_name', 'save_path')
 
     def __init__(self, project_name: str, user_id: str):
         """

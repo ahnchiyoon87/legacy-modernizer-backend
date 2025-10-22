@@ -2,10 +2,10 @@ import json
 import logging
 import os
 import re
-from langchain.globals import set_llm_cache
+from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain.prompts import PromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
+from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
 from util.exception  import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')

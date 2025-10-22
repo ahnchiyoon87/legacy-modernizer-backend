@@ -16,6 +16,9 @@ class ServiceSkeletonGenerator:
     Neo4j에서 프로시저/함수 노드와 변수 정보를 조회하고,
     LLM을 활용하여 Service 클래스의 기본 구조와 메서드를 생성합니다.
     """
+    __slots__ = ('project_name', 'user_id', 'api_key', 'locale',
+                 'folder_name', 'file_name', 'dir_name', 'service_class_name',
+                 'external_packages', 'exist_command_class', 'global_vars')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
         """
@@ -53,7 +56,9 @@ class ServiceSkeletonGenerator:
         Raises:
             ConvertingError: Service Skeleton 생성 중 오류 발생 시
         """
-        logging.info("Service Skeleton 생성을 시작합니다.")
+        logging.info("\n" + "="*80)
+        logging.info("🏗️  STEP 3: Service Skeleton 생성 시작")
+        logging.info("="*80)
         connection = Neo4jConnection()
         
         # 속성 초기화
@@ -87,6 +92,12 @@ class ServiceSkeletonGenerator:
                     command_class_list.append({'commandName': cmd_name, 'commandCode': cmd_code})
             
             logging.info(f"Service Skeleton 생성이 완료되었습니다: {self.service_class_name}\n")
+            logging.info("\n" + "-"*80)
+            logging.info(f"✅ STEP 3 완료: {self.service_class_name} Skeleton 생성 완료")
+            logging.info(f"   - 프로시저/함수: {len(method_info_list)}개")
+            logging.info(f"   - Command 클래스: {len(command_class_list)}개")
+            logging.info("-"*80 + "\n")
+            
             return method_info_list, service_skeleton, self.service_class_name, self.exist_command_class, command_class_list
         
         except ConvertingError:
