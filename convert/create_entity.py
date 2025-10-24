@@ -2,8 +2,8 @@ import logging
 import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import calculate_code_token, save_file, build_java_base_path
-from util.prompt_loader import PromptLoader
+from util.utility_tool import calculate_code_token, save_file, build_rule_based_path
+from util.rule_loader import RuleLoader
 
 
 # ----- 상수 정의 -----
@@ -16,7 +16,7 @@ class EntityGenerator:
     레거시 데이터베이스 테이블 정보를 기반으로 JPA Entity 클래스를 자동 생성하는 클래스
     Neo4j에서 테이블 스키마 정보를 조회하고, LLM을 활용하여 Spring Boot JPA Entity로 변환합니다.
     """
-    __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 'entity_results', 'prompt_loader')
+    __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 'entity_results', 'rule_loader')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
         """
@@ -33,8 +33,8 @@ class EntityGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.save_path = build_java_base_path(self.project_name, self.user_id, 'entity')
-        self.prompt_loader = PromptLoader(target_lang=target_lang)
+        self.rule_loader = RuleLoader(target_lang=target_lang)
+        self.save_path = build_rule_based_path(self.project_name, self.user_id, target_lang, 'entity')
 
     # ----- 공개 메서드 -----
 
@@ -147,7 +147,7 @@ class EntityGenerator:
             batch: LLM 변환할 테이블 정보 리스트
         """
         # Role 파일 기반 프롬프트 실행
-        analysis_data = self.prompt_loader.execute(
+        analysis_data = self.rule_loader.execute(
             role_name='entity',
             inputs={
                 'table_json_data': json.dumps(batch, ensure_ascii=False, indent=2),

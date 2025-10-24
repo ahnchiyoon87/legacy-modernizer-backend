@@ -4,8 +4,8 @@ import textwrap
 import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_java_base_path
-from util.prompt_loader import PromptLoader
+from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_rule_based_path
+from util.rule_loader import RuleLoader
 
 
 # ----- Service Skeleton 생성 관리 클래스 -----
@@ -17,7 +17,7 @@ class ServiceSkeletonGenerator:
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale',
                  'folder_name', 'file_name', 'dir_name', 'service_class_name',
-                 'external_packages', 'exist_command_class', 'global_vars', 'prompt_loader')
+                 'external_packages', 'exist_command_class', 'global_vars', 'rule_loader')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
         """
@@ -34,7 +34,7 @@ class ServiceSkeletonGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.prompt_loader = PromptLoader(target_lang=target_lang)
+        self.rule_loader = RuleLoader(target_lang=target_lang)
 
     # ----- 공개 메서드 -----
 
@@ -76,7 +76,7 @@ class ServiceSkeletonGenerator:
             
             # 전역 변수 변환 (Role 파일 사용)
             if global_variables:
-                self.global_vars = self.prompt_loader.execute(
+                self.global_vars = self.rule_loader.execute(
                     role_name='variable',
                     inputs={
                         'variables': json.dumps(global_variables, ensure_ascii=False, indent=2),
@@ -206,8 +206,8 @@ class ServiceSkeletonGenerator:
         Returns:
             str: Skeleton 코드
         """
-        skeleton_data = self.prompt_loader.execute(
-            role_name='service_skeleton_skeleton',
+        skeleton_data = self.rule_loader.execute(
+            role_name='service_class_skeleton',
             inputs={
                 'service_class_name': self.service_class_name,
                 'project_name': self.project_name,
@@ -253,7 +253,7 @@ class ServiceSkeletonGenerator:
         # Command 클래스 생성 (IN 파라미터만 사용) - Role 파일 사용
         cmd_var = cmd_name = cmd_code = None
         if node_type != 'FUNCTION' and in_params:
-            analysis_cmd = self.prompt_loader.execute(
+            analysis_cmd = self.rule_loader.execute(
                 role_name='command',
                 inputs={
                     'command_class_data': json.dumps({'parameters': in_params, 'procedure_name': proc_name}, ensure_ascii=False, indent=2),
@@ -265,13 +265,13 @@ class ServiceSkeletonGenerator:
             )
             cmd_name, cmd_code, cmd_var = analysis_cmd['commandName'], analysis_cmd['command'], analysis_cmd['command_class_variable']
             
-            # Command 파일 저장
-            cmd_path = build_java_base_path(self.project_name, self.user_id, 'command', self.dir_name)
+            # Command 파일 저장 (Rule 파일 기반)
+            cmd_path = build_rule_based_path(self.project_name, self.user_id, self.rule_loader.target_lang, 'command', dir_name=self.dir_name)
             await save_file(cmd_code, f"{cmd_name}.java", cmd_path)
         
         # Service 메서드 생성 (IN 파라미터, 지역변수, OUT 파라미터를 별도로 전달) - Role 파일 사용
-        analysis_method = self.prompt_loader.execute(
-            role_name='service_skeleton',
+            analysis_method = self.rule_loader.execute(
+            role_name='service_method_skeleton',
             inputs={
                 'method_skeleton_data': json.dumps({'procedure_name': proc_name, 'local_variables': proc_data['local_variables'], 'declaration': proc_data['declaration']}, ensure_ascii=False, indent=2),
                 'parameter_data': json.dumps({'in_parameters': in_params, 'out_parameters': out_params, 'out_count': out_count, 'procedure_name': proc_name}, ensure_ascii=False, indent=2),

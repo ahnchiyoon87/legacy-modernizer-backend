@@ -5,6 +5,9 @@ name: "Controller Skeleton 생성"
 description: "Service 기반 Controller 클래스의 기본 틀 생성"
 version: "1.0"
 
+# 저장 경로 정의
+path: "controller"
+
 # 입력 스키마
 input_schema:
   required:
@@ -34,23 +37,20 @@ prompt: |
   생성해야 할 기본 구조:
 
   1. Import 문
-     - fastapi: FastAPI, Depends, HTTPException
+     - fastapi: APIRouter, Depends, HTTPException, status
      - sqlalchemy.orm: Session
-     - {{project_name}}.services.{{service_class_name}}: {{service_class_name}}
-     - {{project_name}}.database import get_db
+     - Command 관련: app.command.{{object_name}} import * (조건부)
+     - Service 관련: app.service.{{service_class_name}} import {{service_class_name}}
+     - Config: app.config import get_db
      - typing: List, Optional, Dict, Any
-     - pydantic: BaseModel
 
-  2. FastAPI 앱 인스턴스
-     - app = FastAPI()
+  2. APIRouter 설정
+     - router = APIRouter(prefix="/{{object_name}}", tags=["{{service_class_name}}"])
 
-  3. 클래스 선언
-     - class {{controller_class_name}}
+  3. 의존성 주입 함수
+     - get_{{object_name}}_service(db: Session = Depends(get_db))
 
-  4. 의존성 주입
-     - Service 의존성
-
-  5. 라우트 메서드 플레이스홀더
+  4. 메서드 플레이스홀더
      - CodePlaceHolder로 메서드 추가 위치 표시
 
   [SECTION 2] 출력 형식
@@ -59,22 +59,24 @@ prompt: |
   CodePlaceHolder를 메서드 추가 위치에 삽입하세요.
 
   예시:
-  from fastapi import FastAPI, Depends, HTTPException
+  from fastapi import APIRouter, Depends, HTTPException, status
   from sqlalchemy.orm import Session
-  from {{project_name}}.services.{{service_class_name}} import {{service_class_name}}
-  from {{project_name}}.database import get_db
+  from app.command.{{object_name}} import *
+  from app.config import get_db
+  from app.service.{{service_class_name}} import {{service_class_name}}
+  from typing import List, Optional
 
-  app = FastAPI()
+  router = APIRouter(prefix="/{{object_name}}", tags=["{{service_class_name}}"])
 
-  class {{controller_class_name}}:
-      def __init__(self, service: {{service_class_name}} = Depends()):
-          self.service = service
+  # 서비스 의존성
+  def get_{{object_name}}_service(db: Session = Depends(get_db)):
+      return {{service_class_name}}(db)
 
-      CodePlaceHolder
+  CodePlaceHolder
 
   [SECTION 3] JSON 출력 형식
   ===============================================
   다음 JSON 형식으로 반환하세요:
   {
-      "code": "Controller 클래스 기본 틀 (import부터 class 끝까지)"
+      "code": "Controller 클래스 기본 틀 (import부터 router 끝까지)"
   }

@@ -3,8 +3,8 @@ import textwrap
 import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import extract_used_query_methods, collect_variables_in_range, build_java_base_path, save_file, convert_to_pascal_case
-from util.prompt_loader import PromptLoader
+from util.utility_tool import extract_used_query_methods, collect_variables_in_range, build_rule_based_path, save_file, convert_to_pascal_case
+from util.rule_loader import RuleLoader
 
 
 # ----- 상수 정의 -----
@@ -27,7 +27,7 @@ class ServicePreprocessingGenerator:
         'user_id', 'api_key', 'locale', 'project_name',
         'merged_java_code', 'total_tokens', 'tracking_variables', 'current_parent', 
         'java_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
-        'pending_try_mode', 'prompt_loader'
+        'pending_try_mode', 'rule_loader'
     )
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, command_class_variable: dict,
@@ -61,8 +61,8 @@ class ServicePreprocessingGenerator:
         # TRY-EXCEPTION 처리
         self.pending_try_mode = False
         
-        # Role 파일 로더
-        self.prompt_loader = PromptLoader(target_lang=target_lang)
+        # Rule 파일 로더
+        self.rule_loader = RuleLoader(target_lang=target_lang)
 
     # ----- 공개 메서드 -----
 
@@ -156,8 +156,8 @@ class ServicePreprocessingGenerator:
         # 현재 컨텍스트 수집
         used_vars, used_queries = await self._collect_current_context()
 
-        # LLM으로 스켈레톤 생성 (Role 파일 사용)
-        result = self.prompt_loader.execute(
+        # LLM으로 스켈레톤 생성 (Rule 파일 사용)
+        result = self.rule_loader.execute(
             role_name='service_summarized',
             inputs={
                 'summarized_code': summarized,
@@ -284,7 +284,7 @@ class ServicePreprocessingGenerator:
             logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
             return
             
-        result = self.prompt_loader.execute(
+        result = self.rule_loader.execute(
             role_name='service_exception',
             inputs={
                 'node_code': node_code,
@@ -347,7 +347,7 @@ class ServicePreprocessingGenerator:
             logging.debug(f"JPA 수집 스킵: {e}")
 
         # LLM 분석 (Role 파일 사용)
-        result = self.prompt_loader.execute(
+        result = self.rule_loader.execute(
             role_name='service',
             inputs={
                 'code': sp_code,
@@ -405,8 +405,8 @@ class ServicePreprocessingGenerator:
             # 병합된 Java 코드를 서비스 스켈레톤에 삽입
             completed_service_code = self.service_skeleton.replace("CodePlaceHolder", self.merged_java_code.strip())
             
-            # 저장 경로 설정 (최적화: 한 번만 계산)
-            base_path = build_java_base_path(self.project_name, self.user_id, 'service')
+            # 저장 경로 설정 (Rule 파일 기반)
+            base_path = build_rule_based_path(self.project_name, self.user_id, self.rule_loader.target_lang, 'service')
             
             # 파일 저장 (비동기 최적화)
             await save_file(

@@ -5,6 +5,9 @@ name: "Service Skeleton 생성"
 description: "테이블 기반 Service 클래스의 기본 틀 생성"
 version: "1.0"
 
+# 저장 경로 정의
+path: "service"
+
 # 입력 스키마
 input_schema:
   required:
@@ -44,25 +47,24 @@ prompt: |
   생성해야 할 기본 구조:
 
   1. Import 문
-     - typing: List, Optional, Dict, Any
-     - sqlalchemy.orm: Session
-     - {{project_name}}.models.*: Entity 클래스들
-     - {{project_name}}.repositories.*: Repository 클래스들
-     - {{project_name}}.commands.{{dir_name}}.*: Command 클래스들 (조건부)
-     - datetime: datetime, date
-     - logging: logger
+     - SQLAlchemy: Session, text
+     - Typing: List, Optional, Dict, Any
+     - Entity 관련: app.entity.*
+     - Repository 관련: app.repository.*
+     - External Service 관련: app.service.*
+     - FastAPI: HTTPException, status
+     - DateTime: datetime, date, timedelta
+     - 기타: calendar, uuid
 
   2. 클래스 선언
-     - class {{service_class_name}}
+     - class {{service_class_name}}:
 
-  3. 초기화 메서드
-     - __init__(self, db: Session)
+  3. 필드 선언
+     - Global Variables (전역 변수들)
+     - Repository Fields (의존성 주입)
+     - External Service Fields (의존성 주입)
 
-  4. 필드 선언
-     - Repository Fields
-     - External Service Fields
-
-  5. 메서드 플레이스홀더
+  4. 메서드 플레이스홀더
      - CodePlaceHolder로 메서드 추가 위치 표시
 
   [SECTION 2] 출력 형식
@@ -71,16 +73,24 @@ prompt: |
   CodePlaceHolder를 메서드 추가 위치에 삽입하세요.
 
   예시:
-  from typing import List, Optional, Dict, Any
   from sqlalchemy.orm import Session
-  from {{project_name}}.models.entity import Entity
-  from {{project_name}}.repositories.entity_repository import EntityRepository
+  from sqlalchemy import text
+  from typing import List, Optional, Dict, Any
+  from app.entity.EntityName import EntityName
+  from app.repository.EntityNameRepository import EntityNameRepository
+  from app.service.ExternalService import ExternalService
+  from fastapi import HTTPException, status
+  from datetime import datetime, date, timedelta
+  import calendar
+  import uuid
 
   class {{service_class_name}}:
-      def __init__(self, db: Session):
-          self.db = db
-          self.entity_repository = EntityRepository(db)
-
+      def __init__(self, session: Session):
+          self.session = session
+          # 전역 변수들
+          # Repository 필드들
+          # External Service 필드들
+      
       CodePlaceHolder
 
   [SECTION 3] JSON 출력 형식

@@ -1,8 +1,9 @@
 """
-프롬프트 로더 모듈
-- Role 파일(YAML) 기반 프롬프트 관리
+Rule 로더 모듈
+- Rule 파일(YAML) 기반 프롬프트 및 템플릿 관리
 - 다국어/다타겟 언어 지원
 - 성능 최적화 (캐싱)
+- LLM 호출 및 템플릿 렌더링 통합
 """
 
 import os
@@ -18,15 +19,16 @@ from util.llm_client import get_llm
 from util.exception import LLMCallError
 
 
-class PromptLoader:
+class RuleLoader:
     """
-    Role 파일 기반 프롬프트 로더
+    Rule 파일 기반 통합 로더
     
     특징:
-    - YAML 기반 프롬프트 관리
+    - YAML 기반 프롬프트 및 템플릿 관리
     - Jinja2 템플릿 엔진 사용
     - 타겟 언어별 role 파일 지원 (java, python 등)
     - LRU 캐싱으로 성능 최적화
+    - LLM 호출 및 템플릿 렌더링 통합
     - 입력값 검증
     """
     
@@ -34,7 +36,7 @@ class PromptLoader:
     
     def __init__(self, target_lang: str = 'java'):
         """
-        PromptLoader 초기화
+        RuleLoader 초기화
         
         Args:
             target_lang: 타겟 언어 (java, python 등)
@@ -53,55 +55,85 @@ class PromptLoader:
         Role 파일 로드 (캐싱)
         
         Args:
-            role_name: role 파일명 (확장자 제외)
-        
+            role_name: role 파일명
+            
         Returns:
-            Dict: role 파일 내용
+            Dict: Role 파일 내용
+            
+        Raises:
+            FileNotFoundError: Role 파일이 존재하지 않을 때
         """
         role_path = os.path.join(self.role_dir, f"{role_name}.yaml")
         
         if not os.path.exists(role_path):
-            raise FileNotFoundError(f"Role 파일을 찾을 수 없습니다: {role_path}")
+            raise FileNotFoundError(f"Role 파일이 존재하지 않습니다: {role_path}")
         
         try:
             with open(role_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Role 파일 파싱 오류 ({role_name}): {str(e)}")
+            raise ValueError(f"YAML 파싱 오류 ({role_path}): {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Role 파일 로드 오류 ({role_path}): {str(e)}")
     
     def validate_inputs(self, role: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
         입력값 검증 및 기본값 설정
         
         Args:
-            role: role 파일 내용
+            role: Role 파일 내용
             inputs: 입력 데이터
-        
+            
         Returns:
-            Dict: 검증/보정된 입력 데이터
+            Dict: 검증된 입력값
         """
-        schema = role.get('input_schema', {})
         validated = inputs.copy()
         
-        # Required 필드 체크
-        required = schema.get('required', [])
-        if isinstance(required, list):
-            for field in required:
-                if field not in inputs:
-                    logging.warning(f"필수 입력 필드 누락: {field} (role: {role.get('name', 'unknown')})")
+        # 필수 필드 검증
+        required_fields = role.get('input_schema', {}).get('required', [])
+        for field in required_fields:
+            if field not in validated:
+                raise ValueError(f"필수 필드 누락: {field}")
         
-        # Optional 필드 기본값 설정
-        optional = schema.get('optional', {})
-        if isinstance(optional, dict):
-            for field, spec in optional.items():
-                if isinstance(spec, dict) and field not in validated and 'default' in spec:
+        # 선택적 필드 기본값 설정
+        optional_fields = role.get('input_schema', {}).get('optional', {})
+        for field, spec in optional_fields.items():
+            if field not in validated:
+                if isinstance(spec, dict) and 'default' in spec:
                     validated[field] = spec['default']
         
         return validated
     
+    def render_template(self, role_name: str, inputs: Dict[str, Any]) -> str:
+        """
+        템플릿 렌더링 (LLM 호출 없음)
+        
+        Args:
+            role_name: role 파일명
+            inputs: 템플릿 변수
+        
+        Returns:
+            str: 렌더링된 템플릿
+        """
+        role = self._load_role_file(role_name)
+        validated_inputs = self.validate_inputs(role, inputs)
+        
+        try:
+            # Jinja2 템플릿 렌더링
+            template_content = role.get('template', '')
+            if not template_content:
+                raise ValueError(f"템플릿이 정의되지 않았습니다: {role_name}")
+            
+            template = Template(template_content)
+            return template.render(**validated_inputs)
+        except TemplateError as e:
+            raise ValueError(f"템플릿 렌더링 오류 ({role_name}): {str(e)}")
+        except KeyError as e:
+            raise ValueError(f"템플릿에 필요한 키 누락 ({role_name}): {str(e)}")
+    
     def render_prompt(self, role_name: str, inputs: Dict[str, Any]) -> str:
         """
-        프롬프트 템플릿 렌더링
+        프롬프트 템플릿 렌더링 (LLM 호출 없음)
         
         Args:
             role_name: role 파일명
@@ -166,3 +198,6 @@ class PromptLoader:
         self._load_role_file.cache_clear()
         self._cache.clear()
 
+
+# 하위 호환성을 위한 별칭
+PromptLoader = RuleLoader

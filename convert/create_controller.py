@@ -2,8 +2,8 @@ import logging
 import textwrap
 import json
 from util.exception import ConvertingError
-from util.utility_tool import save_file, build_java_base_path, convert_to_camel_case, convert_to_pascal_case
-from util.prompt_loader import PromptLoader
+from util.utility_tool import save_file, build_rule_based_path, convert_to_camel_case, convert_to_pascal_case
+from util.rule_loader import RuleLoader
 
 
 # ----- 상수 정의 -----
@@ -19,7 +19,7 @@ class ControllerGenerator:
     - Generator 방식으로 통일
     """
     __slots__ = (
-        'project_name', 'user_id', 'api_key', 'locale', 'prompt_loader', 'save_path'
+        'project_name', 'user_id', 'api_key', 'locale', 'rule_loader', 'save_path'
     )
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
@@ -37,8 +37,8 @@ class ControllerGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.prompt_loader = PromptLoader(target_lang=target_lang)
-        self.save_path = build_java_base_path(project_name, user_id, 'controller')
+        self.rule_loader = RuleLoader(target_lang=target_lang)
+        self.save_path = build_rule_based_path(project_name, user_id, target_lang, 'controller')
 
     async def _generate_skeleton(self, controller_class_name: str, object_name: str, 
                                 service_class_name: str, exist_command_class: bool) -> str:
@@ -54,7 +54,7 @@ class ControllerGenerator:
         Returns:
             str: Skeleton 코드
         """
-        skeleton_data = self.prompt_loader.execute(
+        skeleton_data = self.rule_loader.execute(
             role_name='controller_skeleton',
             inputs={
                 'controller_class_name': controller_class_name,
@@ -117,8 +117,8 @@ class ControllerGenerator:
             
             logging.info(f"  📌 Controller 메서드: {proc_name}")
             
-            # LLM으로 메서드 생성 (Role 파일 사용)
-            result = self.prompt_loader.execute(
+            # LLM으로 메서드 생성 (Rule 파일 사용)
+            result = self.rule_loader.execute(
                 role_name='controller',
                 inputs={
                     'method_signature': method_sig,
@@ -162,7 +162,8 @@ def start_controller_skeleton_processing(
     object_name: str,
     exist_command_class: bool,
     project_name: str,
-    service_class_name: str = None
+    service_class_name: str = None,
+    target_lang: str = 'java'
 ) -> tuple[str, str]:
     """
     컨트롤러 스켈레톤 생성 시작 (호환성을 위한 함수)
@@ -172,6 +173,7 @@ def start_controller_skeleton_processing(
         exist_command_class: Command 클래스 존재 여부
         project_name: 프로젝트 이름
         service_class_name: Service 클래스 이름 (import용)
+        target_lang: 타겟 언어
     
     Returns:
         tuple: (controller_skeleton, controller_class_name)
@@ -186,33 +188,20 @@ def start_controller_skeleton_processing(
         
         # Service 클래스명 (전달받거나 기본값)
         service_class_name = service_class_name or f"{pascal_name}Service"
-        service_var_name = service_class_name[0].lower() + service_class_name[1:]
         
-        # Command import (조건부)
-        command_import = (
-            f"import com.example.{project_name}.command.{camel_name}.*;\n"
-            if exist_command_class else ""
+        # Rule 파일 기반 스켈레톤 생성
+        rule_loader = RuleLoader(target_lang=target_lang)
+        controller_skeleton = rule_loader.render_prompt(
+            'controller_skeleton',
+            {
+                'controller_class_name': controller_class_name,
+                'project_name': project_name,
+                'object_name': object_name,
+                'service_class_name': service_class_name,
+                'exist_command_class': exist_command_class,
+                'locale': 'ko'
+            }
         )
-
-        # 컨트롤러 템플릿
-        controller_skeleton = f"""package com.example.{project_name}.controller;
-
-{command_import}import com.example.{project_name}.service.{service_class_name};
-import org.springframework.web.bind.annotation.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
-import java.util.*;
-
-@RestController
-@RequestMapping("/{camel_name}")
-public class {controller_class_name} {{
-
-    @Autowired
-    private {service_class_name} {service_var_name};
-
-{CODE_PLACEHOLDER}
-}}"""
         
         logging.info(f"[{object_name}] 컨트롤러 스켈레톤 생성 완료\n")
         return controller_skeleton, controller_class_name

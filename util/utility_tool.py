@@ -47,20 +47,37 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 # 모듈 레벨 캐싱 (반복 계산 방지)
 _WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def build_java_base_path(project_name: str, user_id: str, *sub_paths: str) -> str:
-    """Java 소스 저장 경로 생성 (최적화: 경로 캐싱)"""
-    try:
-        java_root = f"{project_name}/src/main/java/com/example/{project_name}"
-        relative_path = os.path.join(java_root, *sub_paths) if sub_paths else java_root
-        
-        docker_ctx = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        base_dir = docker_ctx if docker_ctx else _WORKSPACE_DIR
-        
-        return os.path.join(base_dir, 'target', 'java', user_id, relative_path)
-    except Exception as e:
-        err_msg = f"Java 베이스 경로 생성 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
+def build_rule_based_path(project_name: str, user_id: str, target_lang: str, role_name: str, **kwargs) -> str:
+    """
+    Rule 파일 기반 저장 경로 생성 (다중 언어 지원)
+    
+    Args:
+        project_name: 프로젝트 이름
+        user_id: 사용자 식별자
+        target_lang: 타겟 언어 (java, python 등)
+        role_name: Rule 파일명 (entity, service 등)
+        **kwargs: 추가 변수 (dir_name 등)
+    
+    Returns:
+        str: 저장 경로
+    """
+    from util.rule_loader import RuleLoader
+    
+    # Rule 파일에서 path 정보 로드
+    rule_loader = RuleLoader(target_lang=target_lang)
+    rule_info = rule_loader._load_role_file(role_name)
+    relative_path = rule_info.get('path', '.')
+    
+    # 변수 치환 ({project_name}, {dir_name} 등)
+    format_vars = {'project_name': project_name, **kwargs}
+    relative_path = relative_path.format(**format_vars)
+    
+    # 전체 경로 생성
+    docker_ctx = os.getenv('DOCKER_COMPOSE_CONTEXT')
+    base_dir = docker_ctx if docker_ctx else _WORKSPACE_DIR
+    base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
+    
+    return os.path.join(base_path, relative_path)
 
 
 #==============================================================================

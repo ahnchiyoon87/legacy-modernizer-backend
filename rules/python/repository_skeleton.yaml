@@ -5,6 +5,9 @@ name: "Repository Skeleton 생성"
 description: "테이블 기반 Repository 클래스의 기본 틀 생성"
 version: "1.0"
 
+# 저장 경로 정의
+path: "repository"
+
 # 입력 스키마
 input_schema:
   required:
@@ -33,18 +36,18 @@ prompt: |
 
   1. Import 문
      - typing: List, Optional
-     - sqlalchemy: create_engine, sessionmaker, Session
-     - sqlalchemy.orm: declarative_base
-     - {{project_name}}.models.{{entity_name}}: {{entity_name}}
-     - {{project_name}}.database import get_db
+     - sqlalchemy: Session, text
+     - sqlalchemy.orm: Session
+     - app.entity.{{entity_name}}: {{entity_name}}
+     - datetime: datetime, date
 
   2. 클래스 선언
      - class {{entity_name}}Repository
 
   3. 초기화 메서드
-     - __init__(self, db: Session)
+     - __init__(self, session: Session)
 
-  4. 기본 CRUD 메서드 플레이스홀더
+  4. 기본 메서드 플레이스홀더
      - CodePlaceHolder로 메서드 추가 위치 표시
 
   [SECTION 2] 출력 형식
@@ -55,11 +58,13 @@ prompt: |
   예시:
   from typing import List, Optional
   from sqlalchemy.orm import Session
-  from {{project_name}}.models.{{entity_name}} import {{entity_name}}
+  from sqlalchemy import text
+  from app.entity.{{entity_name}} import {{entity_name}}
+  from datetime import datetime, date
 
   class {{entity_name}}Repository:
-      def __init__(self, db: Session):
-          self.db = db
+      def __init__(self, session: Session):
+          self.session = session
 
       CodePlaceHolder
 

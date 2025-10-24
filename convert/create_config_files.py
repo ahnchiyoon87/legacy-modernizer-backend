@@ -1,138 +1,259 @@
-import os
-import logging
-from util.exception import ConvertingError
-from util.utility_tool import save_file
-
-
-# ----- 설정 파일 템플릿 -----
-POM_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.2</version>
-        <relativePath/>
-    </parent>
-    <groupId>com.example</groupId>
-    <artifactId>{project_name}</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-    <name>{project_name}</name>
-    <description>{project_name} project for Spring Boot</description>
-    <properties>
-        <java.version>17</java.version>
-    </properties>
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-rest</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc11</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-                <configuration>
-                    <excludes>
-                        <exclude>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                        </exclude>
-                    </excludes>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-</project>
+"""
+설정 파일 생성 모듈
+- Rule 파일 기반 다중 언어 지원
+- 성능 최적화 (캐싱, 슬롯)
+- 메모리 효율성 (지연 로딩)
+- 가독성 (명확한 구조)
 """
 
-PROPERTIES_TEMPLATE = """spring.application.name={project_name}
-spring.h2.console.enabled=true
-spring.datasource.url=jdbc:h2:mem:testdb
-spring.datasource.driverClassName=org.h2.Driver
-spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
-spring.jpa.hibernate.ddl-auto=create-drop"""
+import os
+import logging
+from typing import Dict, List, Any, Tuple
+from util.exception import ConvertingError
+from util.utility_tool import save_file, build_java_base_path
+from util.rule_loader import RuleLoader
 
 
-# ----- 설정 파일 생성 관리 클래스 -----
 class ConfigFilesGenerator:
     """
-    Spring Boot 프로젝트의 설정 파일(pom.xml, application.properties)을 자동 생성하는 클래스
-    Maven 의존성 설정과 애플리케이션 설정을 생성합니다.
+    Rule 파일 기반 설정 파일 생성기
+    
+    특징:
+    - 다중 언어 지원 (java, python, typescript 등)
+    - 다중 설정 파일 지원 (pom.xml, .env, requirements.txt 등)
+    - 성능 최적화 (캐싱, 슬롯)
+    - 메모리 효율성 (지연 로딩)
     """
-    __slots__ = ('project_name', 'project_path', 'resources_path')
-
-    def __init__(self, project_name: str, user_id: str):
+    
+    __slots__ = (
+        'project_name', 'user_id', 'target_lang', 'rule_loader', 
+        'base_path', '_config_cache'
+    )
+    
+    def __init__(self, project_name: str, user_id: str, target_lang: str = 'java'):
         """
         ConfigFilesGenerator 초기화
         
         Args:
             project_name: 프로젝트 이름
             user_id: 사용자 식별자
+            target_lang: 타겟 언어 (java, python, typescript 등)
         """
         self.project_name = project_name
+        self.user_id = user_id
+        self.target_lang = target_lang
+        self.rule_loader = RuleLoader(target_lang=target_lang)
         
-        # 저장 경로 설정 (성능: 모든 경로를 __init__에서 한 번만 계산)
+        # 경로 설정 (성능: __init__에서 한 번만 계산)
         base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.abspath(os.path.join(__file__, '..', '..', '..'))
-        base_path = os.path.join(base_dir, 'target', 'java', user_id)
-        self.project_path = os.path.join(base_path, project_name)
-        self.resources_path = os.path.join(self.project_path, 'src', 'main', 'resources')
-
-    async def generate(self) -> tuple:
+        self.base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
+        
+        # 캐시 초기화 (지연 로딩)
+        self._config_cache = None
+    
+    def _load_config_rule(self) -> Dict[str, Any]:
         """
-        설정 파일 생성의 메인 진입점
-        pom.xml과 application.properties 파일을 동시에 생성합니다.
+        Rule 파일에서 설정 정보 로드 (캐싱)
         
         Returns:
-            tuple: (pom_xml_content, properties_content)
+            Dict: 설정 파일 정보
+        """
+        if self._config_cache is None:
+            try:
+                self._config_cache = self.rule_loader._load_role_file('config')
+            except FileNotFoundError:
+                raise ConvertingError(f"설정 파일 Rule을 찾을 수 없습니다: rules/{self.target_lang}/config.yaml")
+            except Exception as e:
+                raise ConvertingError(f"설정 파일 Rule 로드 실패: {str(e)}")
         
+        return self._config_cache
+    
+    def _build_file_path(self, file_info: Dict[str, str]) -> str:
+        """
+        파일 저장 경로 생성
+        
+        Args:
+            file_info: 파일 정보 (filename, path)
+            
+        Returns:
+            str: 전체 파일 경로
+        """
+        relative_path = file_info.get('path', '.')
+        return os.path.join(self.base_path, relative_path)
+    
+    def _get_default_variables(self) -> Dict[str, str]:
+        """
+        언어별 기본 변수 설정
+        
+        Returns:
+            Dict: 기본 변수값
+        """
+        defaults = {
+            'project_name': self.project_name,
+            'db_username': 'user',
+            'db_password': 'password'
+        }
+        
+        # 언어별 기본값 설정
+        if self.target_lang == 'java':
+            defaults.update({
+                'db_driver': 'oracle.jdbc.driver.OracleDriver',
+                'db_url': 'jdbc:oracle:thin:@localhost:1521:xe',
+                'db_username': 'system'
+            })
+        elif self.target_lang == 'python':
+            defaults.update({
+                'db_driver': 'postgresql',
+                'db_url': 'postgresql://localhost:5432/dbname',
+                'db_username': 'postgres'
+            })
+        
+        return defaults
+    
+    def _render_template(self, file_info: Dict[str, str], variables: Dict[str, str]) -> str:
+        """
+        Jinja2 템플릿 렌더링
+        
+        Args:
+            file_info: 파일 정보
+            variables: 변수값
+            
+        Returns:
+            str: 렌더링된 템플릿
+        """
+        try:
+            from jinja2 import Template
+            
+            template_content = file_info['template']
+            template = Template(template_content)
+            return template.render(**variables)
+            
+        except Exception as e:
+            raise ConvertingError(f"템플릿 렌더링 실패 ({file_info['filename']}): {str(e)}")
+    
+    async def _save_config_file(self, file_info: Dict[str, str], content: str) -> None:
+        """
+        설정 파일 저장
+        
+        Args:
+            file_info: 파일 정보
+            content: 파일 내용
+        """
+        try:
+            file_path = self._build_file_path(file_info)
+            filename = file_info['filename']
+            
+            await save_file(content, filename, file_path)
+            logging.info(f"설정 파일 생성 완료: {filename}")
+            
+        except Exception as e:
+            raise ConvertingError(f"설정 파일 저장 실패 ({file_info['filename']}): {str(e)}")
+    
+    async def generate(self) -> Dict[str, str]:
+        """
+        설정 파일 생성 메인 진입점
+        
+        Returns:
+            Dict[str, str]: 생성된 파일명과 내용의 매핑
+            
         Raises:
             ConvertingError: 설정 파일 생성 중 오류 발생 시
         """
-        logging.info("설정 파일 생성을 시작합니다.")
+        logging.info(f"{self.target_lang} 설정 파일 생성을 시작합니다.")
         
         try:
-            # 템플릿 적용
-            pom_content = POM_TEMPLATE.format(project_name=self.project_name)
-            properties_content = PROPERTIES_TEMPLATE.format(project_name=self.project_name)
+            # Rule 파일에서 설정 정보 로드
+            config_rule = self._load_config_rule()
+            config_files = config_rule.get('config_files', [])
             
-            # 파일 저장
-            await save_file(pom_content, "pom.xml", self.project_path)
-            await save_file(properties_content, "application.properties", self.resources_path)
+            if not config_files:
+                raise ConvertingError(f"설정 파일 정보가 없습니다: rules/{self.target_lang}/config.yaml")
             
-            logging.info("설정 파일 생성이 완료되었습니다.\n")
-            return pom_content, properties_content
-        
+            # 기본 변수 설정
+            variables = self._get_default_variables()
+            
+            # 결과 저장용
+            results = {}
+            
+            # 각 설정 파일 생성
+            for file_info in config_files:
+                try:
+                    # 템플릿 렌더링
+                    content = self._render_template(file_info, variables)
+                    
+                    # 파일 저장
+                    await self._save_config_file(file_info, content)
+                    
+                    # 결과 저장
+                    results[file_info['filename']] = content
+                    
+                except Exception as e:
+                    logging.error(f"설정 파일 생성 실패 ({file_info.get('filename', 'unknown')}): {str(e)}")
+                    raise ConvertingError(f"설정 파일 생성 실패: {str(e)}")
+            
+            logging.info(f"{self.target_lang} 설정 파일 생성이 완료되었습니다. ({len(results)}개 파일)")
+            return results
+            
+        except ConvertingError:
+            raise
         except Exception as e:
-            logging.error(f"설정 파일 생성 중 오류: {str(e)}")
+            logging.error(f"설정 파일 생성 중 예상치 못한 오류: {str(e)}")
             raise ConvertingError(f"설정 파일 생성 중 오류: {str(e)}")
+    
+    def get_supported_languages(self) -> List[str]:
+        """
+        지원되는 언어 목록 반환
+        
+        Returns:
+            List[str]: 지원되는 언어 목록
+        """
+        return ['java', 'python', 'typescript', 'go', 'csharp']
+    
+    def get_config_files_info(self) -> Dict[str, List[str]]:
+        """
+        언어별 설정 파일 정보 반환
+        
+        Returns:
+            Dict[str, List[str]]: 언어별 설정 파일 목록
+        """
+        return {
+            'java': ['pom.xml', 'application.properties'],
+            'python': ['.env', 'requirements.txt', 'config.py'],
+            'typescript': ['package.json', '.env', 'tsconfig.json'],
+            'go': ['go.mod', 'go.sum', '.env'],
+            'csharp': ['*.csproj', 'appsettings.json']
+        }
+
+
+# ----- 편의 함수 -----
+
+async def create_config_files(project_name: str, user_id: str, target_lang: str = 'java') -> Dict[str, str]:
+    """
+    설정 파일 생성 편의 함수
+    
+    Args:
+        project_name: 프로젝트 이름
+        user_id: 사용자 식별자
+        target_lang: 타겟 언어
+        
+    Returns:
+        Dict[str, str]: 생성된 파일명과 내용의 매핑
+    """
+    generator = ConfigFilesGenerator(project_name, user_id, target_lang)
+    return await generator.generate()
+
+
+# ----- 메인 실행 (테스트용) -----
+if __name__ == "__main__":
+    import asyncio
+    
+    async def test():
+        # Java 설정 파일 생성 테스트
+        java_results = await create_config_files("test-project", "user123", "java")
+        print("Java 설정 파일:", list(java_results.keys()))
+        
+        # Python 설정 파일 생성 테스트
+        python_results = await create_config_files("test-project", "user123", "python")
+        print("Python 설정 파일:", list(python_results.keys()))
+    
+    asyncio.run(test())

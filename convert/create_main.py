@@ -1,7 +1,7 @@
 import logging
 from util.exception import ConvertingError
-from util.utility_tool import save_file, build_java_base_path
-from util.template_loader import TemplateLoader
+from util.utility_tool import save_file, build_rule_based_path
+from util.rule_loader import RuleLoader
 
 
 # ----- Main 클래스 생성 관리 클래스 -----
@@ -12,7 +12,7 @@ class MainClassGenerator:
     - Java: Spring Boot Application 클래스
     - Python: FastAPI 앱 인스턴스 생성 파일
     """
-    __slots__ = ('project_name', 'class_name', 'file_name', 'save_path', 'target_lang', 'template_loader')
+    __slots__ = ('project_name', 'class_name', 'file_name', 'save_path', 'target_lang', 'rule_loader')
 
     def __init__(self, project_name: str, user_id: str, target_lang: str = 'java'):
         """
@@ -25,7 +25,7 @@ class MainClassGenerator:
         """
         self.project_name = project_name
         self.target_lang = target_lang
-        self.template_loader = TemplateLoader(target_lang=target_lang)
+        self.rule_loader = RuleLoader(target_lang=target_lang)
         
         if target_lang == 'java':
             self.class_name = f"{project_name.capitalize()}Application"
@@ -34,7 +34,7 @@ class MainClassGenerator:
             self.class_name = "main"
             self.file_name = "main.py"
         
-        self.save_path = build_java_base_path(project_name, user_id)
+        self.save_path = build_rule_based_path(project_name, user_id, target_lang, 'main')
 
     async def generate(self) -> str:
         """
@@ -50,12 +50,12 @@ class MainClassGenerator:
         logging.info(f"[{self.target_lang.upper()}] 메인 클래스 생성을 시작합니다.")
         
         try:
-            # Template 렌더링 (Rule 파일에서 로드)
+            # Rule 파일에서 템플릿 로드 및 렌더링
             variables = {
                 'project_name': self.project_name,
                 'class_name': self.class_name
             }
-            main_code = self.template_loader.render('main', variables)
+            main_code = self.rule_loader.render_prompt('main', variables)
             
             # 파일 저장
             await save_file(main_code, self.file_name, self.save_path)

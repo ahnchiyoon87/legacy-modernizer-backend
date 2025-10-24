@@ -5,6 +5,9 @@ name: "Controller Skeleton 생성"
 description: "Service 기반 Controller 클래스의 기본 틀 생성"
 version: "1.0"
 
+# 저장 경로 정의
+path: "src/main/java/com/example/{project_name}/controller"
+
 # 입력 스키마
 input_schema:
   required:

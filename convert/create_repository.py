@@ -4,8 +4,8 @@ import textwrap
 import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_java_base_path, build_variable_index, extract_used_variable_nodes
-from util.prompt_loader import PromptLoader
+from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_rule_based_path, build_variable_index, extract_used_variable_nodes
+from util.rule_loader import RuleLoader
 
 
 MAX_TOKENS = 1000  # LLM 처리를 위한 배치당 최대 토큰 수
@@ -21,7 +21,7 @@ class RepositoryGenerator:
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 
                  'global_vars', 'var_index', 'all_used_query_methods', 
-                 'all_sequence_methods', 'aggregated_query_methods', 'prompt_loader')
+                 'all_sequence_methods', 'aggregated_query_methods', 'rule_loader')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
         """
@@ -38,8 +38,8 @@ class RepositoryGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.save_path = build_java_base_path(project_name, user_id, 'repository')
-        self.prompt_loader = PromptLoader(target_lang=target_lang)
+        self.rule_loader = RuleLoader(target_lang=target_lang)
+        self.save_path = build_rule_based_path(project_name, user_id, target_lang, 'repository')
 
     async def generate(self) -> tuple:
         """
@@ -183,7 +183,7 @@ class RepositoryGenerator:
         Returns:
             str: Skeleton 코드
         """
-        skeleton_data = self.prompt_loader.execute(
+        skeleton_data = self.rule_loader.execute(
             role_name='repository_skeleton',
             inputs={
                 'entity_name': entity_name,
@@ -246,7 +246,7 @@ class RepositoryGenerator:
             vars_dict: 변수 정보 딕셔너리
         """
         # Role 파일 기반 프롬프트 실행
-        analysis_data = self.prompt_loader.execute(
+        analysis_data = self.rule_loader.execute(
             role_name='repository',
             inputs={
                 'entity_name': entity_name,
