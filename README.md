@@ -1,6 +1,6 @@
 # 🔄 Legacy Modernizer Backend
 
-> **PL/SQL 코드를 Spring Boot Java 프로젝트로 자동 변환하는 AI 기반 마이그레이션 도구**
+> **PL/SQL 코드를 Spring Boot Java/Python 프로젝트로 자동 변환하는 AI 기반 마이그레이션 도구**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115.12-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
@@ -26,11 +26,11 @@
 
 ## 🎯 프로젝트 소개
 
-Legacy Modernizer Backend는 **레거시 PL/SQL 코드를 최신 Spring Boot 프로젝트로 자동 변환**하는 AI 기반 도구입니다.
+Legacy Modernizer Backend는 **레거시 PL/SQL 코드를 최신 Spring Boot Java 또는 Python FastAPI 프로젝트로 자동 변환**하는 AI 기반 도구입니다.
 
 ### 🤔 왜 이 프로젝트가 필요한가요?
 
-많은 기업들이 오래된 Oracle PL/SQL 기반 시스템을 사용하고 있지만, 이를 최신 Java Spring Boot로 마이그레이션하는 것은 매우 어렵고 시간이 많이 걸립니다.
+많은 기업들이 오래된 Oracle PL/SQL 기반 시스템을 사용하고 있지만, 이를 최신 Java Spring Boot 또는 Python FastAPI로 마이그레이션하는 것은 매우 어렵고 시간이 많이 걸립니다.
 
 **기존 방식의 문제점:**
 - 👨‍💻 수작업 변환: 수개월~수년 소요

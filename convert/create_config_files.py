@@ -10,7 +10,7 @@ import os
 import logging
 from typing import Dict, List, Any, Tuple
 from util.exception import ConvertingError
-from util.utility_tool import save_file, build_java_base_path
+from util.utility_tool import save_file, build_rule_based_path
 from util.rule_loader import RuleLoader
 
 
@@ -44,9 +44,8 @@ class ConfigFilesGenerator:
         self.target_lang = target_lang
         self.rule_loader = RuleLoader(target_lang=target_lang)
         
-        # 경로 설정 (성능: __init__에서 한 번만 계산)
-        base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.abspath(os.path.join(__file__, '..', '..', '..'))
-        self.base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
+        # 경로 설정 (Rule 파일 기반)
+        self.base_path = build_rule_based_path(project_name, user_id, target_lang, 'config')
         
         # 캐시 초기화 (지연 로딩)
         self._config_cache = None
@@ -70,7 +69,7 @@ class ConfigFilesGenerator:
     
     def _build_file_path(self, file_info: Dict[str, str]) -> str:
         """
-        파일 저장 경로 생성
+        파일 저장 경로 생성 (Rule 파일 기반)
         
         Args:
             file_info: 파일 정보 (filename, path)
