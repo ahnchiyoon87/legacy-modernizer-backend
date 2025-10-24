@@ -1,0 +1,31 @@
+name: "Spring Boot 설정 파일 (application.properties)"
+description: "Spring Boot 애플리케이션의 설정 파일 템플릿"
+version: "1.0"
+
+# 템플릿 입력 파라미터
+variables:
+  - project_name              # 프로젝트 이름
+  - db_driver                 # DB 드라이버 (기본: oracle.jdbc.driver.OracleDriver)
+  - db_url                    # DB URL (기본: jdbc:oracle:thin:@localhost:1521:xe)
+  - db_username               # DB 사용자명 (기본: system)
+  - db_password               # DB 비밀번호 (기본: password)
+
+# Jinja2 템플릿 (단순 변수 치환)
+template: |
+  spring.application.name={{project_name}}
+  
+  spring.datasource.driver-class-name={{db_driver}}
+  spring.datasource.url={{db_url}}
+  spring.datasource.username={{db_username}}
+  spring.datasource.password={{db_password}}
+  
+  spring.jpa.database-platform=org.hibernate.dialect.Oracle10gDialect
+  spring.jpa.hibernate.ddl-auto=update
+  spring.jpa.show-sql=false
+  spring.jpa.properties.hibernate.format_sql=true
+  
+  spring.h2.console.enabled=true
+  spring.h2.console.path=/h2-console
+  
+  server.port=8080
+  server.servlet.context-path=/api

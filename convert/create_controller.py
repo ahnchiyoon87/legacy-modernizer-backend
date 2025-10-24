@@ -39,6 +39,35 @@ class ControllerGenerator:
         self.locale = locale
         self.prompt_loader = PromptLoader(target_lang=target_lang)
         self.save_path = build_java_base_path(project_name, user_id, 'controller')
+
+    async def _generate_skeleton(self, controller_class_name: str, object_name: str, 
+                                service_class_name: str, exist_command_class: bool) -> str:
+        """
+        Controller Skeleton (기본 틀) 생성
+        
+        Args:
+            controller_class_name: Controller 클래스명
+            object_name: 객체 이름
+            service_class_name: Service 클래스명
+            exist_command_class: Command 클래스 존재 여부
+        
+        Returns:
+            str: Skeleton 코드
+        """
+        skeleton_data = self.prompt_loader.execute(
+            role_name='controller_skeleton',
+            inputs={
+                'controller_class_name': controller_class_name,
+                'project_name': self.project_name,
+                'object_name': object_name,
+                'service_class_name': service_class_name,
+                'exist_command_class': exist_command_class,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
+        
+        return skeleton_data.get('code', '')
     
     async def generate(self, object_name: str, service_class_name: str, exist_command_class: bool,
                       service_creation_info: list) -> tuple[str, str]:
@@ -65,33 +94,11 @@ class ControllerGenerator:
         
         # Service 클래스명 (전달받거나 기본값)
         service_class_name = service_class_name or f"{pascal_name}Service"
-        service_var_name = service_class_name[0].lower() + service_class_name[1:]
         
-        # Command import (조건부)
-        command_import = (
-            f"import com.example.{self.project_name}.command.{camel_name}.*;\n"
-            if exist_command_class else ""
+        # Controller Skeleton 생성
+        controller_skeleton = await self._generate_skeleton(
+            controller_class_name, object_name, service_class_name, exist_command_class
         )
-
-        # 컨트롤러 템플릿
-        controller_skeleton = f"""package com.example.{self.project_name}.controller;
-
-{command_import}import com.example.{self.project_name}.service.{service_class_name};
-import org.springframework.web.bind.annotation.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
-import java.util.*;
-
-@RestController
-@RequestMapping("/{camel_name}")
-public class {controller_class_name} {{
-
-    @Autowired
-    private {service_class_name} {service_var_name};
-
-{CODE_PLACEHOLDER}
-}}"""
         
         # 각 프로시저별 메서드 생성
         controller_methods = []
@@ -130,7 +137,7 @@ public class {controller_class_name} {{
         # Controller 파일 조립 및 저장
         merged_methods = '\n\n'.join(controller_methods)
         completed = controller_skeleton.replace(
-            CODE_PLACEHOLDER,
+            'CodePlaceHolder',
             textwrap.indent(merged_methods.strip(), '    ')
         )
         

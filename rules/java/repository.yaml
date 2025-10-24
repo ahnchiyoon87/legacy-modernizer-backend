@@ -8,6 +8,7 @@ version: "1.0"
 # 입력 스키마
 input_schema:
   required:
+    - entity_name           # Entity 클래스명 (PascalCase)
     - repository_nodes      # DML 코드 리스트 (JSON 문자열)
     - used_variable_nodes   # 사용된 변수 정보 (JSON 문자열)
     - count                 # 생성할 메서드 수

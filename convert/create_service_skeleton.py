@@ -87,8 +87,8 @@ class ServiceSkeletonGenerator:
             else:
                 self.global_vars = {"variables": []}
             
-            # 서비스 템플릿 생성
-            service_skeleton = self._build_template(entity_name_list)
+            # 서비스 Skeleton 생성
+            service_skeleton = await self._generate_skeleton(entity_name_list)
 
             # 프로시저별 메서드/커맨드 생성
             method_info_list = []
@@ -196,69 +196,32 @@ class ServiceSkeletonGenerator:
         
         return groups, external_packages
 
-    def _build_template(self, entity_list: list) -> str:
+    async def _generate_skeleton(self, entity_list: list) -> str:
         """
-        Service 클래스 템플릿 생성
+        Service Skeleton (기본 틀) 생성
         
         Args:
             entity_list: 엔티티 목록
         
         Returns:
-            str: Service 클래스 템플릿 코드
+            str: Skeleton 코드
         """
-        imports = []
-        fields = []
+        skeleton_data = self.prompt_loader.execute(
+            role_name='service_skeleton_skeleton',
+            inputs={
+                'service_class_name': self.service_class_name,
+                'project_name': self.project_name,
+                'entity_list': json.dumps(entity_list, ensure_ascii=False, indent=2),
+                'global_vars': json.dumps(self.global_vars, ensure_ascii=False, indent=2),
+                'external_packages': json.dumps(self.external_packages, ensure_ascii=False, indent=2),
+                'exist_command_class': self.exist_command_class,
+                'dir_name': self.dir_name,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
         
-        # Global variable fields
-        if self.global_vars and (variables := self.global_vars.get("variables")):
-            fields.extend(f"    private {v['javaType']} {v['javaName']} = {v['value']};" for v in variables)
-        
-        # Entity imports/fields
-        if entity_list:
-            project_prefix = f"com.example.{self.project_name}"
-            for e in entity_list:
-                entity_name = e['entityName']
-                repo_name = f"{entity_name}Repository"
-                imports.append(f"import {project_prefix}.entity.{entity_name};")
-                imports.append(f"import {project_prefix}.repository.{repo_name};")
-                fields.append(f"    @Autowired\n    private {repo_name} {entity_name[0].lower()}{entity_name[1:]}Repository;")
-        
-        # Command import
-        if self.exist_command_class:
-            imports.append(f"import com.example.{self.project_name}.command.{self.dir_name}.*;")
-        
-        # External service fields
-        if self.external_packages:
-            for p in self.external_packages:
-                pascal, camel = convert_to_pascal_case(p), convert_to_camel_case(p)
-                fields.append(f"    @Autowired\n    private {pascal}Service {camel}Service;")
-        
-        return f"""package com.example.{self.project_name}.service;
-
-{chr(10).join(imports)}
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.beans.factory.annotation.Autowired;
-import jakarta.persistence.EntityNotFoundException;
-import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.beans.BeanUtils;
-import java.time.format.DateTimeFormatter;
-import org.springframework.stereotype.Service;
-import java.time.temporal.TemporalAdjusters;
-import java.time.*;
-import java.util.*;
-import java.util.Map;
-import java.util.HashMap;
-
-@Transactional
-@Service
-public class {self.service_class_name} {{
-    {chr(10).join(fields)}
-
-CodePlaceHolder
-}}"""
+        return skeleton_data.get('code', '')
 
     async def _process_procedure(self, proc_name: str, proc_data: dict, service_skeleton: str) -> dict:
         """

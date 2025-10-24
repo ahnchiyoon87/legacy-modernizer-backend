@@ -7,7 +7,7 @@ from util.prompt_loader import PromptLoader
 
 
 # ----- 상수 정의 -----
-MAX_TOKENS = 3000  # LLM 처리를 위한 배치당 최대 토큰 수
+MAX_TOKENS = 1000  # LLM 처리를 위한 배치당 최대 토큰 수
 
 
 # ----- Entity 생성 관리 클래스 -----

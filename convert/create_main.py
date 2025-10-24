@@ -1,50 +1,45 @@
 import logging
 from util.exception import ConvertingError
 from util.utility_tool import save_file, build_java_base_path
-
-
-# ----- Main 클래스 템플릿 -----
-MAIN_TEMPLATE = """package com.example.{project_name};
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-@SpringBootApplication
-public class {class_name} {{
-
-    public static void main(String[] args) {{
-        SpringApplication.run({class_name}.class, args);
-    }}
-
-}}
-"""
+from util.template_loader import TemplateLoader
 
 
 # ----- Main 클래스 생성 관리 클래스 -----
 class MainClassGenerator:
     """
-    Spring Boot 애플리케이션의 메인 클래스를 자동 생성하는 클래스
-    프로젝트명을 기반으로 Application 클래스를 생성합니다.
+    애플리케이션의 메인/진입점 클래스를 자동 생성하는 클래스
+    타겟 언어에 맞게 Main 클래스를 생성합니다.
+    - Java: Spring Boot Application 클래스
+    - Python: FastAPI 앱 인스턴스 생성 파일
     """
-    __slots__ = ('project_name', 'class_name', 'file_name', 'save_path')
+    __slots__ = ('project_name', 'class_name', 'file_name', 'save_path', 'target_lang', 'template_loader')
 
-    def __init__(self, project_name: str, user_id: str):
+    def __init__(self, project_name: str, user_id: str, target_lang: str = 'java'):
         """
         MainClassGenerator 초기화
         
         Args:
             project_name: 프로젝트 이름
             user_id: 사용자 식별자
+            target_lang: 타겟 언어 (java, python)
         """
         self.project_name = project_name
-        self.class_name = f"{project_name.capitalize()}Application"
-        self.file_name = f"{self.class_name}.java"
+        self.target_lang = target_lang
+        self.template_loader = TemplateLoader(target_lang=target_lang)
+        
+        if target_lang == 'java':
+            self.class_name = f"{project_name.capitalize()}Application"
+            self.file_name = f"{self.class_name}.java"
+        else:  # python
+            self.class_name = "main"
+            self.file_name = "main.py"
+        
         self.save_path = build_java_base_path(project_name, user_id)
 
     async def generate(self) -> str:
         """
         Main 클래스 생성의 메인 진입점
-        Spring Boot Application 클래스를 생성하고 파일로 저장합니다.
+        타겟 언어에 맞는 Application 진입점 클래스를 생성하고 파일로 저장합니다.
         
         Returns:
             str: 생성된 메인 클래스 코드
@@ -52,16 +47,20 @@ class MainClassGenerator:
         Raises:
             ConvertingError: 메인 클래스 생성 중 오류 발생 시
         """
-        logging.info("메인 클래스 생성을 시작합니다.")
+        logging.info(f"[{self.target_lang.upper()}] 메인 클래스 생성을 시작합니다.")
         
         try:
-            # 템플릿 적용
-            main_code = MAIN_TEMPLATE.format(project_name=self.project_name, class_name=self.class_name)
+            # Template 렌더링 (Rule 파일에서 로드)
+            variables = {
+                'project_name': self.project_name,
+                'class_name': self.class_name
+            }
+            main_code = self.template_loader.render('main', variables)
             
             # 파일 저장
             await save_file(main_code, self.file_name, self.save_path)
             
-            logging.info("메인 클래스가 생성되었습니다.\n")
+            logging.info(f"메인 클래스가 생성되었습니다.\n")
             return main_code
         
         except Exception as e:

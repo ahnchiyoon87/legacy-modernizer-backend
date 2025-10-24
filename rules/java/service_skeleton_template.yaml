@@ -1,0 +1,39 @@
+# Service 클래스 스켈레톤 템플릿
+# 타겟: Spring Boot Service Template
+# 타입: Template (LLM 호출 불필요, 순수 Jinja2 렌더링)
+
+name: "Service 클래스 스켈레톤 템플릿"
+description: "Spring Boot Service 클래스의 기본 구조 템플릿"
+version: "1.0"
+
+# 템플릿 입력 파라미터
+variables:
+  - project_name              # 프로젝트 이름
+  - service_class_name        # 서비스 클래스명 (e.g., OrderService)
+  - repository_declarations   # Repository 필드 선언 (여러 줄)
+  - global_variables          # 전역 변수 선언 (여러 줄)
+  - method_signatures         # 메서드 시그니처 (여러 줄)
+
+# Jinja2 템플릿 (단순 변수 치환)
+template: |
+  package com.example.{{project_name}}.service;
+
+  import org.springframework.stereotype.Service;
+  import lombok.RequiredArgsConstructor;
+  import lombok.extern.slf4j.Slf4j;
+
+  @Service
+  @RequiredArgsConstructor
+  @Slf4j
+  public class {{service_class_name}} {
+
+      // ===== Repository Fields =====
+  {{repository_declarations}}
+
+      // ===== Global Variables =====
+  {{global_variables}}
+
+      // ===== Business Methods =====
+  {{method_signatures}}
+
+  }

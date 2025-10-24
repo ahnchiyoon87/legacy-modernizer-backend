@@ -8,30 +8,16 @@ from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, sav
 from util.prompt_loader import PromptLoader
 
 
-MAX_TOKENS = 2000  # LLM 처리를 위한 배치당 최대 토큰 수
-
-# JPA Repository 인터페이스 템플릿
-JPA_TEMPLATE = """package com.example.{project_name}.repository;
-import java.util.List;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.data.rest.core.annotation.RepositoryRestResource;
-import com.example.{project_name}.entity.{entity_pascal_name};
-import java.time.*;
-
-@RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
-public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{
-{merged_methods}
-}}"""
+MAX_TOKENS = 1000  # LLM 처리를 위한 배치당 최대 토큰 수
 
 
 # ----- Repository 생성 관리 클래스 -----
 class RepositoryGenerator:
     """
     레거시 SQL 쿼리(DML)를 분석하여 Spring Data JPA Repository 인터페이스를 자동 생성하는 클래스
-    Neo4j에서 DML 노드(SELECT, INSERT, UPDATE, DELETE)와 변수 정보를 조회하고,
-    LLM을 활용하여 JPA Repository 메서드로 변환합니다.
+    1단계: Repository Skeleton (기본 틀) 생성
+    2단계: DML을 배치 단위로 처리하여 JPA 메서드 생성
+    3단계: Skeleton과 메서드 병합
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 
                  'global_vars', 'var_index', 'all_used_query_methods', 
@@ -58,15 +44,12 @@ class RepositoryGenerator:
     async def generate(self) -> tuple:
         """
         Repository 인터페이스 생성의 메인 진입점
-        Neo4j에서 DML 노드와 변수 정보를 조회하고, 배치 단위로 LLM 변환을 수행하여
-        JPA Repository 인터페이스 파일을 생성합니다.
+        1. Skeleton 생성 (테이블당 1회)
+        2. DML을 배치 단위로 처리하여 메서드 생성
+        3. Skeleton과 메서드 병합
         
         Returns:
             tuple: (used_query_methods, global_variables, sequence_methods, repository_list)
-                - used_query_methods (dict): {라인범위: 메서드코드} 매핑
-                - global_variables (list): 전역 변수 정보 리스트
-                - sequence_methods (list): 시퀀스 관련 메서드 목록
-                - repository_list (list): 생성된 Repository 정보 리스트
         """
         logging.info("Repository Interface 생성을 시작합니다.")
         connection = Neo4jConnection()
@@ -113,14 +96,9 @@ class RepositoryGenerator:
             self.all_sequence_methods = set()
             self.aggregated_query_methods = {}
 
-            # 모든 DML 노드를 한 번에 처리
-            all_dml_nodes = [node for result in table_dml_results if (dml_nodes := result.get('dml_nodes')) for node in dml_nodes]
-            if all_dml_nodes:
-                await self._process_dml_nodes(all_dml_nodes)
-
             # Repository 파일 생성
-            logging.info(f"💾 Repository 파일 저장 중...")
-            repository_list = await self._save_repository_files()
+            logging.info(f"💾 Repository 파일 생성 중...")
+            repository_list = await self._generate_repositories(table_dml_results)
             
             logging.info("\n" + "-"*80)
             logging.info(f"✅ STEP 2 완료: {len(repository_list)}개 Repository 생성 완료")
@@ -137,13 +115,95 @@ class RepositoryGenerator:
 
     # ----- 내부 처리 메서드 -----
 
-    async def _process_dml_nodes(self, dml_nodes: list) -> None:
+    async def _generate_repositories(self, table_dml_results: list) -> list:
         """
-        DML 노드를 배치 단위로 처리하여 Repository 메서드 생성
-        결과는 클래스 속성에 직접 누적됩니다.
+        테이블별로 Repository 생성
+        1. Skeleton 생성
+        2. DML을 배치 단위로 처리하여 메서드 생성
+        3. 병합
         
         Args:
-            dml_nodes: 처리할 DML 노드 리스트
+            table_dml_results: 테이블별 DML 노드 결과
+        
+        Returns:
+            list: 생성된 Repository 정보 리스트
+        """
+        results = []
+        
+        for result in table_dml_results:
+            if not (dml_nodes := result.get('dml_nodes')):
+                continue
+            
+            table_node = result['t']
+            table_name = table_node['name']
+            entity_name = convert_to_pascal_case(table_name)
+            camel_name = convert_to_camel_case(entity_name)
+            repo_name = f"{entity_name}Repository"
+            
+            try:
+                logging.info(f"   📝 {repo_name} 생성 중...")
+                
+                # 1단계: Skeleton 생성
+                skeleton = await self._generate_skeleton(entity_name, camel_name, table_name)
+                
+                # 2단계: DML을 배치 단위로 처리하여 메서드 생성
+                await self._process_dml_nodes_for_entity(entity_name, dml_nodes)
+                
+                # 3단계: Skeleton과 메서드 병합
+                merged_methods = self.aggregated_query_methods.get(entity_name, [])
+                if merged_methods:
+                    methods_code = '\n\n'.join(
+                        textwrap.indent(m.strip(), '    ') for m in merged_methods
+                    )
+                    # Skeleton의 CodePlaceHolder를 메서드로 치환
+                    code = skeleton.replace('CodePlaceHolder', methods_code)
+                else:
+                    code = skeleton
+                
+                # 파일 저장
+                await save_file(code, f"{repo_name}.java", self.save_path)
+                results.append({"repositoryName": repo_name, "code": code})
+                logging.info(f"   ✓ {repo_name} 생성 완료")
+                
+            except Exception as e:
+                logging.error(f"Entity '{entity_name}' Repository 생성 중 오류: {str(e)}")
+                continue
+        
+        return results
+
+    async def _generate_skeleton(self, entity_name: str, camel_name: str, table_name: str) -> str:
+        """
+        Repository Skeleton (기본 틀) 생성
+        
+        Args:
+            entity_name: Entity 클래스명
+            camel_name: Entity camelCase명
+            table_name: 원본 테이블명
+        
+        Returns:
+            str: Skeleton 코드
+        """
+        skeleton_data = self.prompt_loader.execute(
+            role_name='repository_skeleton',
+            inputs={
+                'entity_name': entity_name,
+                'entity_camel_name': camel_name,
+                'table_name': table_name,
+                'project_name': self.project_name,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
+        
+        return skeleton_data.get('code', '')
+
+    async def _process_dml_nodes_for_entity(self, entity_name: str, dml_nodes: list) -> None:
+        """
+        Entity의 DML 노드를 배치 단위로 처리
+        
+        Args:
+            entity_name: Entity 클래스명
+            dml_nodes: DML 노드 리스트
         """
         current_tokens = 0
         batch_codes = []
@@ -163,7 +223,7 @@ class RepositoryGenerator:
 
             # 배치 토큰 한도 초과 시 즉시 처리
             if batch_codes and total >= MAX_TOKENS:
-                await self._flush_batch(batch_codes, batch_vars)
+                await self._flush_batch(entity_name, batch_codes, batch_vars)
                 batch_codes, batch_vars, current_tokens = [], defaultdict(list), 0
 
             # 배치에 추가
@@ -174,13 +234,14 @@ class RepositoryGenerator:
 
         # 마지막 남은 배치 처리
         if batch_codes:
-            await self._flush_batch(batch_codes, batch_vars)
+            await self._flush_batch(entity_name, batch_codes, batch_vars)
 
-    async def _flush_batch(self, codes: list, vars_dict: dict) -> None:
+    async def _flush_batch(self, entity_name: str, codes: list, vars_dict: dict) -> None:
         """
         배치를 LLM으로 변환하고 결과를 클래스 속성에 즉시 누적
         
         Args:
+            entity_name: Entity 클래스명
             codes: DML 코드 리스트
             vars_dict: 변수 정보 딕셔너리
         """
@@ -188,6 +249,7 @@ class RepositoryGenerator:
         analysis_data = self.prompt_loader.execute(
             role_name='repository',
             inputs={
+                'entity_name': entity_name,
                 'repository_nodes': json.dumps(codes, ensure_ascii=False, indent=2),
                 'used_variable_nodes': json.dumps(vars_dict, ensure_ascii=False, indent=2),
                 'count': len(codes),
@@ -198,51 +260,15 @@ class RepositoryGenerator:
         )
         
         # 메서드를 Entity별로 그룹화하여 누적
-        for method in analysis_data['analysis']:
+        for method in analysis_data.get('analysis', []):
             method_code = method['method']
-            entity_name = convert_to_pascal_case(method['tableName'].split('.')[-1])
             
             self.aggregated_query_methods.setdefault(entity_name, []).append(method_code)
             
             # 라인 범위별 메서드 매핑
-            for r in method['range']:
+            for r in method.get('range', []):
                 self.all_used_query_methods[f"{r['startLine']}~{r['endLine']}"] = method_code
         
         # 시퀀스 메서드 누적
         if seq := analysis_data.get('seq_method'):
             self.all_sequence_methods.update(seq)
-
-    async def _save_repository_files(self) -> list:
-        """
-        Entity별로 Repository 인터페이스 파일 생성
-        
-        Returns:
-            list: 생성된 Repository 정보 리스트
-        """
-        if not self.aggregated_query_methods:
-            return []
-        
-        results = []
-        for entity_name, methods in self.aggregated_query_methods.items():
-            camel_name = convert_to_camel_case(entity_name)
-            repo_name = f"{entity_name}Repository"
-            
-            # 메서드 병합
-            merged = '\n\n'.join(
-                textwrap.indent(m.strip().replace('\n\n', '\n'), '    ') 
-                for m in methods
-            )
-            
-            # 템플릿 적용
-            code = JPA_TEMPLATE.format(
-                project_name=self.project_name,
-                entity_pascal_name=entity_name,
-                entity_camel_name=camel_name,
-                merged_methods=merged
-            )
-            
-            # 파일 저장 및 결과 누적
-            await save_file(code, f"{repo_name}.java", self.save_path)
-            results.append({"repositoryName": repo_name, "code": code})
-        
-        return results
