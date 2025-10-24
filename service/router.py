@@ -3,6 +3,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from service.service import ServiceOrchestrator, BASE_DIR
+from conversion.strategies.strategy_factory import StrategyFactory
 from dotenv import load_dotenv
 
 
@@ -164,4 +165,42 @@ async def delete_all_data(request: Request):
         raise
     except Exception as e:
         logger.exception("데이터 삭제 중 오류")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/convert/")
+async def convert_project(request: Request):
+    """전략패턴을 사용한 다양한 변환 타입 처리"""
+    try:
+        file_data = await request.json()
+        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
+        project_name, dbms, file_names, target_lang = _extract_payload(file_data)
+        
+        # 새로운 필드들
+        conversion_type = file_data.get('conversionType', 'framework')
+        target_framework = file_data.get('targetFramework', 'springboot')
+        target_dbms = file_data.get('targetDbms', 'oracle')
+        
+        logging.info("Convert: type=%s, project=%s, files=%d, target=%s", 
+                    conversion_type, project_name, len(file_names), 
+                    target_framework if conversion_type == 'framework' else f"{dbms}→{target_dbms}")
+        
+        # 전략 생성
+        strategy = StrategyFactory.create_strategy(
+            conversion_type, 
+            source_dbms=dbms, 
+            target_dbms=target_dbms,
+            target_framework=target_framework
+        )
+        
+        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms, target_lang)
+        await orchestrator.validate_api_key()
+        
+        # 전략 실행
+        return StreamingResponse(strategy.convert(file_names, orchestrator=orchestrator), media_type="text/plain")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("변환 처리 중 오류")
         raise HTTPException(status_code=500, detail=str(e))
