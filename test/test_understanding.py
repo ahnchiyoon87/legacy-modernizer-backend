@@ -14,9 +14,12 @@ from understand.neo4j_connection import Neo4jConnection
 # ==================== 설정 ====================
 
 TEST_USER_ID = "TestSession"
-TEST_PROJECT_NAME = "HOSPITAL_PROJECT"
+TEST_PROJECT_NAME = "text2sql"
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = "test"
+TEST_LOCALE = "ko"
+TEST_DBMS = "postgres"
+TEST_MIN_TABLE_COUNT = 2
 
 # 테스트 데이터 경로 (상위 디렉토리의 data 폴더)
 TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TEST_PROJECT_NAME
@@ -26,12 +29,23 @@ TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TE
 
 @pytest.fixture(scope="module")
 def test_data_exists():
-    """테스트 데이터 존재 확인"""
+    """테스트 데이터 존재 확인 및 SP 파일 목록 생성"""
     assert TEST_DATA_DIR.exists(), f"테스트 데이터 디렉토리가 없습니다: {TEST_DATA_DIR}"
-    assert (TEST_DATA_DIR / "src" / "HOSPITAL_RECEPTION" / "SP_HOSPITAL_RECEPTION.sql").exists()
-    assert (TEST_DATA_DIR / "ddl" / "DDL_HOSPITAL_RECEPTION.sql").exists()
-    assert (TEST_DATA_DIR / "analysis" / "HOSPITAL_RECEPTION" / "SP_HOSPITAL_RECEPTION.json").exists()
-    return TEST_DATA_DIR
+    src_dir = TEST_DATA_DIR / "src"
+    assert src_dir.exists(), f"src 디렉토리가 없습니다: {src_dir}"
+    
+    # src 폴더 아래의 모든 SP 파일 동적으로 찾기
+    sp_files = []
+    if src_dir.exists():
+        for folder in src_dir.iterdir():
+            if folder.is_dir():
+                for sql_file in folder.glob("*.sql"):
+                    folder_name = folder.name
+                    file_name = sql_file.name
+                    sp_files.append((folder_name, file_name))
+    
+    assert len(sp_files) > 0, f"SP 파일이 없습니다: {src_dir}"
+    return TEST_DATA_DIR, sp_files
 
 
 @pytest_asyncio.fixture
@@ -66,25 +80,30 @@ class TestRealUnderstanding:
         if not TEST_API_KEY:
             pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
         
+        test_data_dir, sp_files = test_data_exists
+        
         print(f"\n{'='*60}")
         print(f"🚀 Understanding 파이프라인 시작")
-        print(f"📁 데이터 경로: {TEST_DATA_DIR}")
+        print(f"📁 데이터 경로: {test_data_dir}")
         print(f"👤 User ID: {TEST_USER_ID}")
         print(f"📊 Project: {TEST_PROJECT_NAME}")
         print(f"🗄️  Neo4j DB: {TEST_DB_NAME}")
+        print(f"📝 SP 파일: {len(sp_files)}개 발견")
+        for folder_name, file_name in sp_files:
+            print(f"   - {folder_name}/{file_name}")
         print(f"{'='*60}\n")
         
         # ServiceOrchestrator 생성
         orchestrator = ServiceOrchestrator(
             user_id=TEST_USER_ID,
             api_key=TEST_API_KEY,
-            locale="ko",
+            locale=TEST_LOCALE,
             project_name=TEST_PROJECT_NAME,
-            dbms="postgres"
+            dbms=TEST_DBMS
         )
         
-        # 분석할 파일
-        file_names = [("HOSPITAL_RECEPTION", "SP_HOSPITAL_RECEPTION.sql")]
+        # 분석할 파일 (동적으로 찾은 파일들)
+        file_names = sp_files
         
         # Understanding 실행
         events = []
@@ -133,7 +152,7 @@ class TestRealUnderstanding:
         print("1️⃣  PROCEDURE 노드 확인...")
         proc_result = await real_neo4j.execute_query_and_return_graph(
             TEST_USER_ID,
-            [("HOSPITAL_RECEPTION", "SP_HOSPITAL_RECEPTION.sql")],
+            file_names,
             f"MATCH (p:PROCEDURE {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN p"
         )
         proc_count = len(proc_result.get("Nodes", []))
@@ -141,7 +160,7 @@ class TestRealUnderstanding:
         print(f"   ✅ PROCEDURE 노드: {proc_count}개")
         
         # 간단한 쿼리로 직접 실행
-        file_pair = [("HOSPITAL_RECEPTION", "SP_HOSPITAL_RECEPTION.sql")]
+        file_pair = file_names
         
         # 2. Variable 노드 확인
         print("2️⃣  Variable 노드 확인...")
@@ -157,7 +176,7 @@ class TestRealUnderstanding:
             f"MATCH (t:Table {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN t"
         ])
         table_count = len(table_result[0])
-        assert table_count >= 2, f"Table 노드 부족: {table_count}/2"
+        assert table_count >= TEST_MIN_TABLE_COUNT, f"Table 노드 부족: {table_count}/{TEST_MIN_TABLE_COUNT}"
         print(f"   ✅ Table 노드: {table_count}개")
         
         # 4. DML 노드 확인

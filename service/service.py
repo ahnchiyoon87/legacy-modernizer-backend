@@ -224,6 +224,7 @@ class ServiceOrchestrator:
         # 컬럼 역할 산출
         table_rows = (await connection.execute_queries([f"""
             MATCH (folder:Folder {{user_id: '{self.user_id}', name: '{folder_esc}'}})-[:CONTAINS]->(t:Table)
+            WHERE coalesce(t.folder_name, '') = '{folder_esc}' OR coalesce(t.folder_name, '') = ''
             OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}'}})
             OPTIONAL MATCH (dml)-[:FROM|WRITES]->(t)
             WITH t, collect(DISTINCT dml.summary) AS dmlSummaries,
