@@ -21,6 +21,7 @@ from util.llm_client import get_llm
 # ----- 상수 -----
 BASE_DIR = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TEST_SESSIONS = ("EN_TestSession", "KO_TestSession")
+DDL_MAX_CONCURRENCY = 5
 
 
 # ----- 서비스 오케스트레이터 클래스 -----
@@ -103,12 +104,22 @@ class ServiceOrchestrator:
             ddl_files = self._list_ddl_files()
             if ddl_files:
                 ddl_dir = self.dirs['ddl']
+                ddl_semaphore = asyncio.Semaphore(DDL_MAX_CONCURRENCY)
+                ddl_tasks = []
+
+                async def _run_single_ddl(file_name: str):
+                    async with ddl_semaphore:
+                        ddl_file_path = os.path.join(ddl_dir, file_name)
+                        base_object_name = os.path.splitext(file_name)[0]
+                        await self._process_ddl(ddl_file_path, connection, base_object_name)
+
                 for ddl_file_name in ddl_files:
                     yield emit_message(f"START DDL PROCESSING: {ddl_file_name}")
                     logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
-                    ddl_file_path = os.path.join(ddl_dir, ddl_file_name)
-                    base_object_name = os.path.splitext(ddl_file_name)[0]
-                    await self._process_ddl(ddl_file_path, connection, base_object_name)
+                    ddl_tasks.append(asyncio.create_task(_run_single_ddl(ddl_file_name)))
+
+                if ddl_tasks:
+                    await asyncio.gather(*ddl_tasks)
 
             # PL/SQL 파일 분석
             for folder_name, file_name in file_names:
