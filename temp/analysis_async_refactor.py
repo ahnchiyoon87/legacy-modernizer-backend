@@ -40,7 +40,7 @@ VARIABLE_DECLARATION_TYPES = frozenset(["PACKAGE_VARIABLE", "DECLARE", "SPEC"])
 STATIC_QUERY_BATCH_SIZE = 40
 VARIABLE_CONCURRENCY = 5
 LINE_NUMBER_PATTERN = re.compile(r"^\d+\s*:")
-MAX_BATCH_TOKEN = 900
+MAX_BATCH_TOKEN = 1500
 MAX_CONCURRENCY = 5
 
 
@@ -269,6 +269,8 @@ class StatementCollector:
                     start_line=start_line,
                     end_line=end_line,
                 )
+                proc_name_log = name_candidate or procedure_key
+                logging.info("🚀 프로시저/함수/트리거 이름: %s", proc_name_log)
 
         analyzable = node_type not in NON_ANALYSIS_TYPES
         token = calculate_code_token(code)
@@ -302,6 +304,14 @@ class StatementCollector:
             statement_node.completion_event.set()
 
         self.nodes.append(statement_node)
+        logging.info(
+            "🚀 노드: %s %s-%s (크기:%s, 자식:%s)",
+            node_type,
+            start_line,
+            end_line,
+            token,
+            'true' if has_children else 'false',
+        )
         return statement_node
 
 
@@ -311,7 +321,7 @@ class BatchPlanner:
     def __init__(self, token_limit: int = MAX_BATCH_TOKEN):
         self.token_limit = token_limit
 
-    def plan(self, nodes: List[StatementNode]) -> List[AnalysisBatch]:
+    def plan(self, nodes: List[StatementNode], folder_file: str) -> List[AnalysisBatch]:
         """토큰 한도를 넘지 않도록 노드를 분할하여 분석 배치를 생성합니다."""
         batches: List[AnalysisBatch] = []
         current_nodes: List[StatementNode] = []
@@ -336,6 +346,7 @@ class BatchPlanner:
 
             if current_nodes and current_tokens + node.token > self.token_limit:
                 # 토큰 한도를 초과하기 직전 배치를 확정합니다.
+                logging.info("⚠️ [%s] 리미트 도달, 중간 분석 실행 (토큰: %s)", folder_file, current_tokens)
                 batches.append(self._create_batch(batch_id, current_nodes))
                 batch_id += 1
                 current_nodes = []
@@ -441,6 +452,7 @@ class ApplyManager:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.file_last_line = file_last_line
+        self.folder_file = f"{folder_name}-{file_name}"
 
         self._pending: Dict[int, BatchResult] = {}
         self._summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in procedures}
@@ -501,6 +513,12 @@ class ApplyManager:
         if result.table_result:
             cypher_queries.extend(self._build_table_queries(result.batch, result.table_result))
 
+        if cypher_queries:
+            logging.info(
+                "📤 [%s] 분석 결과 전송 (Cypher 쿼리 %s개)",
+                self.folder_file,
+                len(cypher_queries),
+            )
         await self._send_queries(cypher_queries, result.batch.progress_line)
 
     def _build_node_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
@@ -631,15 +649,16 @@ class ApplyManager:
                 nullable_flag = 'true' if column.get('nullable', True) else 'false'
                 fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
                 column_merge_key = (
-                    f"`user_id`: '{self.user_id}', `name`: '{column_name}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
+                    f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
                 )
+                escaped_column_name = escape_for_cypher(column_name)
                 queries.append(
                     f"{table_merge}\n"
                     f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
                     f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
                     f"WITH t\n"
                     f"MERGE (c:Column {{{column_merge_key}}})\n"
-                    f"SET c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}'\n"
+                    f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
                     f"WITH t, c\n"
                     f"MERGE (t)-[:HAS_COLUMN]->(c)"
                 )
@@ -732,6 +751,7 @@ class ApplyManager:
             f"SET n.summary = {summary_json}"
         )
         await self._send_queries([query], info.end_line)
+        logging.info("[%s] %s 프로시저의 요약 정보 추출 완료", self.folder_file, info.procedure_name)
 
     async def _finalize_remaining_procedures(self):
         """아직 요약이 남아 있는 프로시저가 있다면 마지막으로 처리합니다."""
@@ -751,6 +771,7 @@ class ApplyManager:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
                 break
+        logging.info("✅ [%s] NEO4J 저장 완료", self.folder_name)
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_part = f", schema: '{schema}'" if schema else ""
@@ -998,6 +1019,11 @@ class Analyzer:
         if not targets:
             return
 
+        proc_labels = sorted({node.procedure_name or "" for node in targets})
+        if proc_labels:
+            label_text = ', '.join(label for label in proc_labels if label) or '익명 프로시저'
+            logging.info("[%s] %s의 변수 분석 시작", self.folder_file, label_text)
+
         semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)
 
         async def worker(node: StatementNode):
@@ -1018,6 +1044,8 @@ class Analyzer:
                     await self._send_static_queries(queries, node.end_line)
 
         await asyncio.gather(*(worker(node) for node in targets))
+        if proc_labels:
+            logging.info("[%s] %s의 변수 분석 완료", self.folder_file, label_text)
 
     def _build_variable_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         if not isinstance(analysis, dict):
@@ -1088,7 +1116,7 @@ class Analyzer:
             nodes, procedures = collector.collect()
             await self._initialize_static_graph(nodes)
             planner = BatchPlanner()
-            batches = planner.plan(nodes)
+            batches = planner.plan(nodes, self.folder_file)
 
             if not batches:
                 # 분석할 노드가 없다면 즉시 종료 이벤트만 전송합니다.
@@ -1120,6 +1148,12 @@ class Analyzer:
                 # 부모 노드가 포함된 배치라면 자식 완료를 기다립니다.
                 await self._wait_for_dependencies(batch)
                 async with semaphore:
+                    logging.info(
+                        "🤖 [%s] AI 분석 시작 (배치 #%s, 노드 %s개)",
+                        self.folder_file,
+                        batch.batch_id,
+                        len(batch.nodes),
+                    )
                     general, table = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general, table)
 

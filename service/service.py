@@ -110,8 +110,7 @@ class ServiceOrchestrator:
                 async def _run_single_ddl(file_name: str):
                     async with ddl_semaphore:
                         ddl_file_path = os.path.join(ddl_dir, file_name)
-                        base_object_name = os.path.splitext(file_name)[0]
-                        await self._process_ddl(ddl_file_path, connection, base_object_name)
+                        await self._process_ddl(ddl_file_path, connection, file_name)
 
                 for ddl_file_name in ddl_files:
                     yield emit_message(f"START DDL PROCESSING: {ddl_file_name}")
@@ -279,7 +278,7 @@ class ServiceOrchestrator:
             if column_update_queries:
                 await connection.execute_queries(column_update_queries)
 
-    async def _process_ddl(self, ddl_file_path: str, connection: Neo4jConnection, object_name: str) -> None:
+    async def _process_ddl(self, ddl_file_path: str, connection: Neo4jConnection, file_name: str) -> None:
         """DDL 파일 처리하여 Table/Column 노드 생성"""
         async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
             ddl_content = await ddl_file.read()
@@ -323,13 +322,15 @@ class ServiceOrchestrator:
                     col_comment = (col.get('comment') or '').strip()
                     fqn = '.'.join(filter(None, [effective_schema, parsed_table, col_name])).lower()
 
-                    c_merge_key = {'user_id': self.user_id, 'name': col_name, 'fqn': fqn, 'project_name': self.project_name}
+                    c_merge_key = {'user_id': self.user_id, 'fqn': fqn, 'project_name': self.project_name}
                     c_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in c_merge_key.items())
                     c_set_props = {
+                        'name': escape_for_cypher(col_name),
                         'dtype': escape_for_cypher(col_type),
                         'description': escape_for_cypher(col_comment),
                         'nullable': 'true' if col_nullable else 'false',
-                        'project_name': self.project_name
+                        'project_name': self.project_name,
+                        'fqn': fqn
                     }
                     if col_name.upper() in primary_list:
                         c_set_props['pk_constraint'] = f"{parsed_table}_pkey"
@@ -367,7 +368,7 @@ class ServiceOrchestrator:
                     cypher_queries.append(f"MATCH (sc:Column {{{src_c_str}}})\nMATCH (dc:Column {{{ref_c_str}}})\nMERGE (sc)-[:FK_TO]->(dc)")
 
             await connection.execute_queries(cypher_queries)
-            logging.info(f"DDL 파일 처리 완료: {object_name}")
+            logging.info(f"DDL 파일 처리 완료: {file_name}")
 
     async def _ensure_folder_node(self, connection: Neo4jConnection, folder_name: str) -> None:
         """폴더 노드 생성"""

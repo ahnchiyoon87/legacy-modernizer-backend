@@ -12,8 +12,12 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
+import importlib
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# 리팩터 Analyzer를 강제로 사용하도록 교체합니다.
+sys.modules["understand.analysis"] = importlib.import_module("temp.analysis_async_refactor")
 
 # 한글 로그가 깨지지 않도록 UTF-8 인코딩을 강제합니다.
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
