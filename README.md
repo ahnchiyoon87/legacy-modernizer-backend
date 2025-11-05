@@ -508,6 +508,12 @@ ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객�
 
 #### **병렬 호출 전략**
 
+BatchPlanner가 만든 `AnalysisBatch`는 LLM 토큰 한도를 지키기 위해 동일 레벨의 노드들을 묶어 줍니다. 각 배치에 대해 Analyzer는 다음 순서로 프롬프트를 호출합니다.
+
+- `understand_code`: **모든 analyzable 노드**(SELECT, INSERT, IF, LOOP, PROCEDURE 등)의 요약·호출·변수 사용 정보를 요청합니다.
+- `understand_dml_tables`: **DML 노드(SELECT/INSERT/UPDATE/DELETE/MERGE)**에 대해 테이블/컬럼/관계 메타데이터를 추출합니다.
+- `understand_variables`: 배치에 `DECLARE` 또는 `SPEC` 노드가 포함되면 추가로 호출되어 변수 선언 정보를 구조화합니다. (선언 노드가 없으면 이 프롬프트는 건너뜁니다.)
+
 ```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
@@ -515,22 +521,16 @@ ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객�
 [Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
 ```
 
-#### **LLM 프롬프트별 역할**
-
-| 프롬프트 파일 | 역할 | 입력 | 출력 |
-|--------------|------|------|------|
-| **understand_prompt.py** | 코드 동작 분석 | 코드 범위 | summary, calls, variables |
-| **understand_dml_table_prompt.py** | DML 테이블/컬럼 추출 | DML 코드 | table, columns, fkRelations, dbLinks |
-| **understand_variables_prompt.py** | 변수 선언 분석 | DECLARE/SPEC 코드 | variables (name, type, parameter_type) |
-| **understand_summarized_prompt.py** | 프로시저 전체 요약 | 하위 노드 요약들 | 프로시저 전체 summary |
-| **understand_column_prompt.py** | 컬럼 역할 분석 | 컬럼 메타 + DML 요약 | 컬럼별 역할 라벨 |
-| **understand_table_summary_prompt.py** | 테이블 설명 요약 | 테이블 설명 문장들 | 통합된 tableDescription |
-
 ### 4.9 Step 8: Neo4j 반영 (ApplyManager)
 
 #### **Apply Manager의 역할**
 
 LLM 결과를 **순서대로** Neo4j에 반영합니다. (배치 ID 순서 보장)
+
+- `understand_code` 응답 → 각 노드의 `summary`, `calls`, `variablesUsed` 속성을 갱신하고 `CALL` 관계를 생성합니다.
+- `understand_dml_tables` 응답 → `Table`/`Column` 노드를 MERGE하고 `FROM`, `WRITES`, `HAS_COLUMN`, `FK_TO` 관계를 추가합니다.
+- `understand_variables` 응답 → `Variable` 노드의 `type`, `parameter_type`, `defaultValue` 등을 채워 넣습니다.
+- 모든 배치가 끝나면 `ApplyManager.finalize()` 단계에서 `understand_summary`(프로시저 전체 요약)와 `understand_table_summary`(테이블 설명/컬럼 역할)을 연달아 호출해 상위 노드를 정리합니다.
 
 ```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
@@ -553,6 +553,7 @@ LLM 결과를 **순서대로** Neo4j에 반영합니다. (배치 ID 순서 보�
 #### **후처리가 필요한 이유**
 
 - **변수 타입 해석**: `%ROWTYPE`, `%TYPE` 등은 테이블 정보가 필요
+- **컬럼 역할 보강**: 테이블 메타가 확보된 뒤 LLM으로 각 컬럼의 의미를 라벨링
 
 ```python
 # service/service.py
@@ -573,7 +574,14 @@ async def _postprocess_file(self, connection, folder_name, file_name, file_pairs
         )
         # 해석된 타입으로 업데이트
         await connection.execute_queries([f"MATCH (v:Variable {{name: '{row['varName']}'}}) SET v.type = '{result['resolvedType']}'"])
+
+    # 컬럼 역할 분석 (테이블 요약 및 컬럼 라벨)
+    column_payload = await self._collect_table_summaries(connection, folder_name, file_name)
+    column_roles = understand_column_roles(column_payload, self.api_key, self.locale)
+    await self._apply_column_roles(connection, column_roles)
 ```
+
+변수 타입 보정이 끝나면 같은 함수 안에서 `understand_column_prompt.py`(README에서는 `understand_column_roles` 단계로 표기)를 호출해 **테이블 단위 요약과 컬럼 역할 레이블**을 갱신합니다. 이때 앞선 `understand_dml_tables` 결과와 DDL 메타데이터를 묶어 LLM에 전달하고, 응답으로 받은 `tableDescription`, `roles` 정보를 `Table`/`Column` 노드 속성으로 다시 적재합니다.
 
 ### 4.11 Step 10: SSE 스트리밍
 
@@ -622,8 +630,10 @@ sequenceDiagram
     Client->>Router: POST /cypherQuery/
     Router->>Service: ServiceOrchestrator.understand_project()
     
-    Service->>Neo4j: DDL 파일 처리 (선택)
-    Neo4j-->>Service: Table/Column 노드 생성 완료
+    Service->>LLM: understand_ddl() 호출 (선택)
+    LLM-->>Service: DDL 분석 결과(JSON)
+    Service->>Neo4j: Table/Column 노드 생성
+    Neo4j-->>Service: DDL 반영 완료
     
     Service->>Service: ANTLR JSON 및 PL/SQL 로드
     Service->>Analyzer: Analyzer.run()
@@ -641,8 +651,14 @@ sequenceDiagram
     loop 각 배치별 병렬 처리
         Analyzer->>LLM: understand_code (일반 분석)
         Analyzer->>LLM: understand_dml_tables (테이블 분석)
+        opt DECLARE/SPEC 노드 포함 시
+            Analyzer->>LLM: understand_variables (변수 선언 분석)
+        end
         LLM-->>Analyzer: summary, calls, variables
         LLM-->>Analyzer: table, columns, fkRelations
+        opt DECLARE/SPEC 응답
+            LLM-->>Analyzer: variables(name,type,paramType)
+        end
         
         Analyzer->>Neo4j: 분석 결과 반영 (순서 보장)
         Neo4j-->>Service: 중간 그래프
@@ -652,6 +668,10 @@ sequenceDiagram
     Analyzer->>LLM: understand_summary (프로시저 요약)
     LLM-->>Analyzer: 프로시저 전체 summary
     Analyzer->>Neo4j: 프로시저 요약 반영
+    
+    Analyzer->>LLM: understand_table_summary (테이블 요약)
+    LLM-->>Analyzer: tableDescription, column roles
+    Analyzer->>Neo4j: Table/Column 메타데이터 업데이트
     
     Service->>LLM: resolve_table_variable_type (변수 타입 해석)
     LLM-->>Service: 해석된 변수 타입
