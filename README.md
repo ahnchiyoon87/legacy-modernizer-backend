@@ -1,4 +1,4 @@
-# ��� Legacy Modernizer Backend - Understanding 파이프라인 완벽 가이드
+# Legacy Modernizer Backend - Understanding 파이프라인 완벽 가이드
 
 > **PL/SQL 코드를 이해하고 Neo4j 그래프로 변환하는 AI 기반 코드 분석 시스템**
 > 
@@ -11,7 +11,7 @@
 
 ---
 
-## ��� 목차
+## 목차
 
 1. [프로젝트 개요](#1-프로젝트-개요)
 2. [시스템 아키텍처](#2-시스템-아키텍처)
