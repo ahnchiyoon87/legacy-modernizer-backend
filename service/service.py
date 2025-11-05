@@ -1,3 +1,9 @@
+"""Understanding/Converting 파이프라인을 오케스트레이션하는 서비스 레이어.
+
+서비스 진입점에서 프로젝트 분석, DDL 처리, 후처리까지의 흐름을 다루며
+각 단계에 상세한 docstring을 제공하여 운영자가 전체 과정을 쉽게 파악하도록 돕는다.
+"""
+
 import asyncio
 import json
 import logging
@@ -62,7 +68,12 @@ class ServiceOrchestrator:
     # ----- API 키 검증 -----
 
     async def validate_api_key(self) -> None:
-        """API 키 유효성 검증 (테스트 세션은 스킵)"""
+        """API 키가 유효한지 확인합니다.
+
+        테스트 세션(EN/KO_TestSession)은 외부 호출 없이 통과시키고, 그 외에는
+        간단한 ping 호출로 OpenAI 호환 API가 응답하는지 검증합니다.
+        실패 시 HTTP 401 오류를 발생시켜 프론트엔드에서 바로 감지할 수 있도록 합니다.
+        """
         if self.user_id in TEST_SESSIONS:
             return
         
@@ -77,14 +88,13 @@ class ServiceOrchestrator:
     # ----- Understanding 프로세스 -----
 
     async def understand_project(self, file_names: list) -> AsyncGenerator[bytes, None]:
-        """
-        PL/SQL 파일 분석 및 Neo4j 그래프 데이터 생성
-        
+        """PL/SQL 파일 묶음을 분석하고 Neo4j 그래프 이벤트를 스트리밍합니다.
+
         Args:
-            file_names: [(folder_name, file_name), ...] 리스트
-        
+            file_names: `(folder_name, file_name)` 형식의 튜플 리스트
+
         Yields:
-            bytes: 스트리밍 응답 데이터
+            bytes: 프론트엔드로 전송하는 스트리밍 이벤트(JSON 직렬화 결과)
         """
         connection = Neo4jConnection()
         events_from_analyzer = asyncio.Queue()
@@ -136,7 +146,7 @@ class ServiceOrchestrator:
     async def _analyze_file(self, folder_name: str, file_name: str, file_pairs: list,
                            connection: Neo4jConnection, events_from_analyzer: asyncio.Queue,
                            events_to_analyzer: asyncio.Queue) -> AsyncGenerator[bytes, None]:
-        """단일 파일 분석 처리"""
+        """단일 PL/SQL 파일에 대한 Analyzer 실행과 이벤트 스트리밍을 담당합니다."""
         # ANTLR 데이터 및 PL/SQL 내용 로드
         antlr_data, plsql_content = await self._load_assets(folder_name, file_name)
         last_line = len(plsql_content)
@@ -189,7 +199,7 @@ class ServiceOrchestrator:
 
     async def _postprocess_file(self, connection: Neo4jConnection, folder_name: str, 
                                 file_name: str, file_pairs: list) -> None:
-        """파일 분석 후처리: 변수 타입 해석 및 컬럼 역할 산출"""
+        """분석 완료 후 변수 타입 보정과 컬럼 역할 요약을 적용합니다."""
         folder_esc, file_esc = escape_for_cypher(folder_name), escape_for_cypher(file_name)
         
         # 변수 타입 해석
@@ -233,7 +243,7 @@ class ServiceOrchestrator:
 
         # 컬럼 역할 산출
         table_rows = (await connection.execute_queries([f"""
-            MATCH (folder:Folder {{user_id: '{self.user_id}', name: '{folder_esc}'}})-[:CONTAINS]->(t:Table)
+            MATCH (folder:SYSTEM {{user_id: '{self.user_id}', name: '{folder_esc}'}})-[:CONTAINS]->(t:Table)
             WHERE coalesce(t.folder_name, '') = '{folder_esc}' OR coalesce(t.folder_name, '') = ''
             OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}'}})
             OPTIONAL MATCH (dml)-[:FROM|WRITES]->(t)
@@ -371,14 +381,14 @@ class ServiceOrchestrator:
             logging.info(f"DDL 파일 처리 완료: {file_name}")
 
     async def _ensure_folder_node(self, connection: Neo4jConnection, folder_name: str) -> None:
-        """폴더 노드 생성"""
+        """폴더 이름에 대응하는 SYSTEM 노드를 생성하여 그래프 루트를 보장합니다."""
         user_id_esc, folder_esc, project_esc = escape_for_cypher(self.user_id), escape_for_cypher(folder_name), escape_for_cypher(self.project_name)
         await connection.execute_queries([
-            f"MERGE (f:Folder {{user_id: '{user_id_esc}', name: '{folder_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
+            f"MERGE (f:SYSTEM {{user_id: '{user_id_esc}', name: '{folder_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
         ])
 
     async def _load_assets(self, folder_name: str, file_name: str) -> tuple:
-        """ANTLR 분석 JSON과 PL/SQL 파일 로드"""
+        """분석에 필요한 ANTLR JSON 및 원본 PL/SQL 텍스트를 동시에 로드합니다."""
         folder_dir = os.path.join(self.dirs['plsql'], folder_name)
         plsql_file_path = os.path.join(folder_dir, file_name)
         base_name = os.path.splitext(file_name)[0]
@@ -390,7 +400,7 @@ class ServiceOrchestrator:
             return json.loads(antlr_data), plsql_content
 
     def _list_ddl_files(self) -> list:
-        """DDL 디렉토리 파일 목록 조회"""
+        """DDL 디렉터리에서 처리 대상 파일 목록을 반환합니다."""
         try:
             ddl_dir = self.dirs['ddl']
             return [f for f in sorted(os.listdir(ddl_dir)) if os.path.isfile(os.path.join(ddl_dir, f))]

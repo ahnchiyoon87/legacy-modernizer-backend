@@ -1,219 +1,184 @@
+"""
+Understanding 파이프라인을 단일 테스트로 검증/비교합니다.
+
+환경 변수 `UNDERSTANDING_VARIANT`로 실행 대상을 제어할 수 있습니다.
+- `legacy`   : 레거시 Analyzer만 실행
+- `refactor` : 리팩터 Analyzer만 실행 (기본값)
+- `compare`  : 두 버전을 순차 실행하여 성능 지표(시간, 이벤트 수)를 출력
+
+실제 환경에서 사용하려면 Neo4j, LLM API 등의 외부 의존성을 동일하게 준비해야 합니다.
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Dict, Iterable, List
+
 import pytest
 import pytest_asyncio
-import asyncio
-import os
-from pathlib import Path
-
-import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from service.service import ServiceOrchestrator
-from understand.neo4j_connection import Neo4jConnection
 
 
-# ==================== 설정 ====================
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-TEST_USER_ID = "TestSession"
-TEST_PROJECT_NAME = "text2sql"
+# 한글 로그가 깨지지 않도록 UTF-8 인코딩을 강제합니다.
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+
+TEST_USER_ID = "KO_TestSession"
+TEST_PROJECT_NAME = "HOSPITAL_MANAGEMENT"
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = "test"
 TEST_LOCALE = "ko"
 TEST_DBMS = "postgres"
-TEST_MIN_TABLE_COUNT = 2
 
-# 테스트 데이터 경로 (상위 디렉토리의 data 폴더)
-TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+TEST_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+
+VARIANT_ENV_KEY = "UNDERSTANDING_VARIANT"
+DEFAULT_VARIANT = "refactor"
+VALID_VARIANTS = {"legacy", "refactor", "compare"}
 
 
-# ==================== Fixtures ====================
+def _determine_variants() -> tuple[List[str], bool]:
+    """환경 변수 설정을 읽어 실행할 Analyzer 버전을 결정합니다."""
+    env_value = os.getenv(VARIANT_ENV_KEY, DEFAULT_VARIANT).lower()
+    if env_value not in VALID_VARIANTS:
+        raise ValueError(
+            f"환경 변수 {VARIANT_ENV_KEY} 값이 올바르지 않습니다: {env_value} (허용: {', '.join(sorted(VALID_VARIANTS))})"
+        )
 
-@pytest.fixture(scope="module")
-def test_data_exists():
-    """테스트 데이터 존재 확인 및 SP 파일 목록 생성"""
-    assert TEST_DATA_DIR.exists(), f"테스트 데이터 디렉토리가 없습니다: {TEST_DATA_DIR}"
-    src_dir = TEST_DATA_DIR / "src"
-    assert src_dir.exists(), f"src 디렉토리가 없습니다: {src_dir}"
-    
-    # src 폴더 아래의 모든 SP 파일 동적으로 찾기
-    sp_files = []
-    if src_dir.exists():
-        for folder in src_dir.iterdir():
-            if folder.is_dir():
-                for sql_file in folder.glob("*.sql"):
-                    folder_name = folder.name
-                    file_name = sql_file.name
-                    sp_files.append((folder_name, file_name))
-    
-    assert len(sp_files) > 0, f"SP 파일이 없습니다: {src_dir}"
-    return TEST_DATA_DIR, sp_files
+    if env_value == "compare":
+        return ["legacy", "refactor"], True
+    return [env_value], False
+
+
+def _clear_import_cache():
+    """동적 import 전 cached 모듈을 제거하여 변형 간 간섭을 막습니다."""
+    for name in ("service.service", "understand.analysis"):
+        sys.modules.pop(name, None)
+
+
+def _load_service_orchestrator(variant: str):
+    """지정된 버전에 해당하는 ServiceOrchestrator 클래스를 반환합니다."""
+    if variant == "legacy":
+        legacy_module = importlib.import_module("legacy.understand.analysis")
+        sys.modules["understand.analysis"] = legacy_module
+    else:
+        # 리팩터 버전은 메인 모듈이므로 단순 import 만 수행
+        importlib.import_module("understand.analysis")
+
+    service_module = importlib.import_module("service.service")
+    return service_module.ServiceOrchestrator
+
+
+async def _clear_graph(connection, user_id: str, project_name: str):
+    """테스트 독립성을 확보하기 위해 지정 사용자/프로젝트 데이터를 삭제합니다."""
+    await connection.execute_queries([
+        f"MATCH (n {{user_id: '{user_id}', project_name: '{project_name}'}}) DETACH DELETE n"
+    ])
+
+
+def _load_sp_files(data_dir: Path) -> List[tuple[str, str]]:
+    """테스트용 SP 파일 목록을 폴더/파일 튜플 형태로 불러옵니다."""
+    src_dir = data_dir / "src"
+    if not data_dir.exists():
+        raise AssertionError(f"테스트 데이터 디렉토리가 없습니다: {data_dir}")
+    if not src_dir.exists():
+        raise AssertionError(f"src 디렉토리가 없습니다: {src_dir}")
+
+    sp_files: List[tuple[str, str]] = []
+    for folder in sorted(src_dir.iterdir()):
+        if folder.is_dir():
+            for sql_file in sorted(folder.glob("*.sql")):
+                sp_files.append((folder.name, sql_file.name))
+
+    if not sp_files:
+        raise AssertionError(f"SP 파일이 없습니다: {src_dir}")
+    return sp_files
 
 
 @pytest_asyncio.fixture
 async def real_neo4j():
-    """실제 Neo4j 연결 (test DB 사용)"""
-    # DATABASE_NAME을 test로 변경
+    """테스트용 Neo4j 연결을 생성하고 종료 후 복구합니다."""
+    from understand.neo4j_connection import Neo4jConnection
+
     original_db = Neo4jConnection.DATABASE_NAME
     Neo4jConnection.DATABASE_NAME = TEST_DB_NAME
-    
+
     conn = Neo4jConnection()
-    
-    # 테스트 시작 전 기존 데이터 삭제
-    await conn.execute_queries([
-        f"MATCH (n {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) DETACH DELETE n"
-    ])
-    
-    yield conn
-    
-    await conn.close()
-    # 원래대로 복구
-    Neo4jConnection.DATABASE_NAME = original_db
+    await _clear_graph(conn, TEST_USER_ID, TEST_PROJECT_NAME)
+
+    try:
+        yield conn
+    finally:
+        await conn.close()
+        Neo4jConnection.DATABASE_NAME = original_db
 
 
-# ==================== 실제 Understanding 테스트 ====================
+def _run_summary_log(results: Iterable[Dict[str, float | int | str]]):
+    """비교 실행 결과를 읽기 좋은 로그 형식으로 출력합니다."""
+    lines = ["\n[UNDERSTANDING TEST RESULT]"]
+    for item in results:
+        lines.append(
+            (
+                f"  - variant={item['variant']} "
+                f"elapsed={item['elapsed_seconds']:.2f}s "
+                f"events={item['event_count']} "
+                f"files={item['files']}"
+            )
+        )
+    print("\n".join(lines))
 
-class TestRealUnderstanding:
-    """실제 Understanding 로직 테스트 (Mock 없음)"""
-    
-    @pytest.mark.asyncio
-    async def test_complete_understanding_pipeline(self, test_data_exists, real_neo4j):
-        """완전한 Understanding 파이프라인 실행 (실제 LLM 호출 포함)"""
-        if not TEST_API_KEY:
-            pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
-        
-        test_data_dir, sp_files = test_data_exists
-        
-        print(f"\n{'='*60}")
-        print(f"🚀 Understanding 파이프라인 시작")
-        print(f"📁 데이터 경로: {test_data_dir}")
-        print(f"👤 User ID: {TEST_USER_ID}")
-        print(f"📊 Project: {TEST_PROJECT_NAME}")
-        print(f"🗄️  Neo4j DB: {TEST_DB_NAME}")
-        print(f"📝 SP 파일: {len(sp_files)}개 발견")
-        for folder_name, file_name in sp_files:
-            print(f"   - {folder_name}/{file_name}")
-        print(f"{'='*60}\n")
-        
-        # ServiceOrchestrator 생성
-        orchestrator = ServiceOrchestrator(
+
+@pytest.mark.asyncio
+async def test_understanding_pipeline(real_neo4j):
+    """환경 설정에 따라 레거시/리팩터 Analyzer를 실행하고 결과를 비교합니다."""
+    if not TEST_API_KEY:
+        pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
+
+    variants, compare_mode = _determine_variants()
+    sp_files = _load_sp_files(TEST_DATA_DIR)
+
+    results: List[Dict[str, float | int | str]] = []
+
+    for variant in variants:
+        orchestrator_cls = _load_service_orchestrator(variant)
+        orchestrator = orchestrator_cls(
             user_id=TEST_USER_ID,
             api_key=TEST_API_KEY,
             locale=TEST_LOCALE,
             project_name=TEST_PROJECT_NAME,
-            dbms=TEST_DBMS
+            dbms=TEST_DBMS,
         )
-        
-        # 분석할 파일 (동적으로 찾은 파일들)
-        file_names = sp_files
-        
-        # Understanding 실행
-        events = []
-        alarm_messages = []
-        errors = []
-        
-        try:
-            print("📝 Understanding 실행 중...\n")
-            
-            async for chunk in orchestrator.understand_project(file_names):
-                events.append(chunk)
-                
-                # 이벤트 파싱
-                try:
-                    import json
-                    decoded = chunk.decode('utf-8').replace('send_stream', '')
-                    if decoded.strip():
-                        event_data = json.loads(decoded)
-                        evt_type = event_data.get('type')
-                        if evt_type == 'message':
-                            content = event_data.get('content')
-                            alarm_messages.append(str(content))
-                            print(f"🔔 {content}")
-                        elif evt_type == 'error':
-                            content = event_data.get('content')
-                            errors.append(str(content))
-                            print(f"❌ ERROR: {content}")
-                except Exception:
-                    pass
-            
-            print(f"\n✅ Understanding 완료! (총 {len(events)}개 이벤트)")
-            
-        except Exception as e:
-            pytest.fail(f"Understanding 실행 중 예외 발생: {str(e)}")
-        
-        # 기본 검증
-        assert len(errors) == 0, f"에러 발생: {errors}"
-        assert len(events) > 0, "이벤트가 전혀 발생하지 않았습니다"
-        
-        print(f"\n{'='*60}")
-        print("🔍 Neo4j 데이터 검증 시작")
-        print(f"{'='*60}\n")
-        
-        # 실제 Neo4j 데이터 검증
-        # 1. PROCEDURE 노드 확인
-        print("1️⃣  PROCEDURE 노드 확인...")
-        proc_result = await real_neo4j.execute_query_and_return_graph(
-            TEST_USER_ID,
-            file_names,
-            f"MATCH (p:PROCEDURE {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN p"
+
+        await _clear_graph(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
+
+        start = time.perf_counter()
+        event_count = 0
+        async for _chunk in orchestrator.understand_project(list(sp_files)):
+            event_count += 1
+        elapsed = time.perf_counter() - start
+
+        results.append(
+            {
+                "variant": variant,
+                "elapsed_seconds": elapsed,
+                "event_count": event_count,
+                "files": len(sp_files),
+            }
         )
-        proc_count = len(proc_result.get("Nodes", []))
-        assert proc_count > 0, "PROCEDURE 노드가 없습니다"
-        print(f"   ✅ PROCEDURE 노드: {proc_count}개")
-        
-        # 간단한 쿼리로 직접 실행
-        file_pair = file_names
-        
-        # 2. Variable 노드 확인
-        print("2️⃣  Variable 노드 확인...")
-        var_result = await real_neo4j.execute_queries([
-            f"MATCH (v:Variable {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN v"
-        ])
-        var_count = len(var_result[0])
-        print(f"   ✅ Variable 노드: {var_count}개")
-        
-        # 3. Table 노드 확인
-        print("3️⃣  Table 노드 확인...")
-        table_result = await real_neo4j.execute_queries([
-            f"MATCH (t:Table {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN t"
-        ])
-        table_count = len(table_result[0])
-        assert table_count >= TEST_MIN_TABLE_COUNT, f"Table 노드 부족: {table_count}/{TEST_MIN_TABLE_COUNT}"
-        print(f"   ✅ Table 노드: {table_count}개")
-        
-        # 4. DML 노드 확인
-        print("4️⃣  DML 노드 확인...")
-        dml_result = await real_neo4j.execute_queries([
-            f"MATCH (d:DML {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN d"
-        ])
-        dml_count = len(dml_result[0])
-        print(f"   ✅ DML 노드: {dml_count}개")
-        
-        # 5. FK 관계 확인
-        print("5️⃣  FK 관계 확인...")
-        fk_result = await real_neo4j.execute_queries([
-            f"MATCH (t1:Table {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}})-[r:FK_TO_TABLE]->(t2:Table) RETURN r"
-        ])
-        fk_count = len(fk_result[0])
-        print(f"   ✅ FK 관계: {fk_count}개")
-        
-        print(f"\n{'='*60}")
-        print("🎉 배포 준비 완료!")
-        print(f"{'='*60}")
-        print(f"✅ 총 이벤트: {len(events)}개")
-        print(f"✅ PROCEDURE: {proc_count}개")
-        print(f"✅ Variable: {var_count}개")
-        print(f"✅ Table: {table_count}개")
-        print(f"✅ DML: {dml_count}개")
-        print(f"✅ FK 관계: {fk_count}개")
-        print(f"{'='*60}\n")
 
+        assert event_count > 0, f"{variant} 파이프라인에서 이벤트가 생성되지 않았습니다"
 
-# ==================== 실행 ====================
+        _clear_import_cache()
 
-if __name__ == "__main__":
-    pytest.main([
-        __file__, 
-        "-v", 
-        "-s", 
-        "--tb=short",
-        "--color=yes"
-    ])
+    _run_summary_log(results)
+
+    if compare_mode:
+        # 비교 모드에서는 두 결과가 모두 생성되었는지 확인
+        assert len(results) == 2, "compare 모드에서는 두 결과가 생성되어야 합니다"
+

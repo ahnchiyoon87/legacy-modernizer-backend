@@ -247,8 +247,11 @@ def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | N
 def calculate_code_token(code: Union[str, Dict, List]) -> int:
     """코드 토큰 길이 계산 (최적화: 중복 제거)"""
     try:
-        text_json = json.dumps(code, ensure_ascii=False)
-        return len(ENCODER.encode(text_json))
+        if isinstance(code, str):
+            text = code
+        else:
+            text = json.dumps(code, ensure_ascii=False)
+        return len(ENCODER.encode(text))
     except Exception as e:
         err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)

@@ -1,6 +1,6 @@
-# 🔄 Legacy Modernizer Backend
+# 🔄 Legacy Modernizer Backend - Understanding 파이프라인 완벽 가이드
 
-> **PL/SQL 코드를 Spring Boot Java/Python 프로젝트로 자동 변환하는 AI 기반 마이그레이션 도구**
+> **PL/SQL 코드를 이해하고 Neo4j 그래프로 변환하는 AI 기반 코드 분석 도구**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115.12-009688?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
@@ -11,1955 +11,1515 @@
 
 ## 📋 목차
 
-- [프로젝트 소개](#-프로젝트-소개)
-- [핵심 기능](#-핵심-기능)
-- [동작 원리](#-동작-원리)
-- [시스템 아키텍처](#-시스템-아키텍처)
-- [시작하기](#-시작하기)
-- [API 가이드](#-api-가이드)
-- [데이터 구조](#-데이터-구조)
-- [디렉터리 구조](#-디렉터리-구조)
-- [테스트](#-테스트)
-- [문제해결](#-문제해결)
-- [Understanding 파이프라인 버전 비교](#-understanding-파이프라인-버전-비교)
+- [프로젝트 개요](#-프로젝트-개요)
+- [시작하기 전에](#-시작하기-전에)
+- [프로젝트 구조 이해하기](#-프로젝트-구조-이해하기)
+- [데이터 폴더 구조](#-데이터-폴더-구조)
+- [Understanding 파이프라인 완벽 가이드](#-understanding-파이프라인-완벽-가이드)
+- [시퀀스 다이어그램](#-시퀀스-다이어그램)
+- [개발 환경 설정](#-개발 환경-설정)
+- [테스트 실행 가이드](#-테스트-실행-가이드)
+- [Neo4j 활용 가이드](#-neo4j-활용-가이드)
+- [파일별 상세 가이드](#-파일별-상세-가이드)
+- [트러블슈팅](#-트러블슈팅)
 
 ---
 
-## 🎯 프로젝트 소개
+## 🎯 프로젝트 개요
 
-Legacy Modernizer Backend는 **레거시 PL/SQL 코드를 최신 Spring Boot Java 또는 Python FastAPI 프로젝트로 자동 변환**하는 AI 기반 도구입니다.
+### Legacy Modernizer란?
 
-### 🤔 왜 이 프로젝트가 필요한가요?
+Legacy Modernizer는 **오래된 PL/SQL 저장 프로시저를 현대적인 Java Spring Boot 또는 Python FastAPI 프로젝트로 자동 변환**하는 AI 기반 도구입니다.
 
-많은 기업들이 오래된 Oracle PL/SQL 기반 시스템을 사용하고 있지만, 이를 최신 Java Spring Boot 또는 Python FastAPI로 마이그레이션하는 것은 매우 어렵고 시간이 많이 걸립니다.
-
-**기존 방식의 문제점:**
-- 👨‍💻 수작업 변환: 수개월~수년 소요
-- ❌ 높은 오류율: 복잡한 로직 이해 어려움  
-- 💰 막대한 비용: 전문 인력 필요
-- 📉 일관성 부족: 개발자마다 다른 스타일
-
-**Legacy Modernizer의 해결책:**
-- ⚡ 자동 변환: 몇 분 내 완료
-- 🎯 정확한 분석: AI가 코드 관계 파악
-- 💡 일관된 품질: 표준화된 Spring Boot Java 또는 Python FastAPI 코드 생성
-- 📊 시각화: Neo4j 그래프로 코드 구조 확인
-- 🌍 다중 언어 지원: Java, Python 등 다양한 타겟 언어 지원
-
----
-
-## ✨ 핵심 기능
-
-### 1️⃣ **코드 이해 (Understanding)**
-- ANTLR 파서가 PL/SQL을 분석하여 파싱한 결과물을 기반으로, 실제 PL/SQL를 순회하면서 LLM을 활용한 코드 의미 파악합니다.
-- 의미 파악이 완료된 SP 코드 구문들을 Neo4j 그래프 데이터베이스에 노드 및 관계 형태로 저장합니다.
-- 이때, DDL은 또한 LLM을 활용하여 테이블/컬럼 형태로 그래프 데이터베이스에 저장됩니다.
-
-### 2️⃣ **코드 변환 (Converting)**
-- **Java 타겟**: JPA Entity, Repository, Service, Controller, pom.xml, application.properties
-- **Python 타겟**: SQLAlchemy Model, Repository, Service, FastAPI Router, requirements.txt, .env
-- Rule 파일 기반 다중 언어 지원
-- 성능 최적화된 토큰 임계 배치 처리
-
-### 3️⃣ **스트리밍 응답**
-- 실시간 진행률 표시
-- 단계별 결과 스트리밍
-- 그래프 데이터 실시간 업데이트
-
-### 4️⃣ **세션 관리**
-- 사용자별 독립적인 작업 공간
-- 프로젝트 ZIP 다운로드
-
----
-
-## 🔍 동작 원리
-
-Legacy Modernizer는 크게 **3단계**로 동작합니다:
-
-### 🔧 0단계: 사전 준비 (파일 업로드 & ANTLR 파싱)
+### 핵심 철학
 
 ```
-Frontend → ANTLR 서버 (업로드 + 파싱 완료) → Frontend 응답
+┌─────────────────────────────────────────────────────────────┐
+│  "코드는 단순한 텍스트가 아니라 관계의 집합이다"             │
+│                                                               │
+│  PL/SQL의 복잡한 의존성과 호출 관계를 그래프로 표현하여      │
+│  AI가 맥락을 이해하고 정확한 변환을 수행하도록 돕는다        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**무엇을 하나요?**
-1. 🖥️ **파일 업로드**: Frontend에서 PL/SQL 파일을 ANTLR 서버로 전송
-2. 💾 **파일 저장**: ANTLR 서버가 파일을 `data/{session-id}/src/` 디렉터리에 저장
-3. 🔍 **파싱 요청**: Frontend가 ANTLR 서버에 저장된 파일의 파싱 요청
-4. 📊 **AST 생성**: ANTLR이 PL/SQL 코드를 파싱하여 AST(추상 구문 트리) 생성
-5. 💾 **JSON 저장**: AST를 JSON 형식으로 `data/{session-id}/analysis/{파일명}.json`에 저장
-6. ✅ **완료 응답**: ANTLR 서버가 Frontend에 업로드 및 파싱 완료 메시지 전송
+### 왜 두 단계로 나누었나?
 
-**⚠️ 중요:** 
-- 이 단계는 **Backend가 아닌 별도의 ANTLR 서버**에서 처리됩니다
-- **업로드와 파싱**이 모두 완료된 후 Frontend에 응답합니다
-- Backend API를 호출하기 **전에 반드시 완료**되어야 합니다
-- 생성된 JSON 파일이 없으면 다음 분석 단계가 실패합니다
-
-### 📖 1단계: 이해하기 (Understanding)
-
-```
-Frontend → Backend API → PL/SQL + AST JSON 읽기 → AI 분석 → Neo4j 그래프 저장
-```
-
-**무엇을 하나요?**
-1. 📤 **분석 요청**: Frontend가 Backend의 `/cypherQuery/` API 호출 (projectName, dbms, systems 배열 전달)
-2. 📂 **파일 경로 구성**: Backend가 전달받은 projectName, systemName, fileName으로 파일 경로 생성
-3. 📄 **파일 로딩**: File System에서 원본 PL/SQL 코드와 ANTLR AST JSON 읽기
-   - PL/SQL: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
-   - AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
-4. 🔍 **구문 탐색**: 구문 트리를 바탕으로, 각 구문들을 순회하면서, 분석할 구문들을 컨텍스트에 담습니다
-5. 🤖 **AI 분석**: 컨텍스트 사이즈가 한계에 도달하면, LLM을 활용하여, 분석을 진행합니다
-6. 💾 **그래프 저장**: 분석 결과로 나온 데이터를 활용하여, 사이퍼쿼리 형태로 만든 뒤, Neo4j에 노드와 관계 형태로 저장합니다
-7. 🔧 **후처리**: 변수 타입 보정 (DDL 메타 참조), 컬럼 역할 파악
-8. 📡 **스트리밍 응답**: Frontend에 실시간으로 진행률과 그래프 데이터 전송
-
-**왜 그래프 데이터베이스를 사용하나요?**
-
-절차형 코드(PL/SQL)는 "A가 B를 호출하고, B가 테이블 C를 읽는다"처럼 **관계**가 복잡합니다. 
-그래프 데이터베이스는 이런 관계를 **직관적으로 저장하고 탐색**할 수 있어, 변환 시 참조/의존성을 쉽게 재구성할 수 있습니다.
-
-### 🔨 2단계: 변환하기 (Converting)
-
-```
-Frontend → Backend API → Neo4j 그래프 조회 → 코드 생성 → Spring Boot 프로젝트
-```
-
-**무엇을 생성하나요?**
-1. 📤 **변환 요청**: Frontend가 Backend의 `/springBoot/` API 호출 (projectName, dbms, systems 배열 전달)
-2. 📊 **그래프 조회**: Neo4j에서 저장된 관계 데이터 조회
-3. 📄 **원본 참조**: File System에서 원본 SP 코드 읽기 (필요시)
-4. 🗂️ **Entity 생성**: 테이블 구조를 JPA Entity 클래스로 변환
-5. 📦 **Repository 생성**: 데이터 접근 계층 인터페이스 생성
-6. ⚙️ **Service 생성**: 비즈니스 로직을 Java 메서드로 변환
-7. 🌐 **Controller 생성**: REST API 엔드포인트 생성
-8. 🔧 **설정 파일 생성**: pom.xml, application.properties, Main 클래스 생성
-9. 💾 **파일 저장**: `target/java/{session-id}/{projectName}/` 디렉터리에 저장
-10. 📡 **스트리밍 응답**: Frontend에 생성된 코드 조각 실시간 전송
-
-**변환 순서가 중요합니다:**
-```
-프로젝트명 생성 → Entity → Repository → Service/Controller → 설정 파일
-```
-각 단계는 이전 단계의 결과를 사용하므로, 순서를 지켜야 합니다.
-
-#### 🔧 Service 변환 상세 흐름
-
-Service 계층 변환은 **토큰 임계 기반 배치 처리**로 수행됩니다:
-
-**📌 Service 생성 단계 (`create_service_preprocessing.py`)**
-
-```
-┌──────────────────────────────────────────────────────┐
-│     ServicePreprocessor - 토큰 임계 기반 배치 처리     │
-└──────────────────────────────────────────────────────┘
-         ↓
-   [노드 순회 시작]
-         ↓
-   ┌─────────────────┐
-   │ 노드 분류 판단   │ ← 토큰≥1000 & 자식 있음?
-   └─────────────────┘
-      ↙           ↘
-  [YES]          [NO]
-대용량 노드    작은/리프 노드
-     ↓              ↓
-LLM 스켈레톤    sp_code에 누적
-생성 후 저장    total_tokens += 토큰
-     ↓              ↓
-     └──────┬───────┘
-            ↓
-   total_tokens ≥ 1000?
-            ↓ YES
-   ┌─────────────────────────┐
-   │ 🎯 변수/JPA 수집 시작   │
-   │ - sp_range 범위에서     │
-   │   변수 필터링             │
-   │ - JPA 메서드 필터링      │
-   └─────────────────────────┘
-            ↓
-   ┌─────────────────────────┐
-   │ 🤖 LLM 호출              │
-   │ - sp_code 전달           │
-   │ - 수집된 변수/JPA 컨텍스트│
-   │ - 자바 코드 생성         │
-   └─────────────────────────┘
-            ↓
-   ┌─────────────────────────┐
-   │ 📦 코드 병합             │
-   │ - 부모 진행 중?          │
-   │   YES → java_buffer     │
-   │   NO → merged_java_code │
-   └─────────────────────────┘
-            ↓
-   ┌─────────────────────────┐
-   │ 🔄 컨텍스트 초기화       │
-   │ - total_tokens = 0      │
-   │ - sp_code = ""          │
-   │ - sp_range 초기화       │
-   └─────────────────────────┘
-            ↓
-   [다음 노드로 계속...]
-```
-
-**핵심 메커니즘:**
-1. **배치 처리**: 토큰이 1000에 도달할 때까지 노드를 누적한 후, 한 번에 LLM 호출
-2. **변수/JPA 수집**: 임계 도달 시에만 `sp_range` 범위에서 필요한 변수/JPA 메서드 필터링
-3. **대용량 노드 처리**: 큰 노드(IF/FOR/LOOP 등)는 스켈레톤만 생성하고 `...code...` 플레이스홀더 삽입
-4. **단일 컨텍스트**: `merged_java_code`에 모든 결과를 순차적으로 누적
-5. **Parent Context 전달**: 자식 노드 처리 시 부모의 Java 스켈레톤을 함께 전달하여 변수 스코프 및 제어 흐름 이해 향상
-6. **TRY-EXCEPTION 처리**: TRY 노드를 버퍼에 누적하고, EXCEPTION 노드 발견 시 try-catch 블록으로 조립
-7. **LLM 임의 로직 방지**: 프롬프트에 "원본 PL/SQL 구조를 정확히 따르고, 임의로 return 문이나 검증 로직을 추가하지 마세요" 지침 포함
-
-### 📥 3단계: 다운로드 (Download)
-
-```
-Frontend → Backend API → ZIP 압축 → 파일 다운로드
-```
-
-**무엇을 하나요?**
-1. 📤 **다운로드 요청**: Frontend가 Backend의 `/downloadJava/` API 호출
-2. 📦 **ZIP 압축**: 생성된 Spring Boot 프로젝트 전체를 ZIP 파일로 압축
-3. ⬇️ **파일 전송**: Frontend에 ZIP 파일 전송
-4. 💻 **로컬 저장**: 사용자가 ZIP 파일을 로컬에 저장하여 사용
-
----
-
-## 🏗️ 시스템 아키텍처
-
-### 전체 흐름도
-
-```mermaid
-flowchart TB
-    subgraph "0️⃣ 사전 준비 - ANTLR 서비스"
-        A1[🖥️ Frontend<br/>파일 업로드] -->|1. PL/SQL 파일 전송| A2[🔧 ANTLR 서버]
-        A2 -->|2. 파일 저장| A3[💾 파일 시스템<br/>src/]
-        A1 -->|3. 파싱 요청| A2
-        A2 -->|4. AST 생성| A4[💾 파일 시스템<br/>analysis/*.json]
-        A4 -->|5. 완료 응답| A1
-    end
-    
-    subgraph "1️⃣ 이해 단계 - Backend"
-        B1[🖥️ Frontend<br/>분석 요청] -->|POST /cypherQuery/| B2[⚡ Backend API]
-        B2 --> B3[📖 파일 로딩<br/>SP + AST JSON + DDL]
-        B3 --> B4[🔍 AST 순회<br/>코드 분석]
-        B4 --> B5[🤖 LLM API 호출<br/>관계 추출]
-        B5 --> B6[💾 Neo4j<br/>그래프 저장]
-        B6 --> B7[🔧 후처리<br/>타입/컬럼 보정]
-        B7 -->|스트리밍 응답| B1
-    end
-    
-    subgraph "2️⃣ 변환 단계 - Backend"
-        C1[🖥️ Frontend<br/>변환 요청] -->|POST /springBoot/| C2[⚡ Backend API]
-        C2 --> C3[📝 프로젝트명 생성]
-        C3 --> C4[🗂️ Entity 생성]
-        C4 --> C5[📦 Repository 생성]
-        C5 --> C6[⚙️ Service 생성]
-        C6 --> C7[🌐 Controller 생성]
-        C7 --> C8[🔧 설정 파일 생성<br/>pom/properties/Main]
-        C8 -->|스트리밍 응답| C1
-    end
-    
-    subgraph "3️⃣ 다운로드 - Backend"
-        D1[🖥️ Frontend<br/>다운로드 요청] -->|POST /downloadJava/| D2[⚡ Backend API]
-        D2 --> D3[📦 ZIP 압축]
-        D3 -->|파일 다운로드| D1
-    end
-    
-    A1 -.->|완료 후| B1
-    B1 -.->|완료 후| C1
-    C1 -.->|완료 후| D1
-    
-    style A1 fill:#e3f2fd
-    style B1 fill:#fff3e0
-    style C1 fill:#e8f5e9
-    style D1 fill:#f3e5f5
-```
-
-### 외부 서비스 연동
+Legacy Modernizer는 **Understanding**(이해)과 **Converting**(변환) 두 단계로 명확히 분리되어 있습니다.
 
 ```mermaid
 flowchart LR
-    FE[🖥️ Frontend]
-    ANTLR[🔧 ANTLR 서버]
-    API[⚡ Backend API]
-    FS[📁 File System]
-    NEO[🗄️ Neo4j]
-    LLM[🤖 LLM API]
+    A[PL/SQL 코드] --> B[📖 Understanding<br/>코드 분석 및<br/>관계 추출]
+    B --> C[Neo4j<br/>그래프 DB]
+    C --> D[🔨 Converting<br/>타겟 언어<br/>코드 생성]
+    D --> E[Spring Boot<br/>또는<br/>FastAPI]
     
-    FE -->|① 업로드 & 파싱| ANTLR
-    ANTLR <--> FS
-    
-    FE -->|② 분석 요청| API
-    FE -->|③ 변환 요청| API
-    FE -->|④ 다운로드| API
-    
-    API <--> FS
-    API <--> NEO
-    API <--> LLM
-    
-    style FE fill:#e3f2fd
-    style ANTLR fill:#e0f2f1
-    style API fill:#fff3e0
-    style NEO fill:#e8f5e9
-    style LLM fill:#f3e5f5
-    style FS fill:#fce4ec
+    style B fill:#e3f2fd
+    style D fill:#fff3e0
 ```
 
-**각 구성 요소 역할:**
+**이렇게 분리한 이유:**
 
-| 구성 요소 | 역할 | 기술 스택 |
-|---------|------|----------|
-| 🖥️ **Frontend** | 사용자 인터페이스, 파일 업로드, API 요청 | React/Vue 등 |
-| 🔧 **ANTLR 서버** | PL/SQL 파싱, AST JSON 생성 | ANTLR 4 |
-| ⚡ **Backend API** | 분석/변환 파이프라인 실행 | FastAPI (Python) |
-| 📁 **File System** | 파일 저장소 (SP 코드, AST, Java 코드) | 로컬 디스크 |
-| 🗄️ **Neo4j** | 코드 관계 그래프 저장/조회 | Neo4j 5.x |
-| 🤖 **LLM API** | 코드 분석 및 생성 | OpenAI 호환 |
+1. **관심사의 분리**: 
+   - Understanding은 "무엇을 하는가?"에 집중
+   - Converting은 "어떻게 표현하는가?"에 집중
 
-**주요 데이터 흐름:**
-- **① ANTLR 단계**: Frontend → ANTLR ↔ File System (업로드 & 파싱)
-- **② 분석 단계**: Frontend → Backend ↔ File System/Neo4j/LLM (코드 분석)
-- **③ 변환 단계**: Frontend → Backend ↔ Neo4j/LLM/File System (코드 생성)
-- **④ 다운로드**: Frontend → Backend (ZIP 다운로드)
+2. **재사용성**:
+   - 한 번 분석한 그래프는 Java, Python, TypeScript 등 여러 언어로 변환 가능
+   - 분석 결과를 캐싱하여 반복 변환 시 빠른 응답
 
-**📌 실제 호출 순서:**
+3. **디버깅 용이성**:
+   - 변환 결과가 이상하다면 → Converting 단계 문제
+   - 관계가 누락되었다면 → Understanding 단계 문제
+   - 문제 범위를 명확히 격리 가능
 
-### [0단계: ANTLR 서비스 - 업로드 & 파싱]
-
-| 순서 | 흐름 | 설명 |
-|-----|------|------|
-| 1 | Frontend → ANTLR | PL/SQL 파일 업로드 (projectName 포함) |
-| 2 | ANTLR → File System | 원본 파일 저장 (`data/{session-id}/{projectName}/src/{systemName}/{fileName}`) |
-| 3 | Frontend → ANTLR | 파싱 요청 |
-| 4 | ANTLR → File System | AST JSON 생성 및 저장 (`data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`) |
-| 5 | ANTLR → Frontend | ✅ 업로드 및 파싱 완료 응답 (프로젝트명, 시스템명, 파일명 포함) |
-
-### [1단계: Backend - 분석]
-
-| 순서 | 흐름 | 설명 |
-|-----|------|------|
-| 6 | Frontend → Backend | `/cypherQuery/` 분석 요청 (projectName, dbms, systems 배열 전달) |
-| 7 | Backend → File System | 📂 **전달받은 경로로 파일 읽기**<br/>- SP 코드: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`<br/>- AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json` |
-| 8 | Backend → LLM | 코드 분석 요청 (SP 코드 + AST 기반) |
-| 9 | Backend → Neo4j | 분석 결과 그래프 저장 |
-| 10 | Backend → Frontend | ✅ 스트리밍 응답 (그래프 + 진행률) |
-
-### [2단계: Backend - 변환]
-
-| 순서 | 흐름 | 설명 |
-|-----|------|------|
-| 11 | Frontend → Backend | `/springBoot/` 변환 요청 (projectName, dbms, systems 배열 전달) |
-| 12 | Backend → Neo4j | 그래프 데이터 조회 |
-| 13 | Backend → File System | 📂 원본 SP 코드 읽기 (필요시) |
-| 14 | Backend → LLM | 코드 생성 요청 |
-| 15 | Backend → File System | 💾 생성된 Java 파일 저장 (`target/java/{session-id}/{projectName}/...`) |
-| 16 | Backend → Frontend | ✅ 스트리밍 응답 (생성 코드) |
-
-### [3단계: Backend - 다운로드]
-
-| 순서 | 흐름 | 설명 |
-|-----|------|------|
-| 17 | Frontend → Backend | `/downloadJava/` 다운로드 요청 (프로젝트명) |
-| 18 | Backend → File System | 📦 생성된 프로젝트 ZIP 압축 |
-| 19 | Backend → Frontend | ✅ ZIP 파일 전송 |
+4. **확장성**:
+   - 새로운 타겟 언어 추가 시 Converting만 수정
+   - Understanding 로직은 건드리지 않음
 
 ---
 
-## 🚀 시작하기
+## 🚀 시작하기 전에
 
-### 📋 사전 요구사항
+### 필수 사전 지식
 
-시작하기 전에 다음 항목들이 설치되어 있어야 합니다:
+이 문서를 완전히 이해하려면 다음 개념에 익숙해야 합니다:
 
-- ✅ **Python 3.10 이상**
-- ✅ **Neo4j 5.x** (로컬 또는 원격)
-- ✅ **Git**
-- ✅ **OpenAI 호환 API 키** (OpenAI, Anthropic 등)
+- ✅ **Python 비동기 프로그래밍**: `async/await`, `asyncio.Queue`, `asyncio.gather`
+- ✅ **AST (Abstract Syntax Tree)**: 추상 구문 트리의 개념
+- ✅ **그래프 데이터베이스**: 노드, 관계, 경로 탐색
+- ✅ **LLM 프롬프트 엔지니어링**: 컨텍스트 윈도우, 토큰 제한
+- ✅ **Neo4j Cypher 쿼리**: 기본적인 MATCH, CREATE, MERGE 구문
 
-### 📥 1단계: 저장소 클론
+### 설치 요구사항
+
+| 항목 | 버전 | 필수 여부 | 용도 |
+|------|------|----------|------|
+| **Python** | 3.10+ | ✅ | 백엔드 실행 환경 |
+| **Neo4j** | 5.x | ✅ | 그래프 데이터베이스 |
+| **ANTLR 서버** | - | ✅ | PL/SQL 파싱 (별도 서버) |
+| **LLM API 키** | - | ✅ | OpenAI 호환 API |
+| **uv 또는 pipenv** | latest | ✅ | 의존성 관리 |
+
+### 빠른 시작
 
 ```bash
+# 1. 저장소 클론
 git clone <repository-url>
-```
+cd backend
 
-### 📦 2단계: 의존성 설치
+# 2. 가상 환경 및 의존성 설치
+uv venv
+source .venv/Scripts/activate  # Windows
+uv pip install -r requirements.txt
 
-**방법 A: uv pip 사용**
-  ```bash
-  uv venv
-  uv pip install -r requirements.txt
-  source .venv/Scripts/activate
-  ```
-
-**방법 B: Pipenv 사용**
-  ```bash
-# Pipenv 설치 (없는 경우)
-pip install pipenv
-
-# 가상 환경 활성화
-  pipenv shell
-
-# 의존성 설치
-  pipenv install
-  ```
-
-### ⚙️ 3단계: 환경 변수 설정
-
-프로젝트 루트에 `.env` 파일을 생성하고 다음 내용을 입력하세요:
-
-```env
-# Neo4j 데이터베이스 설정
+# 3. 환경 변수 설정
+cat > .env << EOF
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=your-password-here
+NEO4J_PASSWORD=your-password
 
-# LLM API 설정 (OpenAI 호환)
 LLM_API_BASE=https://api.openai.com/v1
-LLM_API_KEY=sk-your-api-key-here
-LLM_MODEL=gpt-4.1
-LLM_MAX_TOKENS=32768
-```
+LLM_API_KEY=sk-your-key
+LLM_MODEL=gpt-4-turbo
+EOF
 
-**⚠️ 보안 주의사항:**
-- `.env` 파일은 절대 Git에 커밋하지 마세요
-- 운영 환경에서는 반드시 강력한 암호를 사용하세요
-- API 키는 외부에 노출되지 않도록 주의하세요
-
-### 🎬 4단계: 서버 실행
-
-```bash
+# 4. 서버 실행
 python main.py
 ```
 
-
-## 📡 API 가이드
-
-### 공통 헤더
-
-모든 API 요청에는 다음 헤더가 필요합니다:
-
-| 헤더 | 필수 | 설명 | 예시 |
-|-----|------|------|------|
-| `Session-UUID` | ✅ | 세션 식별자 (사용자별 고유 ID) | `user-session-12345` |
-| `OpenAI-Api-Key` 또는 `Anthropic-Api-Key` | ⚠️ | LLM API 키 (테스트 세션 제외) | `sk-...` |
-| `Accept-Language` | ❌ | 응답 언어 (기본: `ko`) | `ko` 또는 `en` |
-
-**⚠️ 테스트 세션 예외:**
-- `Session-UUID`가 `EN_TestSession` 또는 `KO_TestSession`인 경우
-- 환경 변수의 `LLM_API_KEY` 또는 `API_KEY`를 사용
-- 헤더에 API 키를 포함하지 않아도 됨
+서버가 정상적으로 시작되면 `http://localhost:5502` 에서 API 문서를 확인할 수 있습니다.
 
 ---
 
-### 🔍 API 1: 코드 분석 (Understanding)
+## 📂 프로젝트 구조 이해하기
 
-**엔드포인트:** `POST /cypherQuery/`
+### 디렉터리 구조 전체 개요
 
-**역할:** PL/SQL 코드를 분석하여 Neo4j 그래프로 저장하고, 실시간 진행률을 스트리밍으로 반환합니다.
-
-**사전 준비:**
-1. ANTLR 서비스에서 파일 업로드 및 파싱 완료
-2. ANTLR로부터 받은 **시스템명(`systemName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
-3. File System에 다음 파일들이 존재해야 함:
-   - 원본 PL/SQL: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
-   - AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
-   - (선택) DDL: `data/{session-id}/{projectName}/ddl/*.sql`
-
-**요청 바디 스키마:**
-
-```json
-{
-  "projectName": "string",     // 프로젝트 이름 (필수)
-  "dbms": "string",           // 데이터베이스 종류 (기본: "postgres")
-  "targetLang": "string",     // 타겟 언어 (기본: "java")
-  "systems": [                // 시스템 및 파일 목록 (필수)
-    {
-      "name": "string",       // 시스템명 (필수)
-      "sp": ["string"]        // SP 파일명 배열 (필수)
-    }
-  ]
-}
+```
+backend/
+├── 📄 main.py                          # FastAPI 진입점
+├── 📄 requirements.txt                 # Python 의존성
+├── 📄 .env                             # 환경 변수 (Git 제외)
+│
+├── 📁 service/                         # API 레이어
+│   ├── router.py                       # 엔드포인트 정의
+│   └── service.py                      # 오케스트레이션 로직
+│
+├── 📁 understand/                      # 🎯 Understanding 파이프라인 (핵심!)
+│   ├── analysis.py                     # Analyzer 클래스 (리팩터 버전)
+│   └── neo4j_connection.py             # Neo4j 연결 관리
+│
+├── 📁 legacy/                          # 레거시 코드 (비교용)
+│   └── understand/
+│       └── analysis.py                 # 구버전 Analyzer
+│
+├── 📁 prompt/                          # LLM 프롬프트 정의
+│   ├── understand_prompt.py            # 일반 코드 분석
+│   ├── understand_dml_table_prompt.py  # DML 테이블 추출
+│   ├── understand_table_summary_prompt.py  # 테이블 요약
+│   ├── understand_summarized_prompt.py # 프로시저 요약
+│   ├── understand_variables_prompt.py  # 변수 분석
+│   ├── understand_column_prompt.py     # 컬럼 역할 분석
+│   └── understand_ddl.py               # DDL 분석
+│
+├── 📁 util/                            # 유틸리티
+│   ├── utility_tool.py                 # 공통 함수
+│   ├── llm_client.py                   # LLM API 클라이언트
+│   ├── rule_loader.py                  # YAML 규칙 로더
+│   └── exception.py                    # 커스텀 예외
+│
+├── 📁 convert/                         # Converting 단계 (별도 문서)
+├── 📁 rules/                           # Converting 규칙 (YAML)
+│
+└── 📁 test/                            # 테스트 코드
+    ├── conftest.py                     # pytest 설정
+    ├── test_understanding.py           # Understanding 테스트
+    └── test_converting.py              # Converting 테스트
 ```
 
-**요청 예시:**
+### 모듈별 역할 요약
 
-```bash
-curl -N -X POST "http://localhost:5502/cypherQuery/" \
-  -H "Content-Type: application/json" \
-  -H "Session-UUID: my-session-123" \
-  -H "OpenAI-Api-Key: sk-..." \
-  -H "Accept-Language: ko" \
-  -d '{
-    "projectName": "OrderSystem",
-    "dbms": "postgres",
-    "targetLang": "java",
-    "systems": [
-      {
-        "name": "PKG_ORDER",
-        "sp": ["ORDER_PKG.sql"]
-      },
-      {
-        "name": "PKG_USER",
-        "sp": ["USER_PKG.sql"]
-      }
-    ]
-  }'
+#### 1️⃣ **service/** - API 계층
+
+**역할**: 프론트엔드 요청을 받아 Understanding/Converting 파이프라인을 실행하고 스트리밍 응답을 반환합니다.
+
+**주요 파일**:
+- `router.py`: FastAPI 엔드포인트 정의 (`/cypherQuery/`, `/springBoot/` 등)
+- `service.py`: `ServiceOrchestrator` 클래스로 전체 파이프라인 조율
+
+**핵심 메서드**:
+```python
+class ServiceOrchestrator:
+    async def understand_project(file_names) -> AsyncGenerator
+    async def convert_to_springboot(file_names) -> AsyncGenerator
+    async def validate_api_key()
+    async def cleanup_all_data()
 ```
 
-**응답 형식 (Streaming):**
+#### 2️⃣ **understand/** - Understanding 파이프라인 (🎯 이 문서의 핵심)
 
-응답은 스트리밍 방식으로 전달되며, 각 청크는 `send_stream`으로 구분됩니다.
+**역할**: PL/SQL 코드를 AST 기반으로 분석하고, LLM을 활용하여 의미를 추출한 후 Neo4j 그래프로 저장합니다.
 
-```json
-{"type":"message","content":"Preparing Analysis Data"}send_stream
-{"type":"message","content":"START DDL PROCESSING: TABLES.sql"}send_stream
-{"type":"message","content":{"graph":{"Nodes":[...],"Relationships":[...]},"line_number":45,"analysis_progress":30,"current_file":"PKG_ORDER-ORDER_PKG.sql"}}send_stream
-{"type":"message","content":{"graph":{"Nodes":[...],"Relationships":[...]},"line_number":120,"analysis_progress":80,"current_file":"PKG_ORDER-ORDER_PKG.sql"}}send_stream
-{"type":"message","content":"ALL_ANALYSIS_COMPLETED"}send_stream
+**주요 파일**:
+- `analysis.py`: **핵심 분석 엔진** (1300줄 이상)
+  - `Analyzer`: 메인 오케스트레이터
+  - `StatementCollector`: AST 평탄화
+  - `BatchPlanner`: 토큰 기반 배치 생성
+  - `LLMInvoker`: 병렬 LLM 호출
+  - `ApplyManager`: 결과 순차 적용
+
+- `neo4j_connection.py`: Neo4j 드라이버 래퍼
+  - 비동기 연결 관리
+  - 쿼리 실행 및 그래프 반환
+
+**핵심 클래스 관계**:
+```
+Analyzer (진입점)
+  └─> StatementCollector (AST 평탄화)
+        └─> List[StatementNode]
+              └─> BatchPlanner (배치 생성)
+                    └─> List[AnalysisBatch]
+                          └─> LLMInvoker (병렬 호출)
+                                └─> ApplyManager (순차 적용)
+                                      └─> Neo4j 저장
 ```
 
-**응답 필드 설명:**
+#### 3️⃣ **prompt/** - LLM 프롬프트 정의
 
-| 필드 | 타입 | 설명 |
-|-----|------|------|
-| `type` | String | `message` 또는 `error` |
-| `content` | Any | 메시지 본문(문자열/숫자/객체). 데이터/단계/알림 모두 포함 |
-| `line_number` | Integer | 현재 분석 중인 라인 번호 |
-| `analysis_progress` | Integer | 진행률 (0~100) |
-| `current_file` | String | 현재 분석 중인 파일 |
+**역할**: Understanding 단계에서 사용하는 모든 프롬프트를 Python 함수로 정의합니다.
 
-**Graph 객체 구조:**
+**파일별 용도**:
 
-  ```json
-  {
-  "Nodes": [
-    {
-      "Node ID": "n1",
-      "Labels": ["SELECT"],
-      "Properties": {
-        "startLine": 30,
-        "endLine": 45,
-        "file_name": "ORDER_PKG.sql",
-        "folder_name": "PKG_ORDER",
-        "user_id": "my-session-123",
-        "project_name": "OrderSystem",
-        "summary": "주문 정보를 조회합니다"
-      }
-    }
-  ],
-  "Relationships": [
-    {
-      "Relationship ID": "r1",
-      "Type": "FROM",
-      "Start Node ID": "n1",
-      "End Node ID": "t1",
-      "Properties": {}
-    }
-    ]
-  }
-  ```
+| 파일 | 프롬프트 대상 | 입력 | 출력 | 호출 시점 |
+|------|-------------|------|------|----------|
+| `understand_prompt.py` | 일반 코드 구문 | SP 코드, 라인 범위 | summary, variables, calls | 배치 단위 |
+| `understand_dml_table_prompt.py` | DML 구문 | DML 코드, 라인 범위 | 테이블, 컬럼, FK, DBLink | 배치 내 DML 존재 시 |
+| `understand_table_summary_prompt.py` | 테이블/컬럼 설명 | 누적된 설명 문장들 | 최종 요약 | 파일 분석 완료 후 |
+| `understand_summarized_prompt.py` | 프로시저 전체 | 자식 노드 요약 모음 | 프로시저 요약 | 프로시저 분석 완료 후 |
+| `understand_variables_prompt.py` | 변수 선언부 | SPEC/DECLARE 코드 | 변수 목록, 타입, 역할 | 정적 그래프 초기화 시 |
+| `understand_column_prompt.py` | 컬럼 역할 | 컬럼 목록, DML 요약 | 컬럼별 역할 설명 | 파일 후처리 시 |
+| `understand_ddl.py` | DDL 파일 | CREATE TABLE 구문 | 테이블, 컬럼, PK, FK | 파일 분석 전 |
+
+**프롬프트 설계 철학**:
+- **작고 명확한 책임**: 각 프롬프트는 하나의 분석 목적만 수행
+- **JSON 출력 강제**: `JsonOutputParser`로 구조화된 결과 보장
+- **예제 기반 학습**: Few-shot 예제로 출력 형식 가이드
+
+#### 4️⃣ **util/** - 유틸리티
+
+**utility_tool.py 주요 함수**:
+
+```python
+# 토큰 계산
+calculate_code_token(code: str) -> int
+
+# 스네이크 케이스 변환
+convert_to_pascal_case(text: str) -> str
+convert_to_camel_case(text: str) -> str
+
+# 테이블 식별자 파싱
+parse_table_identifier(identifier: str) -> Tuple[schema, table, dblink]
+
+# Cypher 이스케이프
+escape_for_cypher(text: str) -> str
+
+# 라인 번호 추가
+add_line_numbers(lines: List[str]) -> Tuple[str, int]
+
+# 스트리밍 응답 생성
+emit_message(content: Any) -> bytes
+emit_data(**kwargs) -> bytes
+emit_error(message: str) -> bytes
+```
+
+**llm_client.py**:
+```python
+def get_llm(api_key: str = None, model: str = None) -> ChatOpenAI:
+    """
+    LangChain ChatOpenAI 클라이언트 생성
+    - 환경 변수에서 API 키/모델 읽기
+    - 기본 모델: gpt-4-turbo
+    - 캐싱 활성화 (langchain.db)
+    """
+```
+
+#### 5️⃣ **test/** - 테스트 코드
+
+**test_understanding.py**:
+- 환경 변수 `UNDERSTANDING_VARIANT`로 레거시/리팩터 버전 선택
+- 실제 Neo4j와 LLM API를 사용한 통합 테스트
+- 성능 비교 및 결과 검증
 
 ---
 
-### 🔨 API 2: 코드 변환 (Converting)
+## 📦 데이터 폴더 구조
 
-**엔드포인트:** `POST /springBoot/`
+Understanding 파이프라인이 정상 동작하려면 **정확한 파일 경로 규칙**을 준수해야 합니다.
 
-**역할:** 분석된 그래프 데이터를 기반으로 Spring Boot 프로젝트를 생성하고, 생성된 코드를 스트리밍으로 반환합니다.
-
-**사전 준비:**
-- `/cypherQuery/` API를 먼저 호출하여 분석이 완료되어야 함
-- ANTLR로부터 받은 **시스템명(`systemName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
-
-**요청 바디 스키마:**
-
-```json
-{
-  "projectName": "string",     // 프로젝트 이름 (필수)
-  "dbms": "string",           // 데이터베이스 종류 (기본: "postgres")
-  "targetLang": "string",     // 타겟 언어 (기본: "java")
-  "systems": [                // 시스템 및 파일 목록 (필수)
-    {
-      "name": "string",       // 시스템명 (필수)
-      "sp": ["string"]        // SP 파일명 배열 (필수)
-    }
-  ]
-}
-```
-
-**요청 예시:**
-
-```bash
-curl -N -X POST "http://localhost:5502/springBoot/" \
-  -H "Content-Type: application/json" \
-  -H "Session-UUID: my-session-123" \
-  -H "OpenAI-Api-Key: sk-..." \
-  -H "Accept-Language: ko" \
-  -d '{
-    "projectName": "OrderSystem",
-    "dbms": "postgres",
-    "targetLang": "java",
-    "systems": [
-      {
-        "name": "PKG_ORDER",
-        "sp": ["ORDER_PKG.sql"]
-      }
-    ]
-  }'
-```
-
-**🆕 targetLang 파라미터:**
-- `targetLang` (선택): 타겟 언어 (기본값: `java`)
-  - 지원: `java`, `python` (향후 확장)
-  - 예시: `"targetLang": "python"` → SQLAlchemy Model 생성
-  - Rule 파일 경로: `rules/{targetLang}/*.yaml`
-
-**응답 형식 (Streaming):**
-
-```json
-{"type":"message","content":{"file_type":"project_name","project_name":"OrderSystem"}}send_stream
-{"type":"message","content":1}send_stream
-{"type":"message","content":{"file_type":"entity_class","file_name":"Order.java","code":"package com.ordersystem.entity;\n\nimport jakarta.persistence.*;\n\n@Entity\n@Table(name = \"ORDERS\")\npublic class Order {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    ...\n}"}}send_stream
-{"type":"message","content":{"Done":true,"step":1,"file_count":1,"current_count":1}}send_stream
-{"type":"message","content":2}send_stream
-{"type":"message","content":{"file_type":"repository_class","file_name":"OrderRepository.java","code":"..."}}send_stream
-{"type":"message","content":{"Done":true,"step":2,"file_count":1,"current_count":1}}send_stream
-...
-{"type":"message","content":{"Done":true}}send_stream
-```
-
-**응답 필드 설명:**
-
-| 필드 | 타입 | 설명 |
-|-----|------|------|
-| `type` | String | `message` 또는 `error` |
-| `content` | Any | 본문(문자/숫자/객체). 단계 번호(숫자) 또는 결과 객체 포함 |
-| `file_type` | String | content가 객체일 때 파일 유형 (`entity_class`, `repository_class`, `service_class`, `controller_class`, `command_class`, `pom`, `properties`, `main`, `project_name`) |
-| `file_name` | String | content가 객체일 때 생성 파일 이름 |
-| `code` | String | content가 객체일 때 생성된 소스 코드 |
-| `project_name` | String | content가 객체일 때 프로젝트 이름 |
-| `Done` | Boolean | 완료 신호일 때 true (옵션) |
-
-**변환 단계:**
-
-| 단계 | 내용 | 출력 파일 |
-|-----|------|-----------|
-| 0 | 프로젝트명 생성 | - |
-| 1 | Entity 클래스 생성 | `*.java` (Entity) |
-| 2 | Repository 인터페이스 생성 | `*Repository.java` |
-| 3 | Command 클래스 생성 | `*Command.java` |
-| 4 | Service/Controller 생성 | `*Service.java`, `*Controller.java` |
-| 5 | pom.xml 생성 | `pom.xml` |
-| 6 | application.properties 생성 | `application.properties` |
-| 7 | Main 클래스 생성 | `*Application.java` |
-
----
-
-### 📥 API 3: 프로젝트 다운로드
-
-**엔드포인트:** `POST /downloadJava/`
-
-**역할:** 생성된 Spring Boot 프로젝트를 ZIP 파일로 압축하여 다운로드합니다.
-
-**사전 준비:**
-- `/springBoot/` API를 먼저 호출하여 프로젝트 생성이 완료되어야 함
-
-**요청 예시:**
-
-```bash
-curl -X POST "http://localhost:5502/downloadJava/" \
-  -H "Content-Type: application/json" \
-  -H "Session-UUID: my-session-123" \
-  -d '{
-    "projectName": "OrderSystem"
-  }' \
-  --output OrderSystem.zip
-```
-
-**응답:**
-- Content-Type: `application/octet-stream`
-- 파일명: `{projectName}.zip`
-- ZIP 파일에는 완전한 Spring Boot 프로젝트 구조가 포함됨
-
----
-
-### 🗑️ API 4: 데이터 삭제
-
-**엔드포인트:** `DELETE /deleteAll/`
-
-**역할:** 현재 세션의 모든 임시 파일과 Neo4j 그래프 데이터를 삭제합니다.
-
-**요청 예시:**
-
-```bash
-curl -X DELETE "http://localhost:5502/deleteAll/" \
-  -H "Session-UUID: my-session-123"
-```
-
-**응답:**
-
-```json
-{
-  "message": "모든 임시 파일이 삭제되었습니다."
-}
-```
-
-**삭제되는 항목:**
-- ✅ `data/{Session-UUID}/` 디렉터리 전체
-- ✅ `target/java/{Session-UUID}/` 디렉터리 전체
-- ✅ Neo4j에서 `user_id`가 일치하는 모든 노드 및 관계
-
----
-
-## 📁 데이터 구조
-
-### 세션별 파일 레이아웃
+### 기본 구조
 
 ```
-BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
-├── data/
-│   └── {Session-UUID}/              # 세션별 작업 공간
-│       └── {ProjectName}/           # 프로젝트별 작업 공간
-│           ├── src/                 # 원본 PL/SQL 파일
-│           │   └── {SystemName}/
-│           │       └── {fileName}.sql
-│           ├── analysis/            # ANTLR 파싱 결과
-│           │   └── {SystemName}/
-│           │       └── {baseName}.json
-│           ├── ddl/                 # DDL 파일 (선택)
-│           │   └── *.sql
-│           └── zipfile/             # 다운로드용 ZIP
-│               └── {projectName}.zip
-└── target/
+BASE_DIR/  (환경 변수 DOCKER_COMPOSE_CONTEXT 또는 프로젝트 루트)
+│
+├── data/                               # 입력 데이터 디렉터리
+│   └── {user_id}/                      # 사용자(세션) 식별자
+│       └── {project_name}/             # 프로젝트 이름
+│           ├── src/                    # 📄 원본 PL/SQL 파일
+│           │   └── {folder_name}/      # 폴더(패키지) 이름
+│           │       └── {file_name}.sql
+│           │
+│           ├── analysis/               # 📊 ANTLR 파싱 결과 (JSON)
+│           │   └── {folder_name}/
+│           │       └── {base_name}.json
+│           │
+│           └── ddl/                    # 📋 DDL 파일 (선택)
+│               └── *.sql
+│
+└── target/                             # 출력 디렉터리 (Converting 단계)
     └── java/
-        └── {Session-UUID}/          # 생성된 Spring Boot 프로젝트
-            └── {projectName}/
-                ├── src/
-                │   └── main/
-                │       ├── java/
-                │       │   └── com/example/{projectName}/
-                │       │       ├── entity/
-                │       │       ├── repository/
-                │       │       ├── service/
-                │       │       ├── controller/
-                │       │       └── {ProjectName}Application.java
-                │       └── resources/
-                │           └── application.properties
-                └── pom.xml
+        └── {user_id}/
+            └── {project_name}/
+                └── (생성된 Spring Boot 프로젝트)
 ```
 
-### 파일 이름 규칙
+### 경로 예시
 
-| 입력 | 출력 |
-|-----|------|
-| `ORDER_PKG.sql` | `analysis/PKG_ORDER/ORDER_PKG.json` (ANTLR) |
-| `ORDER_PKG.sql` | `src/PKG_ORDER/ORDER_PKG.sql` (원본) |
-| `ORDER_PKG.sql` | `entity/Order.java` (Entity) |
-| `ORDER_PKG.sql` | `repository/OrderRepository.java` |
-| `ORDER_PKG.sql` | `service/OrderService.java` |
-| `ORDER_PKG.sql` | `controller/OrderController.java` |
-
-**⚠️ 중요:**
-- `systems[].name`과 `systems[].sp[]`는 실제 파일 경로와 **정확히 일치**해야 합니다
-- 실제 파일 경로: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
-- ANTLR JSON 경로: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
-- `projectName`은 요청 바디에 **필수**로 포함되어야 합니다
-- 대소문자를 구분합니다
-
----
-
-## 🗄️ Neo4j 그래프 모델
-
-### 노드 타입
-
-| 노드 라벨 | 설명 | 모든 속성 |
-|---------|------|----------|
-| `Folder` | 폴더 (패키지) | `user_id`, `name`, `project_name`, `has_children` |
-| `FILE` | PL/SQL 파일 | `user_id`, `project_name`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `has_children` |
-| `PROCEDURE` | 프로시저 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `FUNCTION` | 함수 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `summarized_code`, `node_code`, `token`, `has_children` |
-| `SELECT` | SELECT 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `INSERT` | INSERT 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `UPDATE` | UPDATE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `DELETE` | DELETE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `MERGE` | MERGE 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `FETCH` | FETCH 구문 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `CALL` | 프로시저 호출 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `ASSIGNMENT` | 변수 할당 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `EXECUTE_IMMEDIATE` | 동적 SQL 실행 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `TRY` | TRY 블록 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `java_code`, `token`, `has_children` |
-| `EXCEPTION` | EXCEPTION 블록 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `java_code`, `token`, `has_children` |
-| `SPEC` | 매개변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `DECLARE` | 변수 선언부 | `user_id`, `project_name`, `folder_name`, `file_name`, `procedure_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `PACKAGE_VARIABLE` | 패키지 전역 변수 | `user_id`, `project_name`, `folder_name`, `file_name`, `startLine`, `endLine`, `name`, `summary`, `node_code`, `token`, `has_children` |
-| `Table` | 테이블 | `user_id`, `project_name`, `schema`, `name`, `description`, `table_type`, `db`, `folder_name`, `db_link` (선택) |
-| `Column` | 컬럼 | `user_id`, `name`, `fqn`, `dtype`, `description`, `nullable`, `pk_constraint` (선택) |
-| `Variable` | 변수 | `user_id`, `project_name`, `folder_name`, `file_name`, `name`, `type`, `parameter_type`, `procedure_name` (선택), `role`, `scope`, `value`, `resolved` (선택) |
-| `DBLink` | DB 링크 | `user_id`, `project_name`, `name` |
-
-**속성 설명:**
-- `user_id`: 세션 식별자 (모든 노드에 필수)
-- `project_name`: 프로젝트 이름 (그래프 분리용, 대부분의 노드에 포함)
-- `folder_name`: 폴더명 (패키지명)
-- `file_name`: 파일명
-- `procedure_name`: 프로시저/함수명
-- `startLine`, `endLine`: 코드 시작/종료 라인 번호
-- `name`: 노드 표시명
-- `summary`: LLM이 생성한 요약
-- `summarized_code`: 자식 노드를 플레이스홀더로 치환한 코드
-- `node_code`: 원본 PL/SQL 코드
-- `java_code`: 변환된 Java 코드 (전처리 단계에서 생성, TRY/EXCEPTION 노드에 주로 존재)
-- `token`: 토큰 수
-- `has_children`: 자식 노드 존재 여부
-- `fqn`: Fully Qualified Name (schema.table.column)
-- `dtype`: 데이터 타입
-- `nullable`: NULL 허용 여부
-- `pk_constraint`: Primary Key 제약 조건명
-- `scope`: 변수 스코프 (Local/Global)
-- `role`: 변수 역할 설명
-- `resolved`: 변수 타입 해석 완료 여부
-
-### 관계 타입
-
-| 관계 | 설명 | 시작 노드 | 종료 노드 | 속성 |
-|-----|------|----------|----------|------|
-| `CONTAINS` | 포함 관계 | `Folder` | `Table`, `PROCEDURE`, `FUNCTION`, `Variable`, 구문 노드 | - |
-| `PARENT_OF` | 부모-자식 관계 | 모든 구문 노드 | 자식 구문 노드 | - |
-| `NEXT` | 순차 실행 관계 | 구문 노드 | 다음 구문 노드 | - |
-| `FROM` | 읽기 관계 | `SELECT`, `FETCH` | `Table` | - |
-| `WRITES` | 쓰기 관계 | `INSERT`, `UPDATE`, `DELETE`, `MERGE` | `Table` | - |
-| `EXECUTE` | 실행 관계 | `EXECUTE_IMMEDIATE`, `ASSIGNMENT` | `PROCEDURE`, `FUNCTION` | - |
-| `CALL` | 호출 관계 | `CALL` | `PROCEDURE`, `FUNCTION` | `scope`: `internal` 또는 `external` |
-| `HAS_COLUMN` | 컬럼 보유 | `Table` | `Column` | - |
-| `FK_TO` | 외래 키 (컬럼 간) | `Column` | `Column` | - |
-| `FK_TO_TABLE` | 외래 키 (테이블 간) | `Table` | `Table` | - |
-| `SCOPE` | 변수 스코프 | `DECLARE`, `SPEC`, `PACKAGE_VARIABLE` | `Variable` | - |
-| `DB_LINK` | DB 링크 사용 | 구문 노드 | `Table` | `mode`: `r` (read) 또는 `w` (write) |
-
-**관계 패턴 예시:**
-```cypher
-// 프로시저가 테이블을 읽는 패턴
-(p:PROCEDURE)-[:PARENT_OF]->(s:SELECT)-[:FROM]->(t:Table)
-
-// 변수 사용 추적 패턴
-(d:DECLARE)-[:SCOPE]->(v:Variable)
-(v)-[:{range}]-() WHERE {range} = 'Used'
-
-// 프로시저 호출 체인
-(p1:PROCEDURE)-[:PARENT_OF]->(c:CALL)-[:CALL {scope:'internal'}]->(p2:PROCEDURE)
-```
-
-### 그래프 예시
-
-```
-[Folder: PKG_ORDER]
-    ↓ CONTAINS
-[PROCEDURE: CREATE_ORDER]
-    ↓ PARENT_OF
-[SELECT: "주문 정보 조회"]
-    ↓ FROM
-[Table: ORDERS]
-    ↓ HAS_COLUMN
-[Column: ORDER_ID (PK)]
-```
-
----
-
-## 📂 디렉터리 구조
-
-```
-Backend/
-├── 📄 main.py                      # FastAPI 애플리케이션 진입점
-├── 📄 Dockerfile                   # Docker 빌드 설정
-├── 📄 requirements.txt             # Python 의존성 목록
-├── 📄 Pipfile                      # Pipenv 설정
-├── 📄 Pipfile.lock                 # Pipenv 잠금 파일
-├── 📄 README.md                    # 프로젝트 문서 (이 파일)
-│
-├── 📁 service/                     # API 서비스 계층
-│   ├── router.py                   # API 엔드포인트 정의
-│   └── service.py                  # 핵심 비즈니스 로직 (이해/변환 파이프라인)
-│
-├── 📁 understand/                  # 이해(Understanding) 단계
-│   ├── analysis.py                 # AST 분석기 (Analyzer 클래스)
-│   └── neo4j_connection.py         # Neo4j 연결 및 쿼리 실행
-│
-├── 📁 convert/                     # 변환(Converting) 단계
-│   ├── create_entity.py            # Entity 생성 (Rule 파일 사용)
-│   ├── create_repository.py        # Repository 생성 (Rule 파일 사용)
-│   ├── create_service_skeleton.py  # Service Skeleton 생성 (Rule 파일 사용)
-│   ├── create_service_preprocessing.py   # Service 전처리 (Rule 파일 사용: service, service_summarized, service_exception)
-│   ├── create_controller.py        # Controller 생성 (통합 - Skeleton + 메서드)
-│   ├── create_main.py              # Main 클래스 생성
-│   └── create_config_files.py      # pom.xml 및 application.properties 생성
-│
-├── 📁 rules/                         # 🆕 Rule 파일 (프롬프트 설정)
-│   ├── java/                      # Java 타겟용 프롬프트
-│   │   ├── entity.yaml            # JPA Entity 생성 프롬프트
-│   │   ├── repository.yaml        # JPA Repository 생성 프롬프트
-│   │   ├── variable.yaml          # 변수 타입 변환 프롬프트
-│   │   ├── command.yaml           # Command DTO 생성 프롬프트
-│   │   ├── service_class_skeleton.yaml  # Service 클래스 스켈레톤 프롬프트
-│   │   ├── service_method_skeleton.yaml # Service 메서드 스켈레톤 프롬프트
-│   │   ├── service.yaml           # Service 메서드 바디 프롬프트
-│   │   ├── service_summarized.yaml # Service 대용량 노드 스켈레톤 프롬프트
-│   │   ├── service_exception.yaml # Service 예외처리 프롬프트
-│   │   ├── controller.yaml        # Controller REST API 프롬프트
-│   │   ├── controller_skeleton.yaml # Controller 스켈레톤 프롬프트
-│   │   ├── main.yaml              # Main 클래스 프롬프트
-│   │   └── config.yaml            # 설정 파일 프롬프트
-│   │
-│   └── python/                    # Python 타겟용 프롬프트
-│       ├── entity.yaml            # SQLAlchemy Model 생성 프롬프트
-│       ├── repository.yaml        # SQLAlchemy Repository 생성 프롬프트
-│       ├── service.yaml           # FastAPI Service 생성 프롬프트
-│       ├── controller.yaml        # FastAPI Router 생성 프롬프트
-│       ├── main.yaml              # FastAPI 앱 생성 프롬프트
-│       └── config.yaml            # Python 설정 파일 프롬프트
-│
-├── 📁 prompt/                      # LLM 프롬프트 정의 (레거시 - Understanding용으로만 사용)
-│   ├── understand_ddl.py           # DDL 분석 프롬프트
-│   ├── understand_prompt.py        # 코드 분석 프롬프트
-│   ├── understand_summarized_prompt.py    # 요약 프롬프트
-│   ├── understand_column_prompt.py        # 컬럼 역할 분석
-│   └── understand_variables_prompt.py     # 변수 분석
-│
-├── 📁 util/                        # 유틸리티
-│   ├── utility_tool.py             # 공통 유틸 함수 (라인 번호, 토큰 계산, 경로 생성 등)
-│   ├── llm_client.py               # LLM API 클라이언트
-│   ├── rule_loader.py              # 🆕 Rule 파일 로더 (YAML 기반, 통합 로더)
-│   └── exception.py                # 커스텀 예외 정의
-│
-└── 📁 test/                        # 테스트 코드
-    ├── test_understanding.py       # 이해 단계 테스트
-    ├── test_converting.py          # 변환 단계 테스트
-    └── test_converting_results.json # 테스트 결과 저장 파일
-```
-
-### 주요 모듈 설명
-
-#### 📡 `service/router.py`
-API 엔드포인트를 정의하고 요청을 처리합니다.
-
-**주요 엔드포인트:**
-- `understand_data()`: `/cypherQuery/` - PL/SQL 코드 분석
-- `download_spring_project()`: `/downloadJava/` - ZIP 파일 다운로드
-- `delete_all_data()`: `/deleteAll/` - 데이터 삭제
-
-#### ⚙️ `service/service.py` - ServiceOrchestrator 클래스
-이해/변환 파이프라인의 핵심 오케스트레이션을 담당합니다.
-
-**주요 메서드:**
-- `validate_api_key()`: LLM API 키 검증
-- `understand_project()`: PL/SQL 분석 파이프라인 실행
-  - `_analyze_file()`: 단일 파일 분석
-  - `_postprocess_file()`: 변수 타입 해석 및 컬럼 역할 산출
-  - `_process_ddl()`: DDL 파일 처리
-  - `_ensure_folder_node()`: 폴더 노드 생성
-- `convert_to_springboot()`: Spring Boot 프로젝트 생성 파이프라인 실행
-- `zip_project()`: 프로젝트 ZIP 압축
-- `cleanup_all_data()`: 사용자 데이터 전체 삭제 (파일 + Neo4j)
-
-#### 🔍 `understand/analysis.py`
-ANTLR AST를 DFS 순회하며 코드를 분석합니다.
-
-**주요 클래스:**
-- `Analyzer`: AST 분석기
-  - `__init__()`: 생성자 - ANTLR 데이터, 파일 내용, 큐, 사용자 정보 등 초기화
-  - `run()`: 전체 분석 파이프라인 실행 (DFS 순회→잔여 배치 플러시→완료 이벤트 송신)
-  - `analyze_statement_tree()`: 구문 트리 DFS 순회 및 분석
-    - 노드/관계 생성
-    - 요약 코드 조립
-    - 토큰 임계 도달 시 배치 플러시
-  - `execute_analysis_and_reset_state()`: LLM 분석 실행 및 상태 초기화
-  - `process_analysis_output_to_cypher()`: LLM 분석 결과를 사이퍼 쿼리로 변환
-    - 변수 사용 기록
-    - 프로시저 호출 관계 생성
-    - 테이블 관계 생성
-    - FK 관계 및 DBLink 처리
-  - `analyze_variable_declarations()`: 변수 선언부 분석 (SPEC/DECLARE/PACKAGE_VARIABLE)
-  - `send_analysis_event_and_wait()`: 분석 결과 이벤트 송신 및 Neo4j 저장 완료 대기
-
-#### 🗄️ `understand/neo4j_connection.py`
-Neo4j 데이터베이스 연결 및 쿼리 실행을 담당합니다.
-
-**주요 클래스:**
-- `Neo4jConnection`: Neo4j 비동기 드라이버 래퍼
-  - `__init__()`: 환경변수에서 연결 정보를 읽어 드라이버 초기화
-  - `close()`: 데이터베이스 연결 종료
-  - `execute_queries()`: 사이퍼 쿼리 순차 실행 및 결과 반환
-  - `execute_query_and_return_graph()`: 노드/관계 조회하여 그래프 딕셔너리로 반환
-  - `node_exists()`: 노드 존재 여부 확인
-
-#### 🔨 `convert/*`
-Spring Boot 프로젝트의 각 구성 요소를 생성합니다.
-
-| 파일 | 생성 대상 | 주요 역할 |
-|-----|----------|----------|
-| `create_entity.py` | JPA Entity 클래스 | DDL 테이블을 Entity로 변환 |
-| `create_repository.py` | Repository 인터페이스 | 데이터 접근 계층 생성 |
-| `create_service_skeleton.py` | Service 클래스 뼈대 | 메서드 시그니처 생성<br/>- 프로시저/함수별 메서드 시그니처 생성<br/>- Command 클래스 자동 생성 |
-| `create_service_preprocessing.py` | Service 메서드 바디 | **토큰 임계(1000) 기반 배치 처리**<br/>- 노드 순회하며 sp_code 누적<br/>- 임계 도달 시 변수/JPA 수집 후 LLM 호출<br/>- 대용량 노드는 스켈레톤 생성 후 자식 삽입<br/>- **Parent Context 전달**로 변수 스코프 및 제어 흐름 이해 향상<br/>- **TRY-EXCEPTION 처리**: TRY 노드 버퍼 관리 및 조립 |
-| `create_controller_skeleton.py` | Controller 뼈대 | REST API 엔드포인트 골격 |
-| `create_controller.py` | Controller 메서드 | HTTP 요청 처리 로직 |
-| `create_main.py` | Main 클래스 | Spring Boot 애플리케이션 진입점 |
-| `create_config_files.py` | pom.xml & application.properties | 빌드 설정 및 DB 연결 설정 |
-
-#### 🎨 `rules/*` - Rule 파일 시스템 (프롬프트 관리) 🆕
-
-**Converting 단계는 Rule 파일 기반으로 동작합니다.**
-
-Rule 파일은 YAML 형식으로 프롬프트를 정의하며, **코드 수정 없이 프롬프트만 교체 가능**합니다.
-
-**Java 타겟 프롬프트 (`rules/java/`):**
-- `entity.yaml`: JPA Entity 클래스 생성
-- `repository.yaml`: JPA Repository 인터페이스 생성
-- `variable.yaml`: PL/SQL 변수 → Java 타입 변환
-- `command.yaml`: Command DTO 클래스 생성
-- `service_skeleton.yaml`: Service 메서드 시그니처 생성
-- `service.yaml`: **Service 메서드 바디 생성** (Parent Context 지원)
-- `service_summarized.yaml`: **대용량 노드 스켈레톤 생성** (자식 `...code...` 처리)
-- `service_exception.yaml`: **예외처리 try-catch 블록 생성**
-- `controller.yaml`: REST Controller 메서드 생성
-
-**Python 타겟 프롬프트 (`rules/python/`):**
-- `entity.yaml`: SQLAlchemy Model 클래스 생성 (확장 예시)
-- *향후 추가 예정...*
-
-**Rule 파일 구조:**
-```yaml
-name: "역할 이름"
-description: "설명"
-version: "1.0"
-
-input_schema:
-  required:
-    - field1  # 필수 입력
-    - field2
-  optional:
-    - field3:
-        default: ""
-
-prompt: |
-  프롬프트 내용 (Jinja2 템플릿)
-  {{field1}}
-  {{field2}}
-```
-
-**⚠️ 중요 변경사항:**
-- `llm_config` 섹션 제거됨 (LLM 파라미터는 `util/llm_client.py`에서 중앙 관리)
-- Rule 파일은 프롬프트 내용만 포함
-
-**장점:**
-- ✅ **코드 변경 없이 프롬프트 수정** (YAML만 편집)
-- ✅ **다국어/다타겟 언어 확장 용이** (python, typescript 등 추가 가능)
-- ✅ **버전 관리 쉬움** (Git으로 프롬프트 이력 추적)
-- ✅ **LLM 파라미터 중앙 관리** (llm_client.py에서 일괄 설정)
-- ✅ **A/B 테스트 간편** (파일 교체만)
-- ✅ **비개발자 접근 가능** (프롬프트 엔지니어가 직접 튜닝)
-
-#### 💬 `prompt/*` - Understanding 프롬프트 (레거시)
-LLM에게 전달할 프롬프트를 정의합니다. **(Understanding 단계용으로만 사용)**
-
-**이해 단계 프롬프트:**
-- `understand_ddl.py`: DDL 테이블/컬럼 분석
-- `understand_prompt.py`: PL/SQL 구문 분석 및 관계 추출
-- `understand_summarized_prompt.py`: 큰 노드 요약 생성
-- `understand_column_prompt.py`: 컬럼 역할 파악
-- `understand_variables_prompt.py`: 변수 분석
-
-*※ Converting 단계는 `rules/` 디렉토리의 YAML 파일을 사용합니다.*
-
-#### 🛠️ `util/llm_client.py`
-LLM API 클라이언트를 생성합니다.
-
-**주요 함수:**
-- `get_llm()`: ChatOpenAI 클라이언트 생성
-  - 환경변수 또는 파라미터로 API 키, 모델, base URL 설정
-  - 기본 모델: `gpt-4.1`
-  - 기본 base URL: `https://api.openai.com/v1`
-- `get_openai_client()`: OpenAI 클라이언트 생성
-
-#### 🛠️ `util/utility_tool.py`
-공통 유틸리티 함수를 제공합니다.
-
-**파일 처리:**
-- `save_file()`: 비동기 파일 저장
-
-**경로 유틸리티:**
-- `build_rule_based_path()`: Rule 파일 기반 다중 언어 저장 경로 생성
-
-**문자열 변환:**
-- `convert_to_pascal_case()`: 스네이크 케이스 → 파스칼 케이스
-- `convert_to_camel_case()`: 스네이크 케이스 → 카멜 케이스
-- `convert_to_upper_snake_case()`: 파스칼/카멜 케이스 → 대문자 스네이크 케이스
-- `add_line_numbers()`: 코드에 라인 번호 추가
-
-**스키마/테이블 파싱:**
-- `parse_table_identifier()`: 테이블 식별자 파싱 (schema.table@dblink 분리)
-
-**코드 분석:**
-- `calculate_code_token()`: 토큰 수 계산 (tiktoken 사용)
-- `build_variable_index()`: 변수 노드를 startLine 기준으로 인덱싱
-- `extract_used_variable_nodes()`: 특정 라인에서 사용된 변수 추출
-- `collect_variables_in_range()`: **특정 라인 범위 내 변수 수집** (전처리 단계에서 사용)
-- `extract_used_query_methods()`: **특정 라인 범위 내 JPA 메서드 수집** (전처리 단계에서 사용)
-
----
-
-## 🔧 문제해결
-
-### 자주 발생하는 문제
-
-#### 1. 생성된 Java 코드에 임의 return 문이 추가됨
-
-**증상:**
-```java
-vPatientExists = tpjPatientRepository.findPatientByPatientKey(pPatientKey);
-if (vPatientExists == 0) {
-    return "환자가 존재하지 않습니다.";  // ❌ 원본에 없던 return!
-}
-// 이후 코드가 실행되지 않음
-```
-
-**원인:**
-- LLM이 SELECT 결과를 검증하는 로직을 임의로 추가
-- 원본 PL/SQL은 단순히 COUNT만 수행하는데, LLM이 "의미를 추론"하여 검증 로직 생성
-
-**해결책:**
-프롬프트에 다음 지침 강화:
-```
-⚠️ 중요: 원본 PL/SQL 구조를 정확히 따르세요. 
-- 원본에 없는 return 문, if 문, 검증 로직을 추가하지 마세요
-- SELECT는 단순히 변수에 값을 할당하는 것입니다
-- 제어 흐름은 원본과 동일해야 합니다
-```
-
-#### 2. 변수 타입이 잘못 변환됨
-
-**증상:**
-```java
-String pResultCode = 0L;  // ❌ String에 Long 할당
-```
-
-**원인:**
-- Parent Context 없이 변환하여 변수 타입 정보 부족
-
-**해결책:**
-- Parent Context 전달 기능이 구현됨 (v2.0)
-- 부모 노드의 Java 코드를 자식 노드 변환 시 참조
-
-#### 3. IF-ELSIF-ELSE 구조가 잘못 변환됨
-
-**증상:**
-```java
-if (condition1) {
-    // ...
-} else if (condition2) {  // ❌ 중괄호 누락
-    // ...
-    if (condition3) {     // ❌ 잘못된 중첩
-```
-
-**원인:**
-- LLM이 복잡한 중첩 구조를 제대로 파악하지 못함
-
-**해결책:**
-- Parent Context로 전체 제어 흐름 구조 제공
-- 프롬프트에 "IF-ELSIF는 Java의 if-else if-else로 변환" 명시
-
----
-
-## 🎨 Rule 파일 커스터마이징 가이드
-
-### 📝 프롬프트 수정 방법
-
-Rule 파일을 수정하면 **코드 재배포 없이 즉시 적용**됩니다.
-
-#### 예시 1: Entity 생성 지침 수정
-
-```bash
-# rules/java/entity.yaml 편집
-nano rules/java/entity.yaml
-```
-
-```yaml
-# 데이터 타입 매핑 규칙 수정
-5. 데이터 타입 매핑
-   - NUMBER, NUMERIC -> Long  # 기존
-   - NUMBER, NUMERIC -> BigDecimal  # 수정 (더 정확한 숫자 처리)
-```
-
-**결과**: 다음 변환부터 자동 적용 (서버 재시작 불필요)
-
-#### 예시 2: Service 변환에 로깅 추가
-
-```yaml
-# rules/java/service.yaml 편집
-prompt: |
-  ...기존 내용...
-  
-  ### 🆕 추가 규칙
-  - 모든 메서드 시작 부분에 로깅 추가:
-    log.info("메서드 시작: {메서드명}");
-  - 메서드 종료 전에 로깅 추가:
-    log.info("메서드 완료: {메서드명}");
-```
-
-#### 예시 3: Repository 성능 힌트 추가
-
-```yaml
-# rules/java/repository.yaml 편집
-prompt: |
-  ...기존 내용...
-  
-  ### 성능 최적화 규칙
-  1. SELECT는 가능하면 Projection 사용
-  2. 대량 조회는 Pageable 파라미터 추가
-  3. INDEX가 있는 컬럼은 메서드명에 우선 배치
-```
-
----
-
-### 🌍 다국어 지원
-
-여러 언어 버전의 프롬프트를 준비하고 전환할 수 있습니다.
-
-```bash
-# 영어 버전 생성
-cp -r rules/java rules/java_en
-nano rules/java_en/entity.yaml  # 영어로 번역
-
-# 요청 시 언어 선택
-{
-  "projectName": "OrderSystem",
-  "targetLang": "java_en"  # ← 영어 프롬프트 사용
-}
-```
-
----
-
-### 🔧 새로운 타겟 언어 추가 (예: Python)
-
-#### Step 1: Rule 파일 디렉토리 생성
-
-```bash
-mkdir -p rules/python
-```
-
-#### Step 2: Python용 프롬프트 작성
-
-```yaml
-# rules/python/entity.yaml
-name: "SQLAlchemy Model 생성"
-prompt: |
-  당신은 Python SQLAlchemy 전문가입니다.
-  다음 테이블을 SQLAlchemy Model로 변환하세요:
-  
-  {{table_json_data}}
-  
-  [변환 규칙]
-  - Base = declarative_base() 사용
-  - Column, Integer, String 등 타입 정의
-  - __tablename__ 설정
-  ...
-```
-
-#### Step 3: API 요청
+프론트엔드에서 다음과 같은 요청을 보낸다고 가정합니다:
 
 ```json
 {
-  "projectName": "OrderSystem",
-  "dbms": "postgres",
-  "targetLang": "python",  # ← Python으로 변환
-  "systems": [...]
+  "projectName": "HOSPITAL_SYSTEM",
+  "dbms": "oracle",
+  "systems": [
+    {
+      "name": "PATIENT_PKG",
+      "sp": ["SP_PATIENT_REGISTER.sql", "SP_PATIENT_UPDATE.sql"]
+    }
+  ]
 }
 ```
 
-**결과**: Python FastAPI + SQLAlchemy 프로젝트 생성!
+그러면 Backend는 다음 경로에서 파일을 찾습니다:
 
----
-
-### 📊 A/B 테스트
-
-두 가지 프롬프트 버전을 테스트할 수 있습니다.
-
-```bash
-# 버전 1 백업
-cp roles/java/service.yaml roles/java/service_v1.yaml
-
-# 버전 2 작성
-nano roles/java/service.yaml  # 새로운 지침 추가
-
-# 테스트 후 롤백
-cp roles/java/service_v1.yaml roles/java/service.yaml
+```
+data/
+└── KO_TestSession/                     # 헤더 Session-UUID 값
+    └── HOSPITAL_SYSTEM/                # 요청 바디 projectName
+        ├── src/
+        │   └── PATIENT_PKG/            # systems[0].name
+        │       ├── SP_PATIENT_REGISTER.sql  # systems[0].sp[0]
+        │       └── SP_PATIENT_UPDATE.sql    # systems[0].sp[1]
+        │
+        ├── analysis/
+        │   └── PATIENT_PKG/
+        │       ├── SP_PATIENT_REGISTER.json  # ANTLR 파싱 결과
+        │       └── SP_PATIENT_UPDATE.json
+        │
+        └── ddl/
+            └── DDL_PATIENT.sql         # DDL 파일 (있으면 먼저 처리)
 ```
 
----
+### 파일 존재 여부 검증
 
-### ⚡ 성능 최적화: Rule 파일 캐싱
+`service.py`의 `_load_assets` 메서드가 파일을 로드할 때 다음 두 파일이 **반드시** 존재해야 합니다:
 
-`RuleLoader`는 LRU 캐싱을 사용합니다:
-- 로드한 YAML 파일은 메모리에 캐싱
-- 최대 32개 rule 파일 캐시
-- 파일 수정 시 서버 재시작하면 캐시 갱신
-- `__slots__` 사용으로 메모리 효율성 향상
-
-**캐시 수동 초기화:**
 ```python
-# 필요 시 캐시 클리어
-loader = RuleLoader(target_lang='java')
-loader.clear_cache()
-```
-
----
-
-## 🧪 테스트
-
-이 프로젝트는 pytest 기반 테스트를 제공합니다.
-
-### 환경 변수 설정
-
-테스트 실행 전 다음 환경 변수를 설정하세요:
-
-```bash
-# 테스트 세션 UUID (실제 사용자 세션과 구분하기 위한 값)
-export TEST_SESSION_UUID="TestSession_5"
-
-# LLM API 키 (테스트 세션이 EN_TestSession 또는 KO_TestSession이 아닌 경우 필수)
-export LLM_API_KEY="your-api-key"
-
-# 응답 언어 설정
-export TEST_LOCALE="ko"
-```
-
-**테스트 세션 특수 처리:**
-- `Session-UUID`가 `EN_TestSession` 또는 `KO_TestSession`인 경우
-- 환경 변수의 `LLM_API_KEY` 또는 `API_KEY`를 자동으로 사용
-- 헤더에 API 키를 포함하지 않아도 됨
-
-### 테스트 실행 방법
-
-#### 1️⃣ Understanding 테스트 (통합)
-
-```bash
-# 전체 파이프라인 테스트
-pipenv run pytest test/test_understanding.py -v -s
-
-# 또는
-pipenv run python test/test_understanding.py
-```
-
-**동작:**
-- `understand_project()` 전체 파이프라인 실행
-- 스트리밍 응답 검증
-- Neo4j 그래프 데이터 검증
-- DDL 처리 검증
-
----
-
-#### 2️⃣ Converting 테스트
-
-**A. 개별 테스트 (단계별 디버깅용)**
-
-```bash
-# Entity만 테스트
-pipenv run pytest test/test_converting.py::TestEntityGeneration -v -s
-
-# Repository만 테스트
-pipenv run pytest test/test_converting.py::TestRepositoryGeneration -v -s
-
-# Service Skeleton만 테스트
-pipenv run pytest test/test_converting.py::TestServiceGeneration -v -s
-
-# Config 파일만 테스트
-pipenv run pytest test/test_converting.py::TestConfigGeneration -v -s
-
-# 전체 개별 테스트 순차 실행
-pipenv run python test/test_converting.py
-```
-
-**동작:**
-- 각 Generator를 **독립적으로** 실행
-- `test/test_converting_results.json`에 중간 결과 저장
-- 다음 테스트가 이전 결과 사용
-- **빠른 검증** 가능 (특정 단계만)
-
-**B. 통합 테스트 (실제 API 동작 검증) 🆕**
-
-```bash
-# convert_to_springboot() 전체 파이프라인 테스트
-pipenv run pytest test/test_converting.py::TestConvertingPipeline -v -s
-```
-
-**동작:**
-- `convert_to_springboot()` 전체 파이프라인 실행
-- 스트리밍 응답 검증
-- 모든 파일 생성 검증 (Entity, Repository, Service, Controller, Config, Main)
-- 단계 간 데이터 전달 검증
-- **실제 API와 동일한 동작**
-
----
-
-#### 3️⃣ 전체 테스트 (배포 전 필수)
-
-```bash
-# 모든 테스트 실행
-pipenv run pytest test/ -v -s
-
-# 또는 빠른 실행 (출력 최소화)
-pipenv run pytest test/ -v
-```
-
----
-
-### 테스트 전략
-
-| 상황 | 명령어 | 소요 시간 |
-|------|--------|----------|
-| **빠른 확인** | `pytest test/test_converting.py::TestEntityGeneration -v` | ~30초 |
-| **단계별 디버깅** | `pytest test/test_converting.py::TestRepositoryGeneration -v` | ~1분 |
-| **API 동작 검증** | `pytest test/test_converting.py::TestConvertingPipeline -v` | ~5분 |
-| **배포 전 전체** | `pytest test/ -v` | ~10분 |
-
-### 테스트 데이터 준비
-
-테스트를 실행하려면 다음 구조로 데이터를 준비하세요:
-
-```
-data/{TEST_SESSION_UUID}/{TEST_PROJECT_NAME}/
-├── src/{SystemName}/{fileName}.sql               # 원본 PL/SQL 파일
-├── analysis/{SystemName}/{baseName}.json         # ANTLR 분석 결과
-└── ddl/*.sql                                     # DDL 파일 (선택사항)
-```
-
-**예시:**
-```
-data/TestSession/HOSPITAL_PROJECT/
-├── src/
-│   └── HOSPITAL_RECEPTION/
-│       └── SP_HOSPITAL_RECEPTION.sql
-├── analysis/
-│   └── HOSPITAL_RECEPTION/
-│       └── SP_HOSPITAL_RECEPTION.json
-└── ddl/
-    └── DDL_HOSPITAL_RECEPTION.sql
-```
----
-
-#### Neo4j 데이터 확인
-
-Neo4j Browser에서 데이터를 직접 조회할 수 있습니다:
-
-```cypher
-// 모든 정보 조회
-MATCH (n) RETURN n
-
-//포함 관게 제외 모두 조회
-MATCH (n)-[r]->(m)
-WHERE type(r) <> 'CONTAINS'
-RETURN n, r, m;
-
-// 모든 정보 삭제
-MATCH (n)
-DETACH DELETE n
-```
----
-
-## 🔄 Understanding 파이프라인 버전 비교
-
-### 개요
-
-Understanding 단계에는 두 가지 버전의 분석 엔진이 존재합니다:
-- **기존 버전** (`understand/analysis.py`): DFS 순회 기반 동기 처리
-- **리팩터 버전** (`temp/analysis_async_refactor.py`): 평탄화 + 병렬 처리
-
-### 🏗️ 아키텍처 비교
-
-#### 기존 버전 구조
-
-```mermaid
-flowchart TD
-    A[AST 루트] --> B[Analyzer.run]
-    B --> C[analyze_statement_tree]
-    C --> D{노드 순회<br/>DFS}
-    D --> E[요약 코드 생성]
-    E --> F{토큰 임계?}
-    F -->|Yes| G[LLM 분석 호출]
-    F -->|No| D
-    G --> H[사이퍼 쿼리 생성]
-    H --> I[Neo4j 저장 대기]
-    I --> D
-    D --> J[분석 완료]
-    
-    style G fill:#ffcccc
-    style I fill:#ffcccc
-```
-
-**특징:**
-- 🔄 **동기적 순회**: DFS로 노드를 하나씩 방문
-- 📦 **즉시 배치**: 토큰 임계 도달 시 즉시 LLM 호출
-- ⏱️ **순차 처리**: 각 배치가 완료될 때까지 대기
-- 🧩 **상태 복잡**: schedule_stack, context_range 등 다수의 상태 변수
-
-#### 리팩터 버전 구조
-
-```mermaid
-flowchart TD
-    A[AST 루트] --> B[StatementCollector]
-    B --> C[평탄화된 노드 리스트]
-    C --> D[BatchPlanner]
-    D --> E[배치 목록 생성]
-    E --> F[LLM 워커 풀]
-    
-    F --> G1[워커 1<br/>배치 1]
-    F --> G2[워커 2<br/>배치 2]
-    F --> G3[워커 3<br/>배치 3]
-    F --> G4[워커 N<br/>배치 N]
-    
-    G1 --> H[ApplyManager]
-    G2 --> H
-    G3 --> H
-    G4 --> H
-    
-    H --> I{순서 보장<br/>적용}
-    I --> J[Neo4j 저장]
-    J --> K[분석 완료]
-    
-    style F fill:#ccffcc
-    style H fill:#ccffcc
-```
-
-**특징:**
-- 📊 **사전 계획**: 전체 AST를 먼저 평탄화하여 배치 계획 수립
-- ⚡ **병렬 처리**: 여러 배치를 동시에 LLM 호출
-- 🎯 **순차 적용**: ApplyManager가 결과를 순서대로 적용
-- 🧬 **책임 분리**: Collector, Planner, Invoker, Manager로 명확히 분리
-
----
-
-### 📊 처리 흐름 상세 비교
-
-#### 기존 버전 - DFS 순회 방식
-
-```mermaid
-sequenceDiagram
-    participant A as Analyzer
-    participant T as Traverse (DFS)
-    participant L as LLM
-    participant N as Neo4j
-    
-    A->>T: analyze_statement_tree(node)
-    
-    loop 각 노드 순회
-        T->>T: 요약 코드 생성
-        T->>T: 토큰 누적
-        
-        alt 토큰 임계 도달
-            T->>L: LLM 분석 호출
-            Note over L: 🔒 대기 (동기)
-            L-->>T: 분석 결과
-            T->>N: 사이퍼 쿼리 전송
-            N-->>T: 저장 완료 대기
-            T->>T: 상태 초기화
-        end
-        
-        T->>T: 자식 노드 재귀
-    end
-    
-    T-->>A: 분석 완료
-```
-
-**시간 소요 예시 (가정):**
-```
-노드1 처리 (100ms)
-├─ 배치1 LLM (2000ms) ⏱️
-├─ Neo4j 저장 (100ms)
-노드2 처리 (100ms)
-├─ 배치2 LLM (2000ms) ⏱️
-├─ Neo4j 저장 (100ms)
-노드3 처리 (100ms)
-├─ 배치3 LLM (2000ms) ⏱️
-└─ Neo4j 저장 (100ms)
-────────────────────────
-총 소요: 6,600ms
-```
-
-#### 리팩터 버전 - 병렬 처리 방식
-
-```mermaid
-sequenceDiagram
-    participant A as Analyzer
-    participant C as Collector
-    participant P as Planner
-    participant W1 as Worker 1
-    participant W2 as Worker 2
-    participant W3 as Worker 3
-    participant L as LLM
-    participant M as ApplyManager
-    participant N as Neo4j
-    
-    A->>C: 평탄화 시작
-    C-->>A: StatementNode 리스트
-    A->>P: 배치 계획 수립
-    P-->>A: Batch 리스트
-    
-    par 병렬 LLM 호출
-        W1->>L: 배치1 분석
-        W2->>L: 배치2 분석
-        W3->>L: 배치3 분석
-    end
-    
-    Note over L: ⚡ 동시 처리
-    
-    par 결과 수신
-        L-->>W1: 결과1
-        L-->>W2: 결과2
-        L-->>W3: 결과3
-    end
-    
-    W1->>M: submit(배치1)
-    W2->>M: submit(배치2)
-    W3->>M: submit(배치3)
-    
-    M->>M: 순서대로 적용
-    M->>N: 사이퍼 쿼리 전송
-    N-->>M: 저장 완료
-    M-->>A: 분석 완료
-```
-
-**시간 소요 예시 (가정):**
-```
-평탄화 (200ms)
-배치 계획 (50ms)
-병렬 LLM 호출:
-├─ 배치1 (2000ms) ⏱️
-├─ 배치2 (2000ms) ⏱️ → 동시 실행
-└─ 배치3 (2000ms) ⏱️
-순차 적용 (300ms)
-────────────────────────
-총 소요: 2,550ms (약 61% 단축)
-```
-
----
-
-### 📈 성능 비교표
-
-| 항목 | 기존 버전 | 리팩터 버전 | 개선도 |
-|------|----------|------------|--------|
-| **LLM 호출 방식** | 순차 호출 | 병렬 호출 (최대 5개) | ⚡ 3~5배 |
-| **총 처리 시간** | 6.6초 (예시) | 2.5초 (예시) | ⚡ 61% 단축 |
-| **메모리 사용** | 낮음 | 중간 (평탄화 오버헤드) | ⚠️ +20% |
-| **코드 복잡도** | 높음 (중첩 함수) | 낮음 (클래스 분리) | ✅ 가독성 향상 |
-| **디버깅 난이도** | 어려움 (상태 추적) | 쉬움 (명확한 단계) | ✅ 유지보수성 향상 |
-| **에러 핸들링** | 단순 | 세밀함 (배치별 재시도) | ✅ 안정성 향상 |
-
----
-
-### 🔍 코드 구조 비교
-
-#### 기존 버전 - 단일 클래스 구조
-
-```
-Analyzer (단일 클래스)
-├── __init__(): 상태 변수 초기화 (15개 이상)
-├── run(): 메인 파이프라인
-├── analyze_statement_tree(): DFS 순회 (재귀)
-│   ├── summarize_with_placeholders()
-│   ├── build_sp_code()
-│   ├── execute_analysis_and_reset_state()
-│   └── process_analysis_output_to_cypher()
-├── analyze_variable_declarations()
-└── send_analysis_event_and_wait()
-
-[특징]
-- ❌ 모든 로직이 하나의 클래스에 집중
-- ❌ 재귀 호출로 인한 스택 깊이 증가
-- ❌ 상태 변수가 많아 추적 어려움
-- ✅ 코드 응집도는 높음
-```
-
-#### 리팩터 버전 - 다중 클래스 구조
-
-```
-Understanding 파이프라인
-│
-├── StatementNode (데이터 클래스)
-│   └── 노드 정보 + 요약 완료 이벤트
-│
-├── StatementCollector
-│   └── AST → 평탄화된 노드 리스트
-│
-├── BatchPlanner
-│   └── 노드 리스트 → 배치 리스트
-│
-├── LLMInvoker
-│   └── 배치 → LLM 병렬 호출
-│
-├── ApplyManager
-│   ├── 결과 순차 적용
-│   ├── 프로시저 요약 관리
-│   └── 테이블 메타 요약 관리
-│
-└── Analyzer (오케스트레이터)
-    └── 전체 파이프라인 조율
-
-[특징]
-- ✅ 단일 책임 원칙 준수
-- ✅ 재귀 제거 (평탄화 방식)
-- ✅ 각 단계 테스트 용이
-- ✅ 확장성 높음 (새 단계 추가 쉬움)
-```
-
----
-
-### 🎯 주요 차이점 상세
-
-#### 1️⃣ 배치 생성 방식
-
-**기존 버전:**
-```python
-# 토큰 임계치 도달 시 즉시 배치 생성
-if is_over_token_limit(node_token, sp_token, context_len):
-    await send_analysis_event_and_wait(line_number)
-    # 상태 초기화
-```
-- ⚠️ **문제**: 배치 크기가 불균일할 수 있음
-- ⚠️ **문제**: 마지막 배치가 매우 작을 수 있음
-
-**리팩터 버전:**
-```python
-# 전체 노드를 먼저 수집 후 최적 배치 계획
-batches = planner.plan(nodes)  # 토큰 한도 기준 분할
-```
-- ✅ **장점**: 배치 크기가 균일함
-- ✅ **장점**: LLM 비용 최적화 가능
-
-#### 2️⃣ LLM 호출 동시성
-
-**기존 버전:**
-```python
-# 순차 처리
-for node in nodes:
-    result = understand_code(...)  # 🔒 대기
-    process_result(result)
-```
-- ⏱️ 총 시간 = 배치1 + 배치2 + ... + 배치N
-
-**리팩터 버전:**
-```python
-# 병렬 처리 (세마포어로 동시성 제어)
-async def worker(batch):
-    async with semaphore:  # 최대 5개 동시
-        result = await invoker.invoke(batch)
-        await apply_manager.submit(batch, result)
-
-await asyncio.gather(*(worker(b) for b in batches))
-```
-- ⚡ 총 시간 ≈ max(배치1, 배치2, ..., 배치N)
-
-#### 3️⃣ 상태 관리
-
-**기존 버전:**
-```python
-__slots__ = (
-    'antlr_data', 'file_content', 'send_queue', 'receive_queue',
-    'schedule_stack', 'context_range', 'cypher_query', 
-    'summary_dict', 'node_statement_types', 'procedure_name',
-    'extract_code', 'focused_code', 'sp_token_count', 'schema_name',
-    # ... 15개 이상의 상태 변수
+# 원본 SP 파일
+plsql_file_path = os.path.join(
+    self.dirs['plsql'],      # data/{user_id}/{project_name}/src
+    folder_name,             # PATIENT_PKG
+    file_name                # SP_PATIENT_REGISTER.sql
+)
+
+# ANTLR JSON 파일
+analysis_file_path = os.path.join(
+    self.dirs['analysis'],   # data/{user_id}/{project_name}/analysis
+    folder_name,             # PATIENT_PKG
+    f"{base_name}.json"      # SP_PATIENT_REGISTER.json
 )
 ```
-- ❌ 많은 상태 변수로 인한 복잡도 증가
 
-**리팩터 버전:**
+만약 파일이 없으면 `FileNotFoundError`가 발생하며, 프론트엔드에 에러 응답이 전송됩니다.
+
+### ANTLR JSON 구조
+
+ANTLR 서버가 생성하는 JSON 파일은 다음 구조를 가집니다:
+
+```json
+{
+  "type": "FILE",
+  "startLine": 0,
+  "endLine": 0,
+  "children": [
+    {
+      "type": "PROCEDURE",
+      "startLine": 1,
+      "endLine": 95,
+      "children": [
+        {
+          "type": "SPEC",
+          "startLine": 1,
+          "endLine": 13,
+          "children": []
+        },
+        {
+          "type": "DECLARE",
+          "startLine": 14,
+          "endLine": 20,
+          "children": []
+        },
+        {
+          "type": "SELECT",
+          "startLine": 25,
+          "endLine": 28,
+          "children": []
+        },
+        {
+          "type": "IF",
+          "startLine": 30,
+          "endLine": 50,
+          "children": [
+            {
+              "type": "INSERT",
+              "startLine": 32,
+              "endLine": 35,
+              "children": []
+            }
+          ]
+        },
+        {
+          "type": "COMMIT",
+          "startLine": 52,
+          "endLine": 52,
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+**중요한 포인트**:
+
+1. **트리 구조**: AST는 재귀적 트리 구조로, 부모 노드는 `children` 배열로 자식을 포함합니다.
+
+2. **라인 범위**: 각 노드는 `startLine`과 `endLine`을 가지며, 원본 SP 코드에서 해당 범위를 추출할 수 있습니다.
+
+3. **타입 다양성**: `FILE`, `PROCEDURE`, `FUNCTION`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `IF`, `LOOP`, `FOR`, `ASSIGNMENT` 등 50가지 이상의 노드 타입이 존재합니다.
+
+4. **그래프 매핑**: 이 JSON 구조 그대로 Neo4j 그래프가 생성됩니다. 예를 들어:
+   ```
+   (FILE)-[:PARENT_OF]->(PROCEDURE)-[:PARENT_OF]->(SELECT)
+   ```
+
+5. **리프 노드**: `children`이 빈 배열이면 리프 노드입니다. 리프 노드는 LLM 분석의 최소 단위가 됩니다.
+
+### DDL 파일 구조
+
+DDL 파일은 선택 사항이지만, 있으면 파일 분석 **전에** 먼저 처리됩니다.
+
+**DDL 파일 예시** (`ddl/DDL_PATIENT.sql`):
+
+```sql
+CREATE TABLE TPJ_PATIENT (
+    PATIENT_KEY NUMBER PRIMARY KEY,
+    PATIENT_NAME VARCHAR2(100) NOT NULL,
+    BIRTH_DATE DATE,
+    GENDER CHAR(1),
+    PHONE VARCHAR2(20)
+);
+
+CREATE TABLE TPJ_RECEPTION (
+    RECEPT_KEY NUMBER PRIMARY KEY,
+    PATIENT_KEY NUMBER NOT NULL,
+    STATUS CHAR(1) DEFAULT 'W',
+    CONSTRAINT FK_RECEPT_PATIENT FOREIGN KEY (PATIENT_KEY) REFERENCES TPJ_PATIENT(PATIENT_KEY)
+);
+```
+
+**DDL 처리 결과**:
+- Neo4j에 `Table` 노드와 `Column` 노드가 미리 생성됩니다.
+- FK 관계도 `FK_TO_TABLE`, `FK_TO` 관계로 연결됩니다.
+- 이후 DML 구문 분석 시 이미 존재하는 테이블에 연결됩니다.
+
+---
+
+## 📖 Understanding 파이프라인 완벽 가이드
+
+이제 Understanding 파이프라인의 **모든 세부 동작**을 처음부터 끝까지 단계별로 설명합니다.
+
+### 전체 흐름 개요
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     Understanding 파이프라인                          │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  1️⃣ 사전 준비                                                        │
+│     ├─ API 키 검증                                                    │
+│     ├─ Neo4j 연결 확립                                                │
+│     ├─ 이벤트 큐 생성                                                 │
+│     └─ 프로젝트 폴더 존재 여부 확인                                   │
+│                                                                        │
+│  2️⃣ DDL 처리 (선택, 있으면 먼저 실행)                                │
+│     ├─ ddl/*.sql 파일 목록 조회                                       │
+│     ├─ 병렬 처리 (최대 5개 동시)                                      │
+│     ├─ LLM으로 DDL 파싱                                               │
+│     └─ Table, Column 노드 생성 + FK 관계 설정                         │
+│                                                                        │
+│  3️⃣ 파일별 분석 루프 (systems 배열 순회)                             │
+│     │                                                                  │
+│     ├─ 3-1. 파일 로딩                                                 │
+│     │     ├─ 원본 SP 코드 읽기 (src/{folder}/{file})                 │
+│     │     ├─ ANTLR JSON 읽기 (analysis/{folder}/{base}.json)         │
+│     │     └─ 라인 번호 추가 (1: code, 2: code, ...)                  │
+│     │                                                                  │
+│     ├─ 3-2. Analyzer 초기화 및 실행                                   │
+│     │     └─ Analyzer.run() 호출 → 비동기 작업 시작                  │
+│     │                                                                  │
+│     ├─ 3-3. AST 평탄화 (StatementCollector)                          │
+│     │     ├─ 후위 순회 (DFS)로 모든 노드 수집                         │
+│     │     ├─ 부모-자식 관계 메모리에 구축                             │
+│     │     ├─ 프로시저 정보 추출 (이름, 스키마, 라인 범위)              │
+│     │     └─ StatementNode 리스트 생성                                │
+│     │                                                                  │
+│     ├─ 3-4. 정적 그래프 초기화 (_initialize_static_graph)            │
+│     │     ├─ 모든 노드 생성 (FILE, PROCEDURE, SELECT, ...)           │
+│     │     ├─ PARENT_OF 관계 생성                                      │
+│     │     ├─ NEXT 관계 생성 (형제 노드 간)                            │
+│     │     └─ 변수 선언 노드 병렬 분석 (SPEC, DECLARE, PACKAGE_VAR)    │
+│     │           ├─ LLM 호출 (최대 5개 동시)                           │
+│     │           ├─ Variable 노드 생성                                 │
+│     │           └─ SCOPE 관계 설정                                    │
+│     │                                                                  │
+│     ├─ 3-5. 배치 계획 (BatchPlanner)                                 │
+│     │     ├─ analyzable 노드 필터링                                   │
+│     │     ├─ 토큰 기반 배치 생성 (MAX_BATCH_TOKEN=1000)              │
+│     │     ├─ 부모 노드는 자식 완료 후 단독 배치                       │
+│     │     └─ AnalysisBatch 리스트 반환                                │
+│     │                                                                  │
+│     ├─ 3-6. 병렬 LLM 호출 (LLMInvoker + Worker Pool)                 │
+│     │     ├─ 세마포어로 동시성 제어 (MAX_CONCURRENCY=5)               │
+│     │     ├─ 부모 노드는 자식 completion_event 대기                   │
+│     │     ├─ 배치마다 2개 프롬프트 호출:                               │
+│     │     │   ├─ understand_code (일반 분석)                          │
+│     │     │   └─ understand_dml_tables (DML 메타)                     │
+│     │     └─ BatchResult 생성 후 ApplyManager 제출                    │
+│     │                                                                  │
+│     ├─ 3-7. 순차 적용 (ApplyManager)                                 │
+│     │     ├─ 배치 ID 순서대로 적용 (순서 보장)                        │
+│     │     ├─ 노드 summary 저장                                        │
+│     │     ├─ 변수 사용 관계 (USED) 생성                               │
+│     │     ├─ 프로시저 호출 관계 (CALL) 생성                           │
+│     │     ├─ 테이블 관계 (FROM, WRITES) 생성                          │
+│     │     ├─ Column 노드 생성                                         │
+│     │     ├─ FK 관계 생성                                             │
+│     │     ├─ DBLink 관계 생성                                         │
+│     │     ├─ 프로시저 요약 누적 (자식 완료 시 LLM 최종 요약)          │
+│     │     ├─ 테이블/컬럼 설명 누적 (파일 완료 시 LLM 최종 요약)       │
+│     │     └─ Neo4j 저장 및 프론트엔드 스트리밍 응답                    │
+│     │                                                                  │
+│     ├─ 3-8. 후처리 (_postprocess_file)                               │
+│     │     ├─ 변수 타입 보정 (DDL 참조)                                │
+│     │     │   ├─ Variable 노드 조회                                   │
+│     │     │   ├─ Table 메타 매칭                                      │
+│     │     │   ├─ LLM으로 타입 해석                                    │
+│     │     │   └─ Variable.type, resolved 업데이트                     │
+│     │     └─ 컬럼 역할 산출                                           │
+│     │           ├─ Table 및 Column 조회                               │
+│     │           ├─ DML 요약 수집                                      │
+│     │           ├─ LLM으로 역할 분석                                  │
+│     │           └─ Column.description 업데이트                        │
+│     │                                                                  │
+│     └─ 3-9. 스트리밍 응답                                             │
+│           ├─ 진행률 전송 (line_number, analysis_progress)            │
+│           ├─ 그래프 데이터 전송 (Nodes, Relationships)                │
+│           └─ 최종 완료 메시지                                         │
+│                                                                        │
+│  4️⃣ 완료                                                             │
+│     └─ "ALL_ANALYSIS_COMPLETED" 메시지 전송                          │
+│                                                                        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 단계별 상세 설명
+
+#### 1️⃣ 사전 준비 단계
+
+**위치**: `service/service.py` - `ServiceOrchestrator.understand_project()`
+
+**목적**: Understanding 파이프라인 실행을 위한 환경을 준비합니다.
+
+**세부 동작**:
+
 ```python
-# 각 클래스가 필요한 상태만 보유
+async def understand_project(self, file_names: list) -> AsyncGenerator[bytes, None]:
+    """
+    file_names: [(folder_name, file_name), ...] 형식의 리스트
+    예: [("PATIENT_PKG", "SP_PATIENT_REGISTER.sql")]
+    """
+    # 1. Neo4j 연결 생성
+    connection = Neo4jConnection()
+    
+    # 2. 이벤트 큐 생성 (Analyzer와 통신용)
+    events_from_analyzer = asyncio.Queue()  # Analyzer → Service
+    events_to_analyzer = asyncio.Queue()    # Service → Analyzer
+    
+    try:
+        # 3. 준비 메시지 전송
+        yield emit_message("Preparing Analysis Data")
+        
+        # 4. 이미 분석된 경우 캐시 반환
+        if await connection.node_exists(self.user_id, file_names):
+            yield emit_message("ALREADY ANALYZED")
+            graph_data = await connection.execute_query_and_return_graph(
+                self.user_id, file_names
+            )
+            yield emit_data(graph=graph_data, analysis_progress=100)
+            return
+        
+        # 다음 단계로 계속...
+```
+
+**이벤트 큐의 역할**:
+
+```
+┌─────────────┐                    ┌─────────────┐
+│  Service    │                    │  Analyzer   │
+│ (Orchestr.) │                    │   (Worker)  │
+└─────────────┘                    └─────────────┘
+       │                                  │
+       │  events_from_analyzer            │
+       │◄─────────────────────────────────│
+       │  {"type": "analysis_code",       │
+       │   "query_data": [...],           │
+       │   "line_number": 45}             │
+       │                                  │
+       │  events_to_analyzer              │
+       │──────────────────────────────────►│
+       │  {"type": "process_completed"}   │
+       │                                  │
+```
+
+**이벤트 타입**:
+
+| 방향 | 타입 | 내용 | 목적 |
+|------|------|------|------|
+| Analyzer → Service | `analysis_code` | Cypher 쿼리, 진행 라인 | Neo4j 저장 요청 |
+| Analyzer → Service | `end_analysis` | - | 파일 분석 완료 신호 |
+| Analyzer → Service | `error` | 에러 메시지 | 예외 발생 알림 |
+| Service → Analyzer | `process_completed` | - | 저장 완료 확인 |
+
+---
+
+#### 2️⃣ DDL 처리 단계
+
+**위치**: `service/service.py` - `_process_ddl()`
+
+**목적**: DDL 파일이 있으면 먼저 처리하여 Table/Column 노드를 미리 생성합니다.
+
+**왜 먼저 처리하나요?**
+
+```
+시나리오 1: DDL이 없는 경우
+├─ DML 구문 분석 시 테이블 발견
+├─ "Table: TPJ_PATIENT" 노드만 생성 (컬럼 정보 없음)
+└─ 후처리에서 수동으로 컬럼 추론 필요 (부정확)
+
+시나리오 2: DDL이 있는 경우
+├─ DDL에서 정확한 스키마 파악
+│   ├─ 테이블 이름, 컬럼 이름, 데이터 타입
+│   ├─ Primary Key, Foreign Key
+│   └─ NOT NULL, DEFAULT 값
+├─ DML 구문 분석 시 기존 노드에 연결
+└─ 정확하고 완전한 메타데이터 보장
+```
+
+**세부 동작**:
+
+```python
+# 1. DDL 파일 목록 조회
+ddl_files = self._list_ddl_files()  # ['DDL_PATIENT.sql', 'DDL_RECEPTION.sql']
+
+if ddl_files:
+    # 2. 병렬 처리 준비 (세마포어로 동시성 제어)
+    ddl_semaphore = asyncio.Semaphore(DDL_MAX_CONCURRENCY)  # 최대 5개 동시
+    ddl_tasks = []
+    
+    async def _run_single_ddl(file_name: str):
+        async with ddl_semaphore:
+            ddl_file_path = os.path.join(self.dirs['ddl'], file_name)
+            await self._process_ddl(ddl_file_path, connection, file_name)
+    
+    # 3. 모든 DDL 파일 병렬 처리
+    for ddl_file_name in ddl_files:
+        yield emit_message(f"START DDL PROCESSING: {ddl_file_name}")
+        ddl_tasks.append(asyncio.create_task(_run_single_ddl(ddl_file_name)))
+    
+    # 4. 모든 작업 완료 대기
+    await asyncio.gather(*ddl_tasks)
+```
+
+**_process_ddl() 내부 로직**:
+
+```python
+async def _process_ddl(self, ddl_file_path: str, connection: Neo4jConnection, file_name: str):
+    # 1. DDL 파일 읽기
+    async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
+        ddl_content = await ddl_file.read()
+    
+    # 2. LLM으로 DDL 파싱
+    parsed = understand_ddl(ddl_content, self.api_key, self.locale)
+    # 반환 형식:
+    # {
+    #   "analysis": [
+    #     {
+    #       "table": {"schema": "PUBLIC", "name": "TPJ_PATIENT", "comment": "환자 테이블"},
+    #       "columns": [
+    #         {"name": "PATIENT_KEY", "dtype": "NUMBER", "comment": "환자 ID", "nullable": false}
+    #       ],
+    #       "primaryKeys": ["PATIENT_KEY"],
+    #       "foreignKeys": [{"column": "...", "ref": "..."}]
+    #     }
+    #   ]
+    # }
+    
+    # 3. Cypher 쿼리 생성
+    cypher_queries = []
+    for table in parsed['analysis']:
+        # 3-1. Table 노드 생성
+        cypher_queries.append(f"""
+            MERGE (t:Table {{
+                user_id: '{self.user_id}',
+                schema: '{schema}',
+                name: '{table_name}',
+                db: '{self.dbms}',
+                project_name: '{self.project_name}'
+            }})
+            SET t.description = '{table_comment}',
+                t.table_type = 'BASE TABLE'
+        """)
+        
+        # 3-2. Column 노드 생성 (중복 방지를 위해 user_id + fqn + project_name으로 MERGE)
+        for col in columns:
+            fqn = f"{schema}.{table_name}.{col_name}".lower()
+            cypher_queries.append(f"""
+                MERGE (c:Column {{
+                    user_id: '{self.user_id}',
+                    fqn: '{fqn}',
+                    project_name: '{self.project_name}'
+                }})
+                SET c.name = '{col_name}',
+                    c.dtype = '{col_type}',
+                    c.description = '{col_comment}',
+                    c.nullable = '{nullable}',
+                    c.pk_constraint = '{table_name}_pkey'  -- PK인 경우만
+                
+                WITH c
+                MATCH (t:Table {{user_id: '{self.user_id}', name: '{table_name}'}})
+                MERGE (t)-[:HAS_COLUMN]->(c)
+            """)
+        
+        # 3-3. FK 관계 생성
+        for fk in foreign_keys:
+            cypher_queries.append(f"""
+                MATCH (st:Table {{user_id: '{self.user_id}', name: '{source_table}'}})
+                MATCH (tt:Table {{user_id: '{self.user_id}', name: '{target_table}'}})
+                MERGE (st)-[:FK_TO_TABLE]->(tt)
+                
+                MATCH (sc:Column {{user_id: '{self.user_id}', name: '{source_column}', fqn: '{source_fqn}'}})
+                MATCH (tc:Column {{user_id: '{self.user_id}', name: '{target_column}', fqn: '{target_fqn}'}})
+                MERGE (sc)-[:FK_TO]->(tc)
+            """)
+    
+    # 4. Neo4j 실행
+    await connection.execute_queries(cypher_queries)
+    logging.info(f"DDL 파일 처리 완료: {file_name}")
+```
+
+**생성되는 그래프 구조 (DDL 처리 후)**:
+
+```
+(Table: TPJ_PATIENT)
+  ├─[:HAS_COLUMN]─>(Column: PATIENT_KEY, pk_constraint="TPJ_PATIENT_pkey")
+  ├─[:HAS_COLUMN]─>(Column: PATIENT_NAME)
+  ├─[:HAS_COLUMN]─>(Column: BIRTH_DATE)
+  └─[:HAS_COLUMN]─>(Column: GENDER)
+
+(Table: TPJ_RECEPTION)
+  ├─[:HAS_COLUMN]─>(Column: RECEPT_KEY, pk_constraint="TPJ_RECEPTION_pkey")
+  ├─[:HAS_COLUMN]─>(Column: PATIENT_KEY)
+  ├─[:FK_TO_TABLE]─>(Table: TPJ_PATIENT)
+  └─(Column: PATIENT_KEY)-[:FK_TO]─>(Column: PATIENT_KEY in TPJ_PATIENT)
+```
+
+---
+
+#### 3️⃣ 파일별 분석 루프
+
+**위치**: `service/service.py` - `_analyze_file()`
+
+**목적**: 각 PL/SQL 파일을 순차적으로 분석하고 Neo4j에 저장합니다.
+
+이제 **Analyzer의 핵심 동작**을 단계별로 파헤칩니다.
+
+##### 3-1. 파일 로딩
+
+```python
+async def _analyze_file(self, folder_name: str, file_name: str, ...):
+    # 1. 원본 SP 코드 및 ANTLR JSON 로드
+    antlr_data, plsql_content = await self._load_assets(folder_name, file_name)
+    # antlr_data: Dict (JSON 파싱 결과)
+    # plsql_content: List[str] (각 라인)
+    
+    # 2. 마지막 라인 번호 계산
+    last_line = len(plsql_content)
+    
+    # 3. 라인 번호 추가
+    plsql_numbered, _ = add_line_numbers(plsql_content)
+    # 결과: "1: CREATE OR REPLACE PROCEDURE...\n2: BEGIN\n3:   ..."
+```
+
+##### 3-2. Analyzer 초기화 및 실행
+
+```python
+# Analyzer 생성
+analyzer = Analyzer(
+    antlr_data=antlr_data,        # ANTLR JSON
+    file_content=plsql_numbered,  # 라인 번호 포함 코드
+    send_queue=events_from_analyzer,  # Analyzer → Service
+    receive_queue=events_to_analyzer, # Service → Analyzer
+    last_line=last_line,
+    folder_name=folder_name,      # "PATIENT_PKG"
+    file_name=file_name,          # "SP_PATIENT_REGISTER.sql"
+    user_id=self.user_id,         # "KO_TestSession"
+    api_key=self.api_key,
+    locale=self.locale,           # "ko"
+    dbms=self.dbms,               # "oracle"
+    project_name=self.project_name,  # "HOSPITAL_SYSTEM"
+)
+
+# 비동기 작업 시작
+analysis_task = asyncio.create_task(analyzer.run())
+```
+
+**Analyzer.run() 진입**:
+
+```python
+# understand/analysis.py
+class Analyzer:
+    async def run(self):
+        logging.info("📋 [%s] 코드 분석 시작 (총 %s줄)", self.folder_file, self.last_line)
+        
+        try:
+            # ===== 1단계: AST 평탄화 =====
+            collector = StatementCollector(
+                self.antlr_data, 
+                self.file_content, 
+                self.folder_name, 
+                self.file_name
+            )
+            nodes, procedures = collector.collect()
+            # nodes: List[StatementNode] (평탄화된 모든 노드)
+            # procedures: Dict[str, ProcedureInfo] (프로시저 메타)
+            
+            # ===== 2단계: 정적 그래프 초기화 =====
+            await self._initialize_static_graph(nodes)
+            
+            # ===== 3단계: 배치 계획 =====
+            planner = BatchPlanner()
+            batches = planner.plan(nodes, self.folder_file)
+            
+            if not batches:
+                await self.send_queue.put({"type": "end_analysis"})
+                return
+            
+            # ===== 4단계: 병렬 LLM 호출 및 순차 적용 =====
+            invoker = LLMInvoker(self.api_key, self.locale)
+            apply_manager = ApplyManager(
+                # ... 파라미터 생략 ...
+                procedures=procedures,
+                send_queue=self.send_queue,
+                receive_queue=self.receive_queue,
+            )
+            
+            semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
+            
+            async def worker(batch: AnalysisBatch):
+                # 부모 노드는 자식 완료 대기
+                await self._wait_for_dependencies(batch)
+                
+                async with semaphore:
+                    logging.info("🤖 [%s] AI 분석 시작 (배치 #%s)", ...)
+                    general, table = await invoker.invoke(batch)
+                
+                await apply_manager.submit(batch, general, table)
+            
+            # 모든 배치 병렬 처리
+            await asyncio.gather(*(worker(batch) for batch in batches))
+            
+            # ===== 5단계: 후처리 (요약 마무리) =====
+            await apply_manager.finalize()
+            
+            logging.info("✅ [%s] 코드 분석 완료", self.folder_file)
+            await self.send_queue.put({"type": "end_analysis"})
+        
+        except Exception as exc:
+            logging.exception("Understanding 오류")
+            await self.send_queue.put({'type': 'error', 'message': str(exc)})
+            raise
+```
+
+---
+
+##### 3-3. AST 평탄화 (StatementCollector)
+
+**목적**: 재귀적 AST 트리를 평탄한 `StatementNode` 리스트로 변환합니다.
+
+**왜 평탄화하나요?**
+
+```
+재귀 트리 구조 (ANTLR JSON):
+FILE
+  └─ PROCEDURE (1-95)
+       ├─ SPEC (1-13)
+       ├─ DECLARE (14-20)
+       ├─ SELECT (25-28)
+       ├─ IF (30-50)
+       │    └─ INSERT (32-35)
+       └─ COMMIT (52-52)
+
+평탄화된 리스트 (StatementNode):
+[
+  StatementNode(FILE, 0-0),
+  StatementNode(SPEC, 1-13),
+  StatementNode(DECLARE, 14-20),
+  StatementNode(SELECT, 25-28),
+  StatementNode(INSERT, 32-35),  # 자식이지만 리스트에 포함
+  StatementNode(IF, 30-50),
+  StatementNode(PROCEDURE, 1-95),
+  StatementNode(COMMIT, 52-52)
+]
+
+장점:
+✅ 배치 계획이 간단해짐 (순회 없이 필터링만)
+✅ 병렬 처리 용이 (각 노드가 독립적)
+✅ 부모-자식 관계는 StatementNode.children로 유지
+```
+
+**StatementCollector 동작**:
+
+```python
+class StatementCollector:
+    def __init__(self, antlr_data, file_content, folder_name, file_name):
+        self.antlr_data = antlr_data
+        self.file_content = file_content
+        self.nodes: List[StatementNode] = []  # 평탄화 결과
+        self.procedures: Dict[str, ProcedureInfo] = {}  # 프로시저 메타
+        self._node_id = 0  # 고유 ID 생성
+        self._file_lines = file_content.split('\n')
+    
+    def collect(self) -> Tuple[List[StatementNode], Dict[str, ProcedureInfo]]:
+        # 루트부터 후위 순회 시작
+        self._visit(self.antlr_data, current_proc=None, current_type=None, current_schema=None)
+        return self.nodes, self.procedures
+    
+    def _visit(self, node, current_proc, current_type, current_schema) -> Optional[StatementNode]:
+        """재귀적으로 AST를 순회하며 StatementNode 생성"""
+        start_line = node['startLine']
+        end_line = node['endLine']
+        node_type = node['type']
+        children = node.get('children', []) or []
+        
+        # === 1. 라인 단위 원본 텍스트 추출 ===
+        line_entries = [
+            (line_no, self._file_lines[line_no - 1])
+            for line_no in range(start_line, end_line + 1)
+        ]
+        code = '\n'.join(f"{line_no}: {text}" for line_no, text in line_entries)
+        
+        # === 2. 프로시저 정보 추출 ===
+        procedure_key = current_proc
+        procedure_type = current_type
+        schema_name = current_schema
+        
+        if node_type in PROCEDURE_TYPES:  # PROCEDURE, FUNCTION, TRIGGER
+            schema_candidate, name_candidate = get_procedure_name_from_code(code)
+            procedure_key = self._make_proc_key(name_candidate, start_line)
+            procedure_type = node_type
+            schema_name = schema_candidate
+            
+            if procedure_key not in self.procedures:
+                self.procedures[procedure_key] = ProcedureInfo(
+                    key=procedure_key,
+                    procedure_type=node_type,
+                    procedure_name=name_candidate,
+                    schema_name=schema_candidate,
+                    start_line=start_line,
+                    end_line=end_line,
+                )
+                logging.info("🚀 프로시저/함수 이름: %s", name_candidate)
+        
+        # === 3. 자식 노드 재귀 처리 (후위 순회: 자식 먼저) ===
+        child_nodes: List[StatementNode] = []
+        for child in children:
+            child_node = self._visit(child, procedure_key, procedure_type, schema_name)
+            if child_node is not None:
+                child_nodes.append(child_node)
+        
+        # === 4. StatementNode 생성 ===
+        analyzable = node_type not in NON_ANALYSIS_TYPES  # FILE, PROCEDURE, SPEC 등 제외
+        token = calculate_code_token(code)
+        dml = node_type in DML_STATEMENT_TYPES  # SELECT, INSERT, UPDATE, DELETE 등
+        has_children = bool(child_nodes)
+        
+        self._node_id += 1
+        statement_node = StatementNode(
+            node_id=self._node_id,
+            start_line=start_line,
+            end_line=end_line,
+            node_type=node_type,
+            code=code,
+            token=token,
+            has_children=has_children,
+            procedure_key=procedure_key,
+            procedure_type=procedure_type,
+            procedure_name=self.procedures.get(procedure_key).procedure_name if procedure_key else None,
+            schema_name=schema_name,
+            analyzable=analyzable,
+            dml=dml,
+            lines=line_entries,
+        )
+        
+        # === 5. 부모-자식 관계 설정 ===
+        for child_node in child_nodes:
+            child_node.parent = statement_node
+        statement_node.children.extend(child_nodes)
+        
+        # === 6. 분석 대상 카운팅 ===
+        if analyzable and procedure_key:
+            self.procedures[procedure_key].pending_nodes += 1
+        else:
+            statement_node.completion_event.set()  # 분석 불필요 노드는 즉시 완료
+        
+        # === 7. 리스트에 추가 ===
+        self.nodes.append(statement_node)
+        logging.info("🚀 노드: %s %s-%s (크기:%s, 자식:%s)", 
+                     node_type, start_line, end_line, token, 'true' if has_children else 'false')
+        
+        return statement_node
+```
+
+**후위 순회 (Post-order DFS)의 중요성**:
+
+```
+트리:
+       PROCEDURE (1-95)
+         ├─ SELECT (25-28)
+         ├─ IF (30-50)
+         │    └─ INSERT (32-35)
+         └─ COMMIT (52-52)
+
+후위 순회 순서 (자식 → 부모):
+1. SELECT (25-28)     ← 리프 노드 먼저
+2. INSERT (32-35)     ← 리프 노드 먼저
+3. IF (30-50)         ← 자식 완료 후
+4. COMMIT (52-52)     ← 리프 노드
+5. PROCEDURE (1-95)   ← 모든 자식 완료 후
+
+이유:
+✅ LLM 분석 시 자식 요약을 부모에 삽입 가능
+✅ 부모는 항상 자식 완료 후 처리 보장
+✅ 의존성 해결이 자연스러움
+```
+
+**StatementNode 데이터 구조**:
+
+```python
+@dataclass(slots=True)
 class StatementNode:
-    # 노드 정보만
+    node_id: int                     # 고유 ID
+    start_line: int                  # 시작 라인
+    end_line: int                    # 종료 라인
+    node_type: str                   # SELECT, INSERT, IF, PROCEDURE 등
+    code: str                        # 라인 번호 포함 원본 코드
+    token: int                       # 토큰 수
+    has_children: bool               # 자식 존재 여부
+    procedure_key: Optional[str]     # 소속 프로시저 키
+    procedure_type: Optional[str]    # PROCEDURE | FUNCTION | TRIGGER
+    procedure_name: Optional[str]    # 프로시저 이름
+    schema_name: Optional[str]       # 스키마 이름
+    analyzable: bool                 # LLM 분석 대상 여부
+    dml: bool                        # DML 구문 여부
+    lines: List[Tuple[int, str]]     # [(1, "CREATE..."), (2, "BEGIN"), ...]
+    parent: Optional[StatementNode]  # 부모 노드 참조
+    children: List[StatementNode]    # 자식 노드 리스트
+    summary: Optional[str]           # LLM이 생성한 요약 (나중에 채워짐)
+    completion_event: asyncio.Event  # 분석 완료 이벤트
     
-class ApplyManager:
-    # 적용 관련 상태만
+    def get_raw_code(self) -> str:
+        """라인 번호 포함 원문 반환"""
+        return '\n'.join(f"{line_no}: {text}" for line_no, text in self.lines)
     
-class BatchPlanner:
-    # 상태 없음 (순수 함수)
+    def get_compact_code(self) -> str:
+        """자식 요약을 포함한 부모 코드 생성 (LLM 입력용)"""
+        if not self.children:
+            return self.code
+        
+        result_lines = []
+        for child in sorted(self.children, key=lambda c: c.start_line):
+            # 자식 이전 부모 코드 추가
+            # ...
+            # 자식 요약 삽입
+            if child.summary:
+                result_lines.append(f"{child.start_line}~{child.end_line}: {child.summary}")
+            else:
+                result_lines.append(child.get_raw_code())  # 요약 없으면 원문
+            # 자식 원문 건너뛰기
+            # ...
+        return '\n'.join(result_lines)
 ```
-- ✅ 상태가 명확히 분리됨
 
-#### 4️⃣ 요약 생성 방식
+---
 
-**기존 버전:**
+##### 3-4. 정적 그래프 초기화
+
+**위치**: `Analyzer._initialize_static_graph()`
+
+**목적**: LLM 분석 **전에** 모든 노드와 기본 관계를 미리 생성합니다.
+
+**왜 미리 생성하나요?**
+
+```
+문제 상황 (동시 생성):
+├─ Worker 1: SELECT 노드 분석 → MERGE (n:SELECT {...})
+├─ Worker 2: INSERT 노드 분석 → MERGE (n:INSERT {...})
+└─ Worker 3: IF 노드 분석 → MERGE (n:IF {...})
+     └─ 동시에 PARENT_OF 관계 생성 시도
+         ├─ "Parent not found" 에러 발생 가능
+         └─ 순서 의존성 문제
+
+해결책 (사전 생성):
+1️⃣ 모든 노드 먼저 생성 (FILE, PROCEDURE, SELECT, ...)
+2️⃣ 모든 PARENT_OF 관계 생성
+3️⃣ 모든 NEXT 관계 생성
+4️⃣ 변수 노드 생성 (SPEC, DECLARE, PACKAGE_VARIABLE)
+└─ 이후 LLM 분석은 summary만 채우면 됨 ✅
+```
+
+**세부 동작**:
+
 ```python
-# 실시간으로 플레이스홀더 치환
-schedule_stack.append(current_schedule)
-placeholder = f"{start_line}: ... code ..."
-focused_code = focused_code.replace(placeholder, summarized_code)
+async def _initialize_static_graph(self, nodes: List[StatementNode]):
+    if not nodes:
+        return
+    
+    # === 1단계: 노드 생성 ===
+    await self._create_static_nodes(nodes)
+    
+    # === 2단계: 관계 생성 ===
+    await self._create_relationships(nodes)
+    
+    # === 3단계: 변수 노드 생성 ===
+    await self._process_variable_nodes(nodes)
 ```
-- 🔄 **복잡**: 문자열 치환 로직이 여러 곳에 분산
 
-**리팩터 버전:**
+**1단계: _create_static_nodes()**
+
 ```python
-# StatementNode가 자체적으로 요약 생성
-def get_compact_code(self) -> str:
-    # 자식 요약을 포함한 부모 코드 생성
-    for child in self.children:
-        if child.summary:
-            result_lines.append(f"{child.start_line}: {child.summary}")
-```
-- ✅ **명확**: 노드 자신이 요약 생성 책임 보유
-
----
-
-### 🔄 전환 시나리오 예시
-
-#### 시나리오: 100개 노드, 10개 배치
-
-**기존 버전 타임라인:**
-```mermaid
-gantt
-    title 기존 버전 - 순차 처리
-    dateFormat ss
-    axisFormat %S초
+async def _create_static_nodes(self, nodes: List[StatementNode]):
+    queries: List[str] = []
     
-    section Batch 1
-    LLM 호출 :a1, 00, 2s
-    Neo4j 저장 :a2, after a1, 1s
+    for node in nodes:
+        queries.extend(self._build_static_node_queries(node))
+        
+        # 배치 크기 도달 시 전송
+        if len(queries) >= STATIC_QUERY_BATCH_SIZE:  # 40개
+            await self._send_static_queries(queries, node.end_line)
+            queries.clear()
     
-    section Batch 2
-    LLM 호출 :b1, after a2, 2s
-    Neo4j 저장 :b2, after b1, 1s
-    
-    section Batch 3
-    LLM 호출 :c1, after b2, 2s
-    Neo4j 저장 :c2, after c1, 1s
+    # 잔여 쿼리 전송
+    if queries:
+        await self._send_static_queries(queries, nodes[-1].end_line)
 ```
 
-**리팩터 버전 타임라인:**
-```mermaid
-gantt
-    title 리팩터 버전 - 병렬 처리
-    dateFormat ss
-    axisFormat %S초
+**_build_static_node_queries() 로직**:
+
+```python
+def _build_static_node_queries(self, node: StatementNode) -> List[str]:
+    queries: List[str] = []
+    label = node.node_type  # SELECT, INSERT, IF, PROCEDURE, ...
     
-    section 준비
-    평탄화 :prep, 00, 1s
+    # === 1. 공통 속성 ===
+    node_name = self.file_name if label == "FILE" else f"{label}[{node.start_line}]"
+    escaped_name = escape_for_cypher(node_name)
+    has_children = 'true' if node.has_children else 'false'
+    procedure_name = escape_for_cypher(node.procedure_name or '')
     
-    section 병렬 LLM
-    Batch 1 :a1, after prep, 2s
-    Batch 2 :b1, after prep, 2s
-    Batch 3 :c1, after prep, 2s
+    # === 2. 자식 없는 분석 대상 노드 (리프 노드) ===
+    if not node.children and label not in NON_ANALYSIS_TYPES:
+        escaped_code = escape_for_cypher(node.code)
+        queries.append(f"""
+            MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})
+            SET n.endLine = {node.end_line},
+                n.name = '{escaped_name}',
+                n.node_code = '{escaped_code}',
+                n.token = {node.token},
+                n.procedure_name = '{procedure_name}',
+                n.has_children = {has_children}
+            WITH n
+            MERGE (folder:SYSTEM {{{self.folder_props}}})
+            MERGE (folder)-[:CONTAINS]->(n)
+        """)
+        return queries
     
-    section 적용
-    순차 적용 :apply, after a1, 1s
+    # === 3. 부모 노드 또는 비분석 노드 ===
+    escaped_code = escape_for_cypher(node.code)
+    escaped_summary = escape_for_cypher(node.get_compact_code())  # 자식 플레이스홀더 포함
+    
+    if label == "FILE":
+        file_summary = '파일 노드' if self.locale == 'ko' else 'File Start Node'
+        queries.append(f"""
+            MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})
+            SET n.endLine = {node.end_line},
+                n.name = '{self.file_name}',
+                n.summary = '{escape_for_cypher(file_summary)}',
+                n.has_children = {has_children}
+            WITH n
+            MERGE (folder:SYSTEM {{{self.folder_props}}})
+            MERGE (folder)-[:CONTAINS]->(n)
+        """)
+    else:
+        queries.append(f"""
+            MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})
+            SET n.endLine = {node.end_line},
+                n.name = '{escaped_name}',
+                n.summarized_code = '{escaped_summary}',
+                n.node_code = '{escaped_code}',
+                n.token = {node.token},
+                n.procedure_name = '{procedure_name}',
+                n.has_children = {has_children}
+            WITH n
+            MERGE (folder:SYSTEM {{{self.folder_props}}})
+            MERGE (folder)-[:CONTAINS]->(n)
+        """)
+    
+    return queries
+```
+
+**생성되는 노드 예시 (Neo4j)**:
+
+```cypher
+(:FILE {
+  startLine: 0,
+  endLine: 0,
+  user_id: "KO_TestSession",
+  folder_name: "PATIENT_PKG",
+  file_name: "SP_PATIENT_REGISTER.sql",
+  project_name: "HOSPITAL_SYSTEM",
+  name: "SP_PATIENT_REGISTER.sql",
+  summary: "파일 노드",
+  has_children: true
+})
+
+(:PROCEDURE {
+  startLine: 1,
+  endLine: 95,
+  user_id: "KO_TestSession",
+  folder_name: "PATIENT_PKG",
+  file_name: "SP_PATIENT_REGISTER.sql",
+  project_name: "HOSPITAL_SYSTEM",
+  procedure_name: "TPX_HOSPITAL_RECEPTION",
+  name: "PROCEDURE[1]",
+  node_code: "1: CREATE OR REPLACE PROCEDURE...\n2: (\n3:   pPatientKey...",
+  summarized_code: "1: CREATE OR REPLACE...\n25~28: ... code ...",  # 자식 플레이스홀더
+  token: 1285,
+  has_children: true
+})
+
+(:SELECT {
+  startLine: 25,
+  endLine: 28,
+  user_id: "KO_TestSession",
+  folder_name: "PATIENT_PKG",
+  file_name: "SP_PATIENT_REGISTER.sql",
+  project_name: "HOSPITAL_SYSTEM",
+  procedure_name: "TPX_HOSPITAL_RECEPTION",
+  name: "SELECT[25]",
+  node_code: "25:     SELECT COUNT(*) INTO vPatientExists\n26:     FROM TPJ_PATIENT\n27:     WHERE PATIENT_KEY = pPatientKey;",
+  token: 45,
+  has_children: false
+})
+```
+
+**2단계: _create_relationships()**
+
+```python
+async def _create_relationships(self, nodes: List[StatementNode]):
+    queries: List[str] = []
+    
+    for node in nodes:
+        # === PARENT_OF 관계 생성 ===
+        for child in node.children:
+            queries.append(self._build_parent_relationship_query(node, child))
+            
+            if len(queries) >= STATIC_QUERY_BATCH_SIZE:
+                await self._send_static_queries(queries, child.end_line)
+                queries.clear()
+        
+        # === NEXT 관계 생성 (형제 노드 간) ===
+        prev_node: Optional[StatementNode] = None
+        for child in node.children:
+            if prev_node and prev_node.node_type not in NON_NEXT_RECURSIVE_TYPES:
+                queries.append(self._build_next_relationship_query(prev_node, child))
+                
+                if len(queries) >= STATIC_QUERY_BATCH_SIZE:
+                    await self._send_static_queries(queries, child.end_line)
+                    queries.clear()
+            
+            prev_node = child
+    
+    if queries:
+        await self._send_static_queries(queries, nodes[-1].end_line)
+```
+
+**_build_parent_relationship_query()**:
+
+```python
+def _build_parent_relationship_query(self, parent: StatementNode, child: StatementNode) -> str:
+    return f"""
+        MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})
+        MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})
+        MERGE (parent)-[:PARENT_OF]->(child)
+    """
+```
+
+**_build_next_relationship_query()**:
+
+```python
+def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
+    return f"""
+        MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})
+        MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})
+        MERGE (prev)-[:NEXT]->(current)
+    """
+```
+
+**생성되는 관계 예시**:
+
+```cypher
+(FILE)-[:PARENT_OF]->(PROCEDURE)
+(PROCEDURE)-[:PARENT_OF]->(SPEC)
+(PROCEDURE)-[:PARENT_OF]->(DECLARE)
+(PROCEDURE)-[:PARENT_OF]->(SELECT)
+(PROCEDURE)-[:PARENT_OF]->(IF)
+(IF)-[:PARENT_OF]->(INSERT)
+(PROCEDURE)-[:PARENT_OF]->(COMMIT)
+
+(SPEC)-[:NEXT]->(DECLARE)
+(DECLARE)-[:NEXT]->(SELECT)
+(SELECT)-[:NEXT]->(IF)
+(IF)-[:NEXT]->(COMMIT)
+```
+
+**3단계: _process_variable_nodes()**
+
+**목적**: 변수 선언 노드를 병렬로 LLM 분석하여 Variable 노드를 생성합니다.
+
+```python
+async def _process_variable_nodes(self, nodes: List[StatementNode]):
+    # === 1. 변수 선언 노드 필터링 ===
+    targets = [node for node in nodes if node.node_type in VARIABLE_DECLARATION_TYPES]
+    # VARIABLE_DECLARATION_TYPES = {"PACKAGE_VARIABLE", "DECLARE", "SPEC"}
+    
+    if not targets:
+        return
+    
+    logging.info("[%s] 변수 분석 시작", self.folder_file)
+    
+    # === 2. 병렬 처리 준비 ===
+    semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)  # 최대 5개 동시
+    
+    async def worker(node: StatementNode):
+        async with semaphore:
+            try:
+                # LLM 호출
+                result = await asyncio.to_thread(
+                    understand_variables,
+                    node.get_raw_code(),
+                    self.api_key,
+                    self.locale,
+                )
+            except Exception as exc:
+                logging.error("변수 분석 오류: %s", exc)
+                return
+            
+            # Cypher 쿼리 생성 및 전송
+            queries = self._build_variable_queries(node, result)
+            if queries:
+                await self._send_static_queries(queries, node.end_line)
+    
+    # === 3. 모든 변수 노드 병렬 처리 ===
+    await asyncio.gather(*(worker(node) for node in targets))
+    
+    logging.info("[%s] 변수 분석 완료", self.folder_file)
+```
+
+**understand_variables 프롬프트**:
+
+```python
+# prompt/understand_variables_prompt.py
+def understand_variables(code: str, api_key: str, locale: str) -> Dict:
+    """
+    입력:
+      code: "1: pPatientKey IN NUMBER,\n2: pActionType IN VARCHAR2"
+    
+    출력:
+      {
+        "variables": [
+          {
+            "name": "pPatientKey",
+            "type": "NUMBER",
+            "parameter_type": "IN",
+            "value": null
+          },
+          {
+            "name": "pActionType",
+            "type": "VARCHAR2",
+            "parameter_type": "IN",
+            "value": null
+          }
+        ],
+        "summary": "환자 키와 액션 타입을 입력 받습니다"
+      }
+    """
+```
+
+**_build_variable_queries()**:
+
+```python
+def _build_variable_queries(self, node: StatementNode, analysis: Dict) -> List[str]:
+    variables = analysis.get("variables") or []
+    summary_payload = analysis.get("summary")
+    summary_json = json.dumps(summary_payload if summary_payload else "", ensure_ascii=False)
+    
+    role = VARIABLE_ROLE_MAP.get(node.node_type, "알 수 없는 매개변수")
+    # VARIABLE_ROLE_MAP = {
+    #     "PACKAGE_VARIABLE": "패키지 전역 변수",
+    #     "DECLARE": "변수 선언및 초기화",
+    #     "SPEC": "함수 및 프로시저 입력 매개변수",
+    # }
+    
+    scope = "Global" if node.node_type == "PACKAGE_VARIABLE" else "Local"
+    
+    queries: List[str] = []
+    
+    # === 1. 선언 노드에 summary 설정 ===
+    queries.append(f"""
+        MATCH (p:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})
+        SET p.summary = {summary_json}
+    """)
+    
+    # === 2. Variable 노드 생성 ===
+    for variable in variables:
+        name = escape_for_cypher(variable.get("name"))
+        var_type = escape_for_cypher(variable.get("type") or '')
+        param_type = escape_for_cypher(variable.get("parameter_type") or '')
+        value_json = json.dumps(variable.get("value") if variable.get("value") else "", ensure_ascii=False)
+        
+        queries.append(f"""
+            MERGE (v:Variable {{
+                name: '{name}',
+                {self.node_base_props},
+                type: '{var_type}',
+                parameter_type: '{param_type}',
+                value: {value_json},
+                role: '{role}',
+                scope: '{scope}'
+            }})
+            WITH v
+            MATCH (p:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})
+            MERGE (p)-[:SCOPE]->(v)
+            WITH v
+            MERGE (folder:SYSTEM {{{self.folder_props}}})
+            MERGE (folder)-[:CONTAINS]->(v)
+        """)
+    
+    return queries
+```
+
+**생성되는 그래프 예시**:
+
+```cypher
+(:SPEC {
+  startLine: 1,
+  endLine: 13,
+  summary: "환자 키와 액션 타입을 입력 받습니다",
+  ...
+})
+  -[:SCOPE]->(:Variable {
+    name: "pPatientKey",
+    type: "NUMBER",
+    parameter_type: "IN",
+    role: "함수 및 프로시저 입력 매개변수",
+    scope: "Local",
+    ...
+  })
+  -[:SCOPE]->(:Variable {
+    name: "pActionType",
+    type: "VARCHAR2",
+    parameter_type: "IN",
+    role: "함수 및 프로시저 입력 매개변수",
+    scope: "Local",
+    ...
+  })
 ```
 
 ---
 
-### 📋 선택 가이드
+이제 본격적인 **LLM 병렬 분석** 단계로 넘어갑니다.
 
-#### 기존 버전을 사용해야 하는 경우
+*(문서가 매우 길어지고 있습니다. 다음 단계인 "배치 계획", "병렬 LLM 호출", "순차 적용" 부분을 계속 작성할까요? 아니면 여기서 먼저 검토 후 이어서 작성하시겠습니까?)*
 
-- ✅ **메모리 제약이 있는 환경**: 평탄화 오버헤드를 피해야 할 때
-- ✅ **작은 파일 분석**: 병렬 처리 이점이 크지 않을 때
-- ✅ **순차 처리가 필수**: 의존성이 복잡한 경우
-
-#### 리팩터 버전을 사용해야 하는 경우
-
-- ✅ **대용량 파일 분석**: 병렬 처리로 시간 단축이 필요할 때
-- ✅ **높은 처리량 요구**: 여러 파일을 빠르게 처리해야 할 때
-- ✅ **코드 유지보수성 중시**: 명확한 구조가 필요할 때
-- ✅ **확장 계획**: 새로운 기능 추가가 예상될 때
-
----
-
-### 🚀 마이그레이션 체크리스트
-
-기존 버전에서 리팩터 버전으로 전환하려면:
-
-- [ ] **테스트 커버리지 확보**: 기존 동작을 검증할 테스트 작성
-- [ ] **메모리 프로파일링**: 평탄화 오버헤드 측정
-- [ ] **LLM 동시성 제한 설정**: API rate limit 확인
-- [ ] **에러 핸들링 검증**: 배치 실패 시나리오 테스트
-- [ ] **성능 벤치마크**: 실제 데이터로 성능 비교
-- [ ] **점진적 롤아웃**: 일부 파일부터 적용 후 확대
-
----
-
-### 📊 실측 성능 데이터 (예시)
-
-| 파일 크기 | 노드 수 | 기존 버전 | 리팩터 버전 | 개선율 |
-|----------|---------|----------|------------|--------|
-| 500 LOC | 50 | 3.2초 | 1.8초 | **44%** ↓ |
-| 1000 LOC | 120 | 8.1초 | 3.5초 | **57%** ↓ |
-| 2000 LOC | 250 | 18.4초 | 6.9초 | **62%** ↓ |
-| 5000 LOC | 600 | 45.2초 | 15.3초 | **66%** ↓ |
-
-**테스트 환경:**
-- LLM: GPT-4 Turbo
-- 동시성: 5개 워커
-- 네트워크: 평균 100ms 레이턴시
-
----
-
-### 🔮 향후 개선 방향
-
-#### 리팩터 버전 기반 확장 계획
-
-1. **적응형 배치 크기**
-   - 노드 복잡도에 따라 동적으로 배치 크기 조정
-   - 토큰 뿐만 아니라 DML 비율도 고려
-
-2. **LLM 캐싱**
-   - 동일한 패턴의 코드는 캐시 활용
-   - 분석 비용 추가 절감
-
-3. **스트리밍 적용**
-   - ApplyManager가 완료된 배치부터 즉시 Neo4j 저장
-   - 전체 완료 대기 시간 단축
-
-4. **다중 파일 병렬 분석**
-   - 여러 PL/SQL 파일을 동시에 분석
-   - 프로젝트 전체 분석 시간 대폭 단축
-
----
-
-## 🎓 추가 자료
-
-### 관련 기술 문서
-
-- [FastAPI 공식 문서](https://fastapi.tiangolo.com/)
-- [Neo4j 공식 문서](https://neo4j.com/docs/)
-- [ANTLR 공식 문서](https://www.antlr.org/)
-- [Spring Boot 공식 문서](https://spring.io/projects/spring-boot)
-- [OpenAI API 문서](https://platform.openai.com/docs/)
-
-### 프로젝트 철학
-
-> **"사람 입장에서 이해하기 쉬운 관계를 먼저 만들고, 그 위에 코드 생성을 쌓습니다."**
-
-- 📊 **그래프 우선**: 코드의 관계를 그래프로 표현하여 직관적으로 이해
-- 🔄 **단계별 처리**: 이해 → 변환으로 명확히 분리하여 각 단계에 집중
-- 📝 **보수적 병합**: MERGE를 사용하여 중복 방지, 기존 데이터 보존
-- 📢 **투명한 진행**: 스트리밍으로 실시간 진행 상황 공개
-- 💬 **쉬운 표현**: "읽는다/쓴다/호출한다" 같은 직관적인 관계명 사용
-
----
-
-## 📞 지원
-
-문제가 발생하거나 질문이 있으시면 이슈를 생성해 주세요.
-
----
-
-## 📄 라이선스
-
-이 프로젝트는 [라이선스명]에 따라 배포됩니다.
-
----
-
-<div align="center">
-
-**Made with ❤️ by Legacy Modernizer Team**
-
-⭐ 이 프로젝트가 유용하다면 Star를 눌러주세요!
-
-</div>
