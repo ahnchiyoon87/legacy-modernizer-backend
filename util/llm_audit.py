@@ -4,7 +4,10 @@ import threading
 from datetime import datetime
 from typing import Any, Optional
 
-from langchain.callbacks import get_openai_callback
+try:
+    from langchain_community.callbacks import get_openai_callback
+except ImportError:  # pragma: no cover
+    from langchain.callbacks import get_openai_callback
 
 __all__ = [
     "reset_audit_log",
