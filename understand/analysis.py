@@ -28,15 +28,9 @@ PROCEDURE_TYPES = ("PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER")
 NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "FOLDER", "SPEC"])
 NON_NEXT_RECURSIVE_TYPES = frozenset(["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"])
 DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH"])
-DML_RELATIONSHIP_MAP = {
-    "SELECT": "FROM",
-    "FETCH": "FROM",
-    "UPDATE": "WRITES",
-    "INSERT": "WRITES",
-    "DELETE": "WRITES",
-    "MERGE": "WRITES",
-    "EXECUTE": "EXECUTE",
-    "EXECUTE_IMMEDIATE": "EXECUTE",
+TABLE_RELATIONSHIP_MAP = {
+    "r": "FROM",
+    "w": "WRITES",
 }
 VARIABLE_ROLE_MAP = {
     "PACKAGE_VARIABLE": "패키지 전역 변수",
@@ -711,7 +705,12 @@ class ApplyManager:
             if not table_name:
                 continue
 
-            relationship = DML_RELATIONSHIP_MAP.get((entry.get('dmlType') or '').upper())
+            access_mode_raw = (entry.get('accessMode') or '').lower()
+            relationship_targets: List[str] = []
+            if 'r' in access_mode_raw:
+                relationship_targets.append(TABLE_RELATIONSHIP_MAP['r'])
+            if 'w' in access_mode_raw:
+                relationship_targets.append(TABLE_RELATIONSHIP_MAP['w'])
             schema_part, name_part, db_link_value = parse_table_identifier(table_name)
             table_merge = self._build_table_merge(name_part, schema_part)
             node_merge = f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
@@ -735,7 +734,7 @@ class ApplyManager:
             if db_link_value:
                 base_table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
 
-            if relationship:
+            for relationship in relationship_targets:
                 base_table_query += f"\nMERGE (n)-[:{relationship}]->(t)"
 
             queries.append(base_table_query)

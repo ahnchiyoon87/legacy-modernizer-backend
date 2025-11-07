@@ -1014,7 +1014,7 @@ class Neo4jConnection:
     {
       "startLine": 9,
       "endLine": 10,
-      "dmlType": "SELECT",
+      "accessMode": "r",
       "table": "SALES.ORDERS",
       "tableDescription": "주문 정보를 조회합니다.",
       "columns": [

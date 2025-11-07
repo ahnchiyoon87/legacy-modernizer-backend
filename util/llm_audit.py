@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from datetime import datetime
 from typing import Any, Optional
@@ -20,14 +21,22 @@ __all__ = [
 _BASE_DIR = os.getenv("DOCKER_COMPOSE_CONTEXT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _AUDIT_DIR = os.getenv("LLM_AUDIT_DIR") or os.path.join(_BASE_DIR, "logs")
 _AUDIT_FILE = os.getenv("LLM_AUDIT_FILE") or os.path.join(_AUDIT_DIR, "llm_audit.json")
+_PROMPT_LOG_DIR = os.path.join(_AUDIT_DIR, "llm_prompts")
 _FILE_LOCK = threading.Lock()
 
 
 def reset_audit_log() -> None:
     os.makedirs(_AUDIT_DIR, exist_ok=True)
+    os.makedirs(_PROMPT_LOG_DIR, exist_ok=True)
     with _FILE_LOCK:
         with open(_AUDIT_FILE, "w", encoding="utf-8") as fp:
             json.dump({"prompts": {}}, fp, ensure_ascii=False, indent=2)
+        for filename in os.listdir(_PROMPT_LOG_DIR):
+            if filename.endswith(".json"):
+                try:
+                    os.remove(os.path.join(_PROMPT_LOG_DIR, filename))
+                except OSError:
+                    pass
 
 
 def _load_audit_log() -> dict[str, Any]:
@@ -48,6 +57,36 @@ def _write_audit_log(data: dict[str, Any]) -> None:
     os.makedirs(_AUDIT_DIR, exist_ok=True)
     with open(_AUDIT_FILE, "w", encoding="utf-8") as fp:
         json.dump(data, fp, ensure_ascii=False, indent=2)
+
+
+def _sanitize_prompt_name(prompt_name: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", prompt_name)
+    safe = safe.strip("_")
+    return safe or "prompt"
+
+
+def _prompt_log_path(prompt_name: str) -> str:
+    os.makedirs(_PROMPT_LOG_DIR, exist_ok=True)
+    safe_name = _sanitize_prompt_name(prompt_name)
+    return os.path.join(_PROMPT_LOG_DIR, f"{safe_name}.json")
+
+
+def _load_prompt_log(prompt_name: str) -> list[dict[str, Any]]:
+    path = _prompt_log_path(prompt_name)
+    try:
+        with open(path, "r", encoding="utf-8") as fp:
+            records = json.load(fp)
+            return records if isinstance(records, list) else []
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        return []
+
+
+def _write_prompt_log(prompt_name: str, records: list[dict[str, Any]]) -> None:
+    path = _prompt_log_path(prompt_name)
+    with open(path, "w", encoding="utf-8") as fp:
+        json.dump(records, fp, ensure_ascii=False, indent=2)
 
 
 def _safe_serialize(value: Any) -> Any:
@@ -112,6 +151,7 @@ def log_llm_interaction(
         records.sort(key=_entry_sort_key)
         prompts[prompt_name] = records
         _write_audit_log(data)
+        _write_prompt_log(prompt_name, records)
 
 
 def invoke_with_audit(

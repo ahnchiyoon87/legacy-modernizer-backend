@@ -38,7 +38,7 @@ prompt = PromptTemplate.from_template(
 
 [ANALYSIS_OBJECTIVES]
 각 DML 구문(SELECT, INSERT, UPDATE, DELETE, MERGE, EXECUTE IMMEDIATE, CTE 등)에 대해 다음 정보를 추출합니다:
-1. 테이블 메타데이터: 테이블명, DML 종류, 테이블 역할 설명
+1. 테이블 메타데이터: 테이블명, accessMode(r/w), 테이블 역할 설명
 2. 컬럼 메타데이터: 컬럼명, 데이터 타입, NULL 가능 여부, 컬럼 역할 설명
 3. 외래키 관계: sourceTable, sourceColumn, targetTable, targetColumn
 4. DB 링크 정보: name, mode
@@ -67,6 +67,12 @@ prompt = PromptTemplate.from_template(
 - JOIN 절의 모든 테이블을 빠짐없이 포함
 - 대소문자는 코드에 명시된 원문 그대로 유지
 - DB 링크 표기('@')가 포함된 테이블은 table 필드에 넣지 않고 dbLinks 배열에만 기록
+
+=== accessMode(r/w) 분류 규칙 ===
+- 'w': INSERT, UPDATE, DELETE, MERGE 등으로 해당 테이블에 데이터가 직접 쓰이거나 삭제되는 경우
+- 'r': SELECT, JOIN, WHERE, 서브쿼리 등 읽기 전용으로 사용되는 경우
+- 동일 범위에서 읽기와 쓰기가 모두 발생하면 'w'를 우선 적용
+- 하나의 DML 범위에 여러 테이블이 포함될 수 있으므로 각 테이블을 독립적으로 판단
 
 === 테이블 제외 대상 ===
 - 임시 테이블 (TEMPORARY TABLE, TEMP TABLE)
@@ -104,33 +110,23 @@ prompt = PromptTemplate.from_template(
 [SECTION_2_FOREIGN_KEY_RELATIONS]
 외래키(FK) 관계 식별 및 표기:
 
-=== 수집 대상 ===
-- 테이블 간에 직접적인 외래키 관계가 있는 경우만 식별 (간접 관계는 제외)
-- 직접 참조하는 컬럼명이 명확히 존재하는 경우만 포함
-- JOIN 조건에서 동등 비교(=)로 연결된 컬럼 쌍 중 외래키로 해석되는 관계
-  - 예: FROM ORDER_DETAIL od JOIN ORDER_MASTER om ON od.ORDER_ID = om.ORDER_ID
-- INSERT/UPDATE 시 참조 무결성을 전제로 사용하는 컬럼-테이블 관계
-  - 예: INSERT INTO ORDER_DETAIL (ORDER_ID, ...) 에서 ORDER_ID가 ORDER_MASTER를 참조
-- 동적 SQL(EXECUTE IMMEDIATE, 변수에 저장된 SQL 문자열)에서 식별 가능한 FK 관계
-- WHERE 절에서 서브쿼리로 참조하는 경우도 포함
-  - 예: WHERE CUSTOMER_ID IN (SELECT CUSTOMER_ID FROM CUSTOMER)
+=== 수집 기준 ===
+- 단순히 컬럼명이 같거나 의미가 비슷하다는 이유로는 외래키로 간주하지 않습니다.
+- 한 테이블이 다른 테이블의 기본키(PK)나 고유키(UK)를 참조한다는 구조가 코드에 명확히 드러날 때만 기록합니다.
+- 명확한 근거 없이 추론하거나 추측하지 마십시오. 근거가 없으면 fkRelations는 빈 배열([])로 유지합니다.
 
-=== 식별 및 표기 규칙 ===
-- 방향은 반드시 FK(외래키) → PK/UK(기본키/고유키)로 기술
-- 각 관계는 객체로 표현하며 다음 4개 필드를 반드시 포함:
-  - sourceTable: 외래키를 가진 테이블 (스키마 포함)
-  - sourceColumn: 외래키 컬럼명
+=== 식별 예시 ===
+- 조인 조건에서 FK→PK 구조가 드러나는 경우: `FROM DETAIL d JOIN MASTER m ON d.MASTER_ID = m.ID`
+- INSERT/UPDATE 구문에서 참조 무결성을 전제로 하는 경우: `INSERT INTO DETAIL (MASTER_ID, ...)`
+- 서브쿼리나 동적 SQL에서도 FK→PK 구조가 확실히 나타나면 동일하게 기록합니다.
+
+=== 표기 형식 ===
+- 각 관계는 다음 필드를 모두 포함해야 합니다.
+  - sourceTable: FK를 가진 테이블 (스키마 포함)
+  - sourceColumn: FK 컬럼명
   - targetTable: 참조 대상 테이블 (스키마 포함)
   - targetColumn: 참조 대상 컬럼명 (PK 또는 UK)
-- 모든 값은 스키마를 포함한 완전 수식명 사용
-  - 예: "TPJ.ORDER_DETAIL", "TPJ.ORDER_MASTER", "ORDER_ID"
-- targetColumn은 기본키(PK) 또는 고유키(UK)여야 함
-- 파악이 어려운 경우에도 코드 상 명시된 조인/참조 컬럼을 그대로 사용
-- 동일 관계가 여러 번 등장하면 중복 없이 한 번만 기록
-- 컬럼명과 테이블명은 SP 코드에서 명시된 이름 그대로 사용 (임의 변경 금지)
-
-=== 예시 ===
-- {{ "sourceTable": "TPJ.ORDER_DETAIL", "sourceColumn": "ORDER_ID", "targetTable": "TPJ.ORDER_MASTER", "targetColumn": "ORDER_ID" }}
+- 모든 문자열은 코드에 나타난 원문 케이스를 유지합니다.
 
 
 [SECTION_3_DB_LINK_IDENTIFICATION]
@@ -202,33 +198,37 @@ DB 링크 식별 및 범위 규칙:
 출력 JSON 스키마:
 ```json
 {{
-  "tables": [
+  "ranges": [
     {{
       "startLine": 범위_시작_라인_번호,
       "endLine": 범위_종료_라인_번호,
-      "dmlType": "SELECT|INSERT|UPDATE|DELETE|MERGE|EXECUTE",
-      "table": "SCHEMA.TABLE_NAME",
-      "tableDescription": "테이블 역할 요약 (1~2문장)",
-      "columns": [
+      "tables": [
         {{
-          "name": "컬럼명",
-          "dtype": "데이터타입",
-          "nullable": true,
-          "description": "컬럼 역할 설명"
-        }}
-      ],
-      "fkRelations": [
-        {{
-          "sourceTable": "스키마.테이블명",
-          "sourceColumn": "컬럼명",
-          "targetTable": "스키마.참조테이블명",
-          "targetColumn": "참조컬럼명"
-        }}
-      ],
-      "dbLinks": [
-        {{
-          "name": "스키마.테이블명@DB_링크명",
-          "mode": "r"
+          "table": "SCHEMA.TABLE_NAME",
+          "accessMode": "r|w",
+          "tableDescription": "테이블 역할 요약 (1~2문장)",
+          "columns": [
+            {{
+              "name": "컬럼명",
+              "dtype": "데이터타입",
+              "nullable": true,
+              "description": "컬럼 역할 설명"
+            }}
+          ],
+          "fkRelations": [
+            {{
+              "sourceTable": "스키마.테이블명",
+              "sourceColumn": "컬럼명",
+              "targetTable": "스키마.참조테이블명",
+              "targetColumn": "참조컬럼명"
+            }}
+          ],
+          "dbLinks": [
+            {{
+              "name": "스키마.테이블명@DB_링크명",
+              "mode": "r"
+            }}
+          ]
         }}
       ]
     }}
@@ -238,9 +238,12 @@ DB 링크 식별 및 범위 규칙:
 
 출력 제약사항:
 - JSON 형식 외의 부가 설명이나 주석 금지
-- "tables" 배열의 각 요소는 위 스키마를 정확히 따름
-- startLine/endLine은 정수형 필수
-- dmlType은 반드시 SELECT, INSERT, UPDATE, DELETE, MERGE, EXECUTE 중 하나
+- "ranges" 배열의 길이는 입력 ranges와 동일해야 함
+- 각 range 항목의 startLine/endLine은 입력과 동일하게 유지
+- tables 배열 안의 객체들은 위 스키마를 정확히 따름
+- ranges 배열의 순서는 입력 ranges 순서를 그대로 따라야 함
+- 각 range 항목에는 최소한 빈 배열이라도 tables 필드를 포함해야 함
+- accessMode는 반드시 'r' 또는 'w'
 - columns, fkRelations, dbLinks 배열은 빈 배열 가능
 - 빈 값은 null 대신 빈 배열([]) 또는 빈 문자열("") 사용
 - 코드펜스(```json ... ``` 등) 포함 금지
@@ -281,8 +284,8 @@ def understand_dml_tables(code: str, ranges: list[dict], api_key: str, locale: s
             sort_key=min_start,
         )
         if not isinstance(result, dict):
-            return {"tables": []}
-        result.setdefault("tables", [])
+            return {"ranges": []}
+        result.setdefault("ranges", [])
         return result
 
     except Exception as e:
