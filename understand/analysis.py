@@ -664,7 +664,9 @@ class ApplyManager:
 
         for call_name in analysis.get('calls', []) or []:
             if '.' in call_name:
-                package_name, proc_name = call_name.upper().split('.')
+                package_raw, proc_raw = call_name.split('.', 1)
+                package_name = escape_for_cypher(package_raw.strip())
+                proc_name = escape_for_cypher(proc_raw.strip())
                 queries.append(
                     f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                     f"OPTIONAL MATCH (p)\n"
@@ -680,10 +682,11 @@ class ApplyManager:
                     f"    MERGE (c)-[:CALL {{scope: 'external'}}]->(p))"
                 )
             else:
+                escaped_call = escape_for_cypher(call_name)
                 queries.append(
                     f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                     f"WITH c\n"
-                    f"MATCH (p {{procedure_name: '{escape_for_cypher(call_name)}', {self.node_base_props}}})\n"
+                    f"MATCH (p {{procedure_name: '{escaped_call}', {self.node_base_props}}})\n"
                     f"WHERE p:PROCEDURE OR p:FUNCTION\n"
                     f"MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)"
                 )
@@ -704,7 +707,7 @@ class ApplyManager:
             node = node_map.get((start_line, end_line))
             if not node:
                 continue
-            table_name = (entry.get('table') or '').strip().upper()
+            table_name = (entry.get('table') or '').strip()
             if not table_name:
                 continue
 
@@ -747,7 +750,7 @@ class ApplyManager:
                 self._record_column_summary(bucket_key, column_name, raw_column_desc)
                 col_description = escape_for_cypher(raw_column_desc)
                 nullable_flag = 'true' if column.get('nullable', True) else 'false'
-                fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
+                fqn = '.'.join(filter(None, [schema_part, name_part, column_name]))
                 column_merge_key = (
                     f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
                 )
@@ -765,7 +768,7 @@ class ApplyManager:
 
             # 3) DB 링크 노드 연결
             for link_item in entry.get('dbLinks', []) or []:
-                link_name_raw = (link_item.get('name') or '').strip().upper()
+                link_name_raw = (link_item.get('name') or '').strip()
                 if not link_name_raw:
                     continue
                 mode = (link_item.get('mode') or 'r').lower()
@@ -785,8 +788,8 @@ class ApplyManager:
 
             # 4) 외래키(테이블/컬럼) 관계 생성
             for relation in entry.get('fkRelations', []) or []:
-                src_table = (relation.get('sourceTable') or '').strip().upper()
-                tgt_table = (relation.get('targetTable') or '').strip().upper()
+                src_table = (relation.get('sourceTable') or '').strip()
+                tgt_table = (relation.get('targetTable') or '').strip()ㅎㅎ
                 src_column = (relation.get('sourceColumn') or '').strip()
                 tgt_column = (relation.get('targetColumn') or '').strip()
                 if not (src_table and tgt_table and src_column and tgt_column):
@@ -804,8 +807,8 @@ class ApplyManager:
                     f"MATCH (tt:Table {{{tgt_props}}})\n"
                     f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
                 )
-                src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
-                tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
+                src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column]))
+                tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column]))
                 queries.append(
                     f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
                     f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
@@ -886,8 +889,8 @@ class ApplyManager:
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
         """테이블 설명 문장을 버킷에 누적합니다."""
-        schema_key = (schema or '').upper()
-        name_key = name.upper()
+        schema_key = schema or ''
+        name_key = name
         bucket = self._table_summary_store.get((schema_key, name_key))
         if bucket is None:
             bucket = {"summaries": set(), "columns": {}}
@@ -904,7 +907,7 @@ class ApplyManager:
             return
         bucket = self._table_summary_store.setdefault(table_key, {"summaries": set(), "columns": {}})
         columns = bucket["columns"]
-        canonical = column_name.upper()
+        canonical = column_name
         entry = columns.get(canonical)
         if entry is None:
             entry = {"name": column_name, "summaries": set()}
