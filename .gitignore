@@ -22,13 +22,10 @@ Pipfile.lock
 langchain.db
 .env
 /neo4j
-
+/logs/
 # Ignore src and target folders
 /src/
 /target/
 
 # Ignore LogComparisonResult.json
 LogComparisonResult.json
-
-# Ignore neo4j_connection.py
-understand/neo4j_connection.py
