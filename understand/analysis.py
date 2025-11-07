@@ -789,7 +789,7 @@ class ApplyManager:
             # 4) 외래키(테이블/컬럼) 관계 생성
             for relation in entry.get('fkRelations', []) or []:
                 src_table = (relation.get('sourceTable') or '').strip()
-                tgt_table = (relation.get('targetTable') or '').strip()ㅎㅎ
+                tgt_table = (relation.get('targetTable') or '').strip()
                 src_column = (relation.get('sourceColumn') or '').strip()
                 tgt_column = (relation.get('targetColumn') or '').strip()
                 if not (src_table and tgt_table and src_column and tgt_column):
