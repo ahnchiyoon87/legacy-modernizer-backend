@@ -75,7 +75,6 @@ prompt = PromptTemplate.from_template(
 - 하나의 DML 범위에 여러 테이블이 포함될 수 있으므로 각 테이블을 독립적으로 판단
 
 === 테이블 제외 대상 ===
-- 임시 테이블 (TEMPORARY TABLE, TEMP TABLE)
 - CTE(Common Table Expression)의 별칭 자체
 - WITH 절에서 정의된 임시 결과 집합의 이름
 - DUAL 테이블 (Oracle 시스템 테이블)
