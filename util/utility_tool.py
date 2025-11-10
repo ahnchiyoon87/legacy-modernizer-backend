@@ -238,7 +238,15 @@ def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | N
     left, _, link = text.partition('@')
     s, _, t = left.partition('.')
     
-    return (s.strip() if t else ''), (t.strip() if t else left.strip()), (link.strip() or None)
+    schema_raw = s.strip() if t else ''
+    table_raw = t.strip() if t else left.strip()
+    link_raw = link.strip() or None
+
+    schema = (schema_raw or '').lower()
+    table = (table_raw or '').lower()
+    db_link = link_raw.lower() if link_raw else None
+
+    return schema, table, db_link
 
 #==============================================================================
 # 코드 분석 및 변환 유틸리티
