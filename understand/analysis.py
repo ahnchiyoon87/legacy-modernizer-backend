@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -39,10 +40,10 @@ VARIABLE_ROLE_MAP = {
 }
 VARIABLE_DECLARATION_TYPES = frozenset(["PACKAGE_VARIABLE", "DECLARE", "SPEC"])
 STATIC_QUERY_BATCH_SIZE = 40
-VARIABLE_CONCURRENCY = 5
+VARIABLE_CONCURRENCY = int(os.getenv('VARIABLE_CONCURRENCY', '5'))
 LINE_NUMBER_PATTERN = re.compile(r"^\d+\s*:")
 MAX_BATCH_TOKEN = 1000
-MAX_CONCURRENCY = 5
+MAX_CONCURRENCY = int(os.getenv('MAX_CONCURRENCY', '5'))
 
 
 # ==================== 데이터 클래스 ====================

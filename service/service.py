@@ -27,7 +27,7 @@ from util.llm_client import get_llm
 # ----- 상수 -----
 BASE_DIR = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TEST_SESSIONS = ("EN_TestSession", "KO_TestSession")
-DDL_MAX_CONCURRENCY = 5
+DDL_MAX_CONCURRENCY = int(os.getenv('DDL_MAX_CONCURRENCY', '5'))
 
 
 # ----- 서비스 오케스트레이터 클래스 -----
