@@ -744,7 +744,8 @@ class ApplyManager:
                     node_merge = f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
                     queries.append(
                         f"{node_merge}\n"
-                        f"SET n.table_name = '{name_part}', n.schema = '{schema_part}', n.db = '{self.dbms}', n.table_identifier = '{table_name}'"
+                        f"SET n.name = '{escape_for_cypher(name_part)}', n.schema = '{escape_for_cypher(schema_part)}', "
+                        f"n.db = '{self.dbms}'"
                     )
                 continue
 
