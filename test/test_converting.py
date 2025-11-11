@@ -7,15 +7,15 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from convert.create_entity import EntityGenerator
-from convert.create_repository import RepositoryGenerator
-from convert.create_service_skeleton import ServiceSkeletonGenerator
-from convert.create_controller import ControllerGenerator
-from convert.create_main import MainClassGenerator
-from convert.create_config_files import ConfigFilesGenerator
+from convert.framework.create_entity import EntityGenerator
+from convert.framework.create_repository import RepositoryGenerator
+from convert.framework.create_service_skeleton import ServiceSkeletonGenerator
+from convert.framework.create_controller import ControllerGenerator
+from convert.framework.create_main import MainClassGenerator
+from convert.framework.create_config_files import ConfigFilesGenerator
 from service.service import ServiceOrchestrator
 from understand.neo4j_connection import Neo4jConnection
-from conversion.strategies.strategy_factory import StrategyFactory
+from convert.strategies.strategy_factory import StrategyFactory
 
 
 # ==================== 설정 ====================
@@ -251,7 +251,7 @@ class TestServiceCodeGeneration:
         sequence_methods = results_storage['sequence_methods']
         service_code_results = {}
         
-        from convert.create_service_preprocessing import start_service_preprocessing
+        from convert.framework.create_service_preprocessing import start_service_preprocessing
         
         # 파일별로 Service 생성 (실제 서비스 로직과 동일)
         for file_key, file_data in file_skeleton_results.items():
@@ -329,10 +329,7 @@ class TestControllerGeneration:
         print(f"\n{'='*60}")
         print("🏗️  5단계: Controller 생성")
         print(f"{'='*60}\n")
-        
-        # 실제 서비스 로직과 동일하게: 파일별로 Controller 생성
-        from convert.create_controller import ControllerGenerator
-        
+                
         controller_results = {}
         
         # 파일별로 Controller 생성 (실제 서비스와 동일)

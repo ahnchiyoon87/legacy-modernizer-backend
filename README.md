@@ -1449,7 +1449,7 @@ Converting 단계는 Understanding에서 생성한 Neo4j 그래프를 기반으�
 
 #### **주요 파일**
 
-- `conversion/strategies/`: 전략 패턴 (Framework, DBMS)
+- `convert/strategies/`: 전략 패턴 (Framework, DBMS)
 - `convert/*.py`: 코드 생성 모듈 (Entity, Service, Repository 등)
 - `rules/{java|python}/*.yaml`: 코드 생성 템플릿
 

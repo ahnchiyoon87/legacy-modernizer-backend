@@ -3,13 +3,13 @@ from .base_strategy import ConversionStrategy
 from util.utility_tool import emit_message, emit_data, emit_error, emit_status
 
 # 프레임워크 변환에 필요한 생성기/유틸 의존성들
-from convert.create_entity import EntityGenerator
-from convert.create_repository import RepositoryGenerator
-from convert.create_service_skeleton import ServiceSkeletonGenerator
-from convert.create_service_preprocessing import start_service_preprocessing
-from convert.create_controller import ControllerGenerator
-from convert.create_config_files import ConfigFilesGenerator
-from convert.create_main import MainClassGenerator
+from convert.framework.create_entity import EntityGenerator
+from convert.framework.create_repository import RepositoryGenerator
+from convert.framework.create_service_skeleton import ServiceSkeletonGenerator
+from convert.framework.create_service_preprocessing import start_service_preprocessing
+from convert.framework.create_controller import ControllerGenerator
+from convert.framework.create_config_files import ConfigFilesGenerator
+from convert.framework.create_main import MainClassGenerator
 
 
 class FrameworkConversionStrategy(ConversionStrategy):

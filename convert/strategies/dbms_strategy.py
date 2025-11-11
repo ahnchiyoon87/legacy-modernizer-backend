@@ -1,7 +1,7 @@
 import logging
 from typing import AsyncGenerator, Any
 from .base_strategy import ConversionStrategy
-from convert.create_dbms_conversion import start_dbms_conversion
+from convert.dbms.create_dbms_conversion import start_dbms_conversion
 from util.utility_tool import emit_message, emit_data, emit_error
 
 

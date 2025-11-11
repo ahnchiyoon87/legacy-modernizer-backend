@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from service.service import ServiceOrchestrator, BASE_DIR
-from conversion.strategies.strategy_factory import StrategyFactory
+from convert.strategies.strategy_factory import StrategyFactory
 from dotenv import load_dotenv
 from util.utility_tool import build_error_body
 
