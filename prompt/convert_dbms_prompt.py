@@ -1,10 +1,10 @@
 import json
 import logging
 import os
+from typing import Any, Dict
 from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_audit import invoke_with_audit
@@ -97,7 +97,6 @@ def convert_postgres_to_oracle(source_code: str, antlr_data: str, api_key: str, 
             RunnablePassthrough()
             | postgres_to_oracle_prompt
             | llm
-            | JsonOutputParser()
         )
 
         payload = {
@@ -106,7 +105,7 @@ def convert_postgres_to_oracle(source_code: str, antlr_data: str, api_key: str, 
             "locale": locale
         }
 
-        result = invoke_with_audit(
+        raw_result = invoke_with_audit(
             chain,
             payload,
             prompt_name="prompt/convert_dbms_prompt.py",
@@ -117,9 +116,53 @@ def convert_postgres_to_oracle(source_code: str, antlr_data: str, api_key: str, 
             )
         )
 
-        return result
+        return _parse_json_response(raw_result)
         
     except Exception as e:
         err_msg = f"PostgreSQL to Oracle 변환 중 LLM 호출 오류: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)
+
+
+def _parse_json_response(raw_result: Any) -> Dict[str, Any]:
+    """
+    LLM 응답을 JSON dict로 변환
+    
+    Args:
+        raw_result: LLM 응답 객체
+    
+    Returns:
+        Dict[str, Any]: 파싱된 JSON
+    """
+    try:
+        if isinstance(raw_result, dict):
+            return raw_result
+
+        content = raw_result.content if hasattr(raw_result, "content") else raw_result
+
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    text_parts.append(str(item["text"]))
+                else:
+                    text_parts.append(str(item))
+            content = "\n".join(text_parts)
+
+        if not isinstance(content, str):
+            content = str(content)
+
+        parsed = json.loads(content)
+
+        if isinstance(parsed, list):
+            if parsed and isinstance(parsed[0], dict):
+                return parsed[0]
+            raise ValueError("JSON 리스트 형식은 지원되지 않습니다.")
+
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON 객체 형식만 지원됩니다.")
+
+        return parsed
+
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise LLMCallError(f"LLM JSON 응답 파싱 실패: {exc}") from exc

@@ -15,6 +15,7 @@ from jinja2 import Template, TemplateError
 from functools import lru_cache
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import JsonOutputParser
 from util.llm_client import get_llm
 from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
@@ -192,6 +193,7 @@ class RuleLoader:
                 RunnablePassthrough()
                 | langchain_prompt
                 | llm
+                | JsonOutputParser()
             )
 
             payload = {"prompt": prompt_text}
@@ -201,7 +203,7 @@ class RuleLoader:
                 "rulePath": role_path,
             }
 
-            raw_result = invoke_with_audit(
+            result = invoke_with_audit(
                 chain,
                 payload,
                 prompt_name=f"rules/{self.target_lang}/{role_name}",
@@ -211,7 +213,7 @@ class RuleLoader:
                 },
                 metadata=metadata,
             )
-            return self._parse_json_response(role_name, raw_result)
+            return result
             
         except Exception as e:
             err_msg = f"{role_name} 프롬프트 실행 중 오류: {str(e)}"
@@ -222,50 +224,3 @@ class RuleLoader:
         """캐시 초기화"""
         self._load_role_file.cache_clear()
         self._cache.clear()
-
-    def _parse_json_response(self, role_name: str, raw_result: Any) -> Dict[str, Any]:
-        """
-        LLM 응답을 JSON으로 파싱하여 Dict로 반환
-
-        Args:
-            role_name: 실행한 role 이름
-            raw_result: LLM 응답 객체
-
-        Returns:
-            Dict[str, Any]: 파싱된 JSON 객체
-        """
-        try:
-            if isinstance(raw_result, dict):
-                return raw_result
-
-            if hasattr(raw_result, "content"):
-                content = raw_result.content
-            else:
-                content = raw_result
-
-            if isinstance(content, list):
-                text_parts = []
-                for item in content:
-                    if isinstance(item, dict) and "text" in item:
-                        text_parts.append(str(item["text"]))
-                    else:
-                        text_parts.append(str(item))
-                content = "\n".join(text_parts)
-
-            if not isinstance(content, str):
-                content = str(content)
-
-            parsed = json.loads(content)
-
-            if isinstance(parsed, list):
-                if parsed and isinstance(parsed[0], dict):
-                    return parsed[0]
-                raise ValueError("JSON 리스트 형식은 지원하지 않습니다.")
-
-            if not isinstance(parsed, dict):
-                raise ValueError("JSON 객체 형식만 지원됩니다.")
-
-            return parsed
-
-        except (json.JSONDecodeError, ValueError, TypeError) as exc:
-            raise LLMCallError(f"{role_name} 프롬프트 결과 파싱 실패: {exc}") from exc

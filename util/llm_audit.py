@@ -20,43 +20,22 @@ __all__ = [
 
 _BASE_DIR = os.getenv("DOCKER_COMPOSE_CONTEXT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _AUDIT_DIR = os.getenv("LLM_AUDIT_DIR") or os.path.join(_BASE_DIR, "logs")
-_AUDIT_FILE = os.getenv("LLM_AUDIT_FILE") or os.path.join(_AUDIT_DIR, "llm_audit.json")
 _PROMPT_LOG_DIR = os.path.join(_AUDIT_DIR, "llm_prompts")
 _FILE_LOCK = threading.Lock()
+_CLEARED_PROMPTS: set[str] = set()
 
 
 def reset_audit_log() -> None:
     os.makedirs(_AUDIT_DIR, exist_ok=True)
     os.makedirs(_PROMPT_LOG_DIR, exist_ok=True)
     with _FILE_LOCK:
-        with open(_AUDIT_FILE, "w", encoding="utf-8") as fp:
-            json.dump({"prompts": {}}, fp, ensure_ascii=False, indent=2)
+        _CLEARED_PROMPTS.clear()
         for filename in os.listdir(_PROMPT_LOG_DIR):
             if filename.endswith(".json"):
                 try:
                     os.remove(os.path.join(_PROMPT_LOG_DIR, filename))
                 except OSError:
                     pass
-
-
-def _load_audit_log() -> dict[str, Any]:
-    try:
-        with open(_AUDIT_FILE, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-            if not isinstance(data, dict):
-                return {"prompts": {}}
-            data.setdefault("prompts", {})
-            return data
-    except FileNotFoundError:
-        return {"prompts": {}}
-    except json.JSONDecodeError:
-        return {"prompts": {}}
-
-
-def _write_audit_log(data: dict[str, Any]) -> None:
-    os.makedirs(_AUDIT_DIR, exist_ok=True)
-    with open(_AUDIT_FILE, "w", encoding="utf-8") as fp:
-        json.dump(data, fp, ensure_ascii=False, indent=2)
 
 
 def _sanitize_prompt_name(prompt_name: str) -> str:
@@ -144,13 +123,18 @@ def log_llm_interaction(
         entry["sortKey"] = sort_key
 
     with _FILE_LOCK:
-        data = _load_audit_log()
-        prompts = data.setdefault("prompts", {})
-        records = prompts.setdefault(prompt_name, [])
+        if prompt_name not in _CLEARED_PROMPTS:
+            path = _prompt_log_path(prompt_name)
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            _CLEARED_PROMPTS.add(prompt_name)
+
+        records = _load_prompt_log(prompt_name)
         records.append(entry)
         records.sort(key=_entry_sort_key)
-        prompts[prompt_name] = records
-        _write_audit_log(data)
         _write_prompt_log(prompt_name, records)
 
 

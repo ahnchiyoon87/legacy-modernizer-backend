@@ -12,9 +12,9 @@ input_schema:
     - locale          # 언어 설정
   
   optional:
-    - parent_code:    # 부모 컨텍스트 (선택적)
-        default: ""
-        description: "부모 노드의 Oracle 스켈레톤"
+    parent_code:      # 부모 컨텍스트 (선택적)
+      default: ""
+      description: "부모 노드의 Oracle 스켈레톤"
 
 # 프롬프트
 prompt: |
