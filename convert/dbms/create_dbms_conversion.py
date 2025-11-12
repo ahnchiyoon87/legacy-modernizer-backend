@@ -276,7 +276,14 @@ class DbmsConversionGenerator:
         """타겟 DBMS 파일 자동 저장"""
         try:
             # 저장 경로 설정
-            base_path = build_rule_based_path(self.project_name, self.user_id, self.target_dbms, 'dbms')
+            base_path = build_rule_based_path(
+                self.project_name,
+                self.user_id,
+                self.target_dbms,
+                'dbms_conversion',
+                project_name=self.project_name,
+                folder_name=self.folder_name
+            )
             
             # 스켈레톤과 병합
             final_code = self.skeleton_code.replace("CodePlaceHolder", self.merged_code.strip())
