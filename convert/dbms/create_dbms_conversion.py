@@ -99,14 +99,21 @@ class DbmsConversionGenerator:
         relationship = record['r'][1] if record.get('r') else 'NEXT'
 
         # 노드 처리 로그
-        name = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
-        depth = "  " if self.current_parent else ""
-        logging.debug(f"{depth}→ {name}[{start_line}~{end_line}] 토큰={token}")
+        readable_type = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
+        logging.info(
+            "➡️  노드 처리 시작 | 타입: %s | 라인: %s~%s | 토큰: %s | 관계: %s | 자식노드: %s",
+            readable_type,
+            start_line,
+            end_line,
+            token,
+            relationship,
+            "있음" if has_children else "없음"
+        )
 
         # TRY 노드 감지 → 플래그 설정
         if node_type == 'TRY':
             self.pending_try_mode = True
-            logging.info(f"  🔒 TRY 노드 감지 → EXCEPTION까지 merge 보류")
+            logging.info("    🔒 TRY 노드 감지 → EXCEPTION까지 병합 보류")
         
         # EXCEPTION 노드 감지 → 전용 처리
         if node_type == 'EXCEPTION':
@@ -126,14 +133,14 @@ class DbmsConversionGenerator:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             
-            logging.info(f"  ┌─ 큰 노드 진입 [{start_line}~{end_line}] (토큰: {token})")
+            logging.info("    🧱 대용량 노드 진입 | 라인: %s~%s | 토큰: %s", start_line, end_line, token)
             await self._handle_large_node(node, start_line, end_line, token)
         else:
             self._handle_small_node(node, start_line, end_line, token)
 
         # 임계값 체크
         if int(self.total_tokens) >= TOKEN_THRESHOLD:
-            logging.info(f"  ⚠️  토큰 임계값 도달 ({int(self.total_tokens)}) → LLM 분석 실행")
+            logging.info("    ⚠️  토큰 누적 %s ≥ %s → LLM 분석 실행", int(self.total_tokens), TOKEN_THRESHOLD)
             await self._analyze_and_merge()
 
     # ----- 대용량 노드 처리 -----
@@ -142,6 +149,7 @@ class DbmsConversionGenerator:
         """대용량 노드(자식 있음, 토큰≥1000) 처리"""
         summarized = (node.get('summarized_code') or '').strip()
         if not summarized:
+            logging.info("      ⛔ 요약 코드 없음 → 스킵")
             return
 
         # LLM으로 스켈레톤 생성 (Rule 파일 사용)
@@ -158,12 +166,12 @@ class DbmsConversionGenerator:
         # 부모 설정 또는 삽입
         if not self.current_parent:
             self.current_parent = {'start': start_line, 'end': end_line, 'code': skeleton}
-            logging.info(f"  │  부모 설정 완료 → 자식 노드 처리 시작")
+            logging.info("      📦 부모 노드 스켈레톤 설정 완료")
         else:
             self.current_parent['code'] = self.current_parent['code'].replace(
                 CODE_PLACEHOLDER, f"\n{textwrap.indent(skeleton, '    ')}", 1
             )
-            logging.info(f"  │  중첩 부모에 삽입 완료")
+            logging.info("      🔁 중첩 부모 스켈레톤에 자식 스켈레톤 삽입")
 
     # ----- 소형 노드 처리 -----
 
@@ -171,11 +179,17 @@ class DbmsConversionGenerator:
         """소형 노드 또는 리프 노드 처리"""
         node_code = (node.get('node_code') or '').strip()
         if not node_code:
+            logging.info("    ⛔ 노드 코드 없음 → 스킵")
             return
 
         # SP 코드 누적
         self.sp_code_parts.append(node_code)
         self.total_tokens = int(self.total_tokens) + int(token)
+        logging.info(
+            "    ✏️  리프/소형 노드 누적 | 현재 파트 %s개 | 누적 토큰: %s",
+            len(self.sp_code_parts),
+            self.total_tokens
+        )
 
         # 범위 업데이트
         if self.sp_start is None or start_line < self.sp_start:
@@ -190,7 +204,11 @@ class DbmsConversionGenerator:
         if not self.current_parent:
             return
         
-        logging.info(f"  └─ 큰 노드 완료 [{self.current_parent['start']}~{self.current_parent['end']}]")
+        logging.info(
+            "    ✅ 대용량 노드 완료 | 라인: %s~%s",
+            self.current_parent['start'],
+            self.current_parent['end']
+        )
 
         # 버퍼 삽입
         if self.code_buffer:
@@ -201,9 +219,9 @@ class DbmsConversionGenerator:
         # 병합 (TRY 대기 중이면 보류)
         if not self.pending_try_mode:
             self.merged_code += f"\n{self.current_parent['code']}"
-            logging.info(f"     ✓ 부모 노드 병합 완료")
+            logging.info("      🧩 부모 스켈레톤에 코드 병합 완료")
         else:
-            logging.info(f"     ✓ TRY 부모 완료 (code_buffer 보관, EXCEPTION 대기)")
+            logging.info("      🕒 TRY 블록 병합 대기 상태 유지")
 
         # 초기화
         self.current_parent = None
@@ -213,7 +231,7 @@ class DbmsConversionGenerator:
 
     async def _handle_exception_node(self, node: dict, start_line: int, end_line: int) -> None:
         """EXCEPTION 노드 전용 처리: 전체 코드를 try-exception으로 감싸는 예외처리 구조 생성"""
-        logging.info(f"  ⚡ EXCEPTION 노드 감지 → 예외처리 구조 생성 시작")
+        logging.info("    ⚡ EXCEPTION 노드 감지 → 예외 처리 구조 생성 시작")
         
         # 1. 쌓인 코드 먼저 분석
         if self.sp_code_parts:
@@ -222,7 +240,7 @@ class DbmsConversionGenerator:
         # 2. EXCEPTION 블록을 타겟 DBMS exception 구조로 변환 (Role 파일 사용)
         node_code = (node.get('node_code') or '').strip()
         if not node_code:
-            logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
+            logging.warning("      ⚠️  EXCEPTION 노드 코드가 비어있음 → 처리 중단")
             return
             
         result = self.rule_loader.execute(
@@ -236,7 +254,7 @@ class DbmsConversionGenerator:
         exception_code = result.get('code', '').strip()
         
         if 'CodePlaceHolder' not in exception_code:
-            logging.warning(f"     ⚠️  try-exception 템플릿에 CodePlaceHolder가 없음")
+            logging.warning("      ⚠️  예외 템플릿에 CodePlaceHolder 없음 → 처리 중단")
             return
         
         # 3. 전체 코드를 예외처리로 감싸기
@@ -245,18 +263,18 @@ class DbmsConversionGenerator:
             try_block_code = self.code_buffer.strip()
             wrapped_code = exception_code.replace('CodePlaceHolder', try_block_code)
             self.merged_code += f"\n{wrapped_code}"
-            logging.info(f"     ✓ TRY 블록 코드를 예외처리로 감쌈 (code_buffer 사용)")
+            logging.info("      🧷 TRY 블록 코드 예외처리 완료 (code_buffer 사용)")
         else:
             # Case 2: TRY 노드 미존재 → 전체 메서드 코드를 감싸기
             entire_code = self.merged_code.strip()
             wrapped_code = exception_code.replace('CodePlaceHolder', entire_code)
             self.merged_code = wrapped_code
-            logging.info(f"     ✓ 전체 메서드 코드를 예외처리로 감쌈 (merged_code 사용)")
+            logging.info("      🧷 전체 코드 예외처리 완료 (merged_code 사용)")
         
         # 4. 상태 초기화
         self.code_buffer = ""
         self.pending_try_mode = False
-        logging.info(f"     ✓ 예외처리 완료 및 상태 초기화")
+        logging.info("      🔄 예외처리 완료 → 상태 초기화")
 
     # ----- 분석 및 병합 -----
 
@@ -268,7 +286,14 @@ class DbmsConversionGenerator:
         # 문자열 조인
         sp_code = '\n'.join(self.sp_code_parts)
         target = "부모버퍼" if self.current_parent else "최종코드"
-        logging.info(f"  🤖 LLM 분석 시작: [{self.sp_start}~{self.sp_end}] {len(self.sp_code_parts)}개 파트 (토큰: {self.total_tokens})")
+        logging.info(
+            "    🤖 LLM 변환 요청 | 라인: %s~%s | 파트 수: %s | 토큰: %s | 대상: %s",
+            self.sp_start,
+            self.sp_end,
+            len(self.sp_code_parts),
+            self.total_tokens,
+            target
+        )
 
         # LLM 분석 (Role 파일 사용)
         result = self.rule_loader.execute(
@@ -287,17 +312,17 @@ class DbmsConversionGenerator:
             if self.current_parent:
                 # 큰 노드 → code_buffer에 추가
                 self.code_buffer += f"\n{generated_code}"
-                logging.info(f"     ✓ {target}에 추가")
+                logging.info("      ➕ 부모 버퍼에 변환 코드 추가")
             else:
                 # 작은 노드 처리
                 if self.pending_try_mode:
                     # TRY 노드 → code_buffer에 보관 (merge 안 함)
                     self.code_buffer += f"\n{generated_code}"
-                    logging.info(f"     ✓ TRY 코드 보관 → EXCEPTION 대기")
+                    logging.info("      🕒 TRY 블록 코드 임시 보관 (EXCEPTION 대기)")
                 else:
                     # 일반 노드 → 바로 merge
                     self.merged_code += f"\n{generated_code}"
-                    logging.info(f"     ✓ {target}에 추가")
+                    logging.info("      ➕ 최종 코드에 변환 결과 추가")
 
         # 상태 초기화
         self.total_tokens = int(0)
