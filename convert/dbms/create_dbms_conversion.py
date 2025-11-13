@@ -24,7 +24,7 @@ class DbmsConversionGenerator:
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
-        'merged_code', 'total_tokens', 'parent_stack',
+        'merged_code', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
         'sp_code_parts', 'sp_start', 'sp_end',
         'rule_loader'
     )
@@ -48,6 +48,7 @@ class DbmsConversionGenerator:
         self.merged_code = ""
         self.total_tokens = int(0)
         self.parent_stack = []
+        self.top_level_begin_skipped = False
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
@@ -116,7 +117,11 @@ class DbmsConversionGenerator:
             await self._finalize_parent()
 
         # 최상위 BEGIN 블록은 스켈레톤이 처리하므로 스킵
-        if readable_type == "BEGIN" and not self.parent_stack and not self.merged_code:
+        if (readable_type == "BEGIN"
+                and not self.top_level_begin_skipped
+                and not self.parent_stack
+                and not self.merged_code):
+            self.top_level_begin_skipped = True
             logging.info("    ⛔ 최상위 BEGIN 블록 스킵 (스켈레톤에서 처리)")
             return
 
