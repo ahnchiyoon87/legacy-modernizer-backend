@@ -312,20 +312,7 @@ class DbmsConversionGenerator:
             return ""
 
         entry = self.parent_stack[-1]
-        code = entry['code']
-
-        if CODE_PLACEHOLDER not in code:
-            return code
-
-        if not entry['children']:
-            return code
-
-        child_block = "\n".join(entry['children']).strip()
-        if not child_block:
-            return code
-
-        indented = textwrap.indent(child_block, '    ')
-        return code.replace(CODE_PLACEHOLDER, f"\n{indented}\n{CODE_PLACEHOLDER}", 1)
+        return entry['code']
 
     # ----- 마무리 -----
 
