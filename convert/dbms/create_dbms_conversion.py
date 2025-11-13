@@ -115,6 +115,11 @@ class DbmsConversionGenerator:
                 await self._analyze_and_merge()
             await self._finalize_parent()
 
+        # 최상위 BEGIN 블록은 스켈레톤이 처리하므로 스킵
+        if readable_type == "BEGIN" and not self.parent_stack and not self.merged_code:
+            logging.info("    ⛔ 최상위 BEGIN 블록 스킵 (스켈레톤에서 처리)")
+            return
+
         # 노드 타입별 처리
         if token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES:
             # 큰 노드 처리 전에 쌓인 작은 노드들 먼저 변환
