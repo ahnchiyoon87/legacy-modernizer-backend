@@ -855,5 +855,38 @@ def main():
         print()
 
 
+def test_procedure_analyzer():
+    """pytest용 테스트 함수"""
+    analyzer = ProcedureAnalyzer('test/data/neo4j_exports/records.json')
+    
+    # 데이터 로드 및 분석
+    analyzer.load_data()
+    analyzer.analyze_procedures()
+    
+    # 기본 검증
+    assert len(analyzer.procedures) > 0, "프로시저가 로드되지 않았습니다"
+    
+    # 첫 번째 프로시저 검증
+    proc = analyzer.procedures[0]
+    assert proc.name, "프로시저 이름이 없습니다"
+    assert proc.start_line > 0, "프로시저 시작 라인이 없습니다"
+    
+    # 레포트 생성 테스트
+    import tempfile
+    import os
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        temp_path = f.name
+    
+    try:
+        analyzer.generate_report(temp_path)
+        assert os.path.exists(temp_path), "HTML 레포트가 생성되지 않았습니다"
+        assert os.path.getsize(temp_path) > 0, "HTML 레포트가 비어있습니다"
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    
+    print(f"✓ 테스트 통과: {len(analyzer.procedures)}개 프로시저 분석 완료")
+
+
 if __name__ == '__main__':
     main()
