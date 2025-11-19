@@ -12,16 +12,41 @@ from util.exception import LLMCallError
 logger = logging.getLogger(__name__)
 
 
+def _add_line_numbers(code: str, start_line: int) -> str:
+    """
+    코드에 라인 번호를 추가합니다.
+    
+    Args:
+        code: 코드 문자열
+        start_line: 시작 라인 번호
+        
+    Returns:
+        라인 번호가 추가된 코드
+    """
+    if not code:
+        return code
+    
+    lines = code.split('\n')
+    numbered_lines = []
+    for i, line in enumerate(lines):
+        line_num = start_line + i
+        numbered_lines.append(f"{line_num}: {line}")
+    
+    return '\n'.join(numbered_lines)
+
+
 async def fix_code_with_llm(
     original_code: str,
     converted_code: str,
     error_message: str,
     error_code: str,
     error_number: int | None,
+    start_line: int,
     api_key: str,
     locale: str = "ko",
     conversion_type: str = "dbms",
-    target: str = "oracle"
+    target: str = "oracle",
+    additional_context: str | None = None
 ) -> str:
     """
     LLM을 사용하여 오류가 있는 변환된 코드를 수정합니다.
@@ -32,14 +57,19 @@ async def fix_code_with_llm(
         error_message: 컴파일 오류 메시지
         error_code: 오류 코드 (예: "ORA-00942")
         error_number: 오류 번호 (예: 942)
+        start_line: 변환된 코드의 시작 라인 번호
         api_key: LLM API 키
         locale: 언어 설정
         conversion_type: 변환 타입 ("dbms" 또는 "framework")
         target: 타겟 (예: "oracle", "java")
+        additional_context: 추가 컨텍스트 정보 (예: 테이블 정보, 지시사항 등)
         
     Returns:
-        수정된 코드
+        수정된 코드 (라인 번호 제거됨)
     """
+    # 변환된 코드에 라인 번호 추가
+    converted_code_with_lines = _add_line_numbers(converted_code, start_line)
+    
     # 프롬프트 구성
     prompt = f"""당신은 {target.upper()} 코드 수정 전문가입니다.
 컴파일 오류가 발생한 변환된 코드를 수정해야 합니다.
@@ -47,19 +77,29 @@ async def fix_code_with_llm(
 [원본 코드]
 {original_code}
 
-[변환된 코드 (오류 발생)]
-{converted_code}
+[변환된 코드 (오류 발생, 라인 번호 포함)]
+{converted_code_with_lines}
 
 [컴파일 오류]
 오류 코드: {error_code}
 오류 번호: {error_number if error_number else "N/A"}
 오류 메시지: {error_message}
-
+"""
+    
+    # 추가 컨텍스트가 있는 경우 프롬프트에 추가
+    if additional_context and additional_context.strip():
+        prompt += f"""
+[추가 정보 및 지시사항]
+{additional_context.strip()}
+"""
+    
+    prompt += f"""
 [요구사항]
 1. 변환된 코드에서 오류를 수정하세요.
 2. 원본 코드의 의도를 유지하면서 {target.upper()} 문법에 맞게 수정하세요.
 3. 오류 메시지를 참고하여 정확한 수정을 수행하세요.
-4. 수정된 코드만 반환하세요 (설명 없이 코드만).
+4. 추가 정보 및 지시사항이 제공된 경우 이를 반드시 참고하여 수정하세요.
+5. 수정된 코드만 반환하세요 (설명 없이 코드만).
 
 [수정된 코드]
 """
