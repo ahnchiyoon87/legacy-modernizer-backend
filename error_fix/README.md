@@ -1,6 +1,8 @@
-# 오류 수정 스크립트
+# 오류 수정 모듈
 
-컴파일 오류가 발생한 변환된 코드를 자동으로 수정하고 재병합하는 스크립트입니다.
+컴파일 오류가 발생한 변환된 코드를 자동으로 수정하고 재병합하는 모듈입니다.
+
+이 모듈은 Legacy Modernizer 프로젝트의 일부로 통합되어 있으며, 프로젝트의 기존 유틸리티와 LLM 로직을 재사용합니다.
 
 ## 기능
 
@@ -84,10 +86,33 @@ error_fix/
    - 부모 블록은 자식 블록들을 포함하여 병합
    - 스켈레톤 코드와 최종 병합
 
+## 프로젝트 통합
+
+이 모듈은 Legacy Modernizer 프로젝트의 일부로 통합되어 있으며, 다음 프로젝트 모듈들을 재사용합니다:
+
+- `util.llm_client`: LLM 클라이언트 생성
+- `util.llm_audit`: LLM 호출 감사 로깅
+- `util.utility_tool`: 유틸리티 함수들 (escape_for_cypher 등)
+- `util.exception`: 커스텀 예외 클래스들
+- `understand.neo4j_connection`: Neo4j 연결 관리
+- `convert.dbms.create_dbms_skeleton`: DBMS 스켈레톤 생성
+
+## 테스트
+
+```bash
+# 오류 수정 모듈 테스트 실행
+pytest test/test_error_fix.py -v
+
+# 특정 테스트만 실행
+pytest test/test_error_fix.py::TestErrorParser -v
+pytest test/test_error_fix.py::TestBlockFinder -v
+pytest test/test_error_fix.py::TestErrorFix -v
+```
+
 ## 주의사항
 
-- 이 스크립트는 별도 리포지토리로 관리될 예정입니다
 - Neo4j 연결이 필요합니다
-- LLM API 키가 필요합니다
+- LLM API 키가 필요합니다 (환경변수 `LLM_API_KEY` 또는 코드 내 설정)
 - 스켈레톤 코드는 매번 재생성됩니다
+- 테스트 실행 전 CONVERTING 노드가 Neo4j에 존재해야 합니다 (먼저 변환을 수행하세요)
 

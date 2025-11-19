@@ -8,31 +8,9 @@ from typing import Dict, Any
 from util.llm_client import get_llm
 from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
+from util.utility_tool import add_line_numbers
 
 logger = logging.getLogger(__name__)
-
-
-def _add_line_numbers(code: str, start_line: int) -> str:
-    """
-    코드에 라인 번호를 추가합니다.
-    
-    Args:
-        code: 코드 문자열
-        start_line: 시작 라인 번호
-        
-    Returns:
-        라인 번호가 추가된 코드
-    """
-    if not code:
-        return code
-    
-    lines = code.split('\n')
-    numbered_lines = []
-    for i, line in enumerate(lines):
-        line_num = start_line + i
-        numbered_lines.append(f"{line_num}: {line}")
-    
-    return '\n'.join(numbered_lines)
 
 
 async def fix_code_with_llm(
@@ -68,7 +46,7 @@ async def fix_code_with_llm(
         수정된 코드 (라인 번호 제거됨)
     """
     # 변환된 코드에 라인 번호 추가
-    converted_code_with_lines = _add_line_numbers(converted_code, start_line)
+    converted_code_with_lines, _ = add_line_numbers(converted_code, start_line)
     
     # 프롬프트 구성
     prompt = f"""당신은 {target.upper()} 코드 수정 전문가입니다.
