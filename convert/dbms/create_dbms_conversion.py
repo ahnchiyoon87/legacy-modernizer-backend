@@ -341,14 +341,6 @@ class DbmsConversionGenerator:
         entry = self.parent_stack[-1]
         return entry['code']
 
-    def _get_current_parent_range(self) -> tuple[int | None, int | None]:
-        """현재 부모 범위 반환 (스택의 마지막 항목)"""
-        if not self.parent_stack:
-            return None, None
-        entry = self.parent_stack[-1]
-        return entry['start'], entry['end']
-
-
     # ----- 마무리 -----
 
     async def _finalize_remaining(self) -> None:
