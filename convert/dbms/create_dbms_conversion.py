@@ -353,6 +353,14 @@ class DbmsConversionGenerator:
             parent_start = self.parent_stack[-1]['start'] if self.parent_stack else None
             parent_end = self.parent_stack[-1]['end'] if self.parent_stack else None
             
+            # 부모가 있으면 PARENT_OF만 생성, NEXT는 생성하지 않음
+            # NEXT는 같은 레벨(부모가 없는 경우)에만 생성
+            prev_start = None
+            prev_end = None
+            if parent_start is None and parent_end is None and self.last_block_range:
+                prev_start = self.last_block_range[0]
+                prev_end = self.last_block_range[1]
+            
             # CONVERSION_BLOCK 노드 쿼리 생성
             block_query = build_conversion_block_query(
                 folder_name=self.folder_name,
@@ -367,8 +375,8 @@ class DbmsConversionGenerator:
                 target=self.target_dbms,
                 parent_start_line=parent_start,
                 parent_end_line=parent_end,
-                prev_start_line=self.last_block_range[0] if self.last_block_range else None,
-                prev_end_line=self.last_block_range[1] if self.last_block_range else None
+                prev_start_line=prev_start,
+                prev_end_line=prev_end
             )
             self.conversion_queries.append(block_query)
             self.last_block_range = (self.sp_start, self.sp_end)
