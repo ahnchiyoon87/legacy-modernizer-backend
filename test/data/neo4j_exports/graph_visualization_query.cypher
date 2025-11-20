@@ -31,7 +31,6 @@ MATCH (p:PROCEDURE {
   project_name: 'HOSPITAL_MANAGEMENT'
 })
 MATCH path = (p)-[:PARENT_OF*]->(dml)-[r:WRITES|FROM]->(t:Table {
-  folder_name: 'HOSPITAL_RECEPTION',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
 })

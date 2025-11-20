@@ -215,25 +215,11 @@ def convert_to_upper_snake_case(camel_str: str) -> str:
         raise UtilProcessingError("대문자 스네이크 케이스 변환 중 오류 발생")
 
 
-def add_line_numbers(plsql: List[str] | str, start_line: int = 1) -> Tuple[str, List[str]]:
-    """코드에 라인 번호 추가 (최적화: enumerate 인덱스 조정)
-    
-    Args:
-        plsql: 코드 리스트 또는 문자열
-        start_line: 시작 라인 번호 (기본값: 1)
-        
-    Returns:
-        (라인 번호가 추가된 코드 문자열, 라인 번호가 추가된 라인 리스트)
-    """
+def add_line_numbers(plsql: List[str]) -> Tuple[str, List[str]]:
+    """PL/SQL 코드에 라인 번호 추가 (최적화: enumerate 인덱스 조정)"""
     try:
-        # 문자열인 경우 리스트로 변환
-        if isinstance(plsql, str):
-            lines = plsql.split('\n')
-        else:
-            lines = plsql
-        
-        numbered_lines = [f"{i}: {line}" for i, line in enumerate(lines, start=start_line)]
-        return '\n'.join(numbered_lines), numbered_lines
+        numbered_lines = [f"{i}: {line}" for i, line in enumerate(plsql, start=1)]
+        return "".join(numbered_lines), numbered_lines
     except Exception as e:
         err_msg = f"코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)

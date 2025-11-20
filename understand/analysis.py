@@ -782,8 +782,6 @@ class ApplyManager:
                     f"{node_merge_base}\n"
                     f"WITH n\n"
                     f"{table_merge}\n"
-                    f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
-                    f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
                     f"WITH n, t\n"
                     f"{folder_merge}\n"
                     f"MERGE (folder)-[:CONTAINS]->(t)\n"
@@ -818,15 +816,13 @@ class ApplyManager:
                     )
                     col_description = escape_for_cypher(raw_column_desc)
                     nullable_flag = 'true' if column.get('nullable', True) else 'false'
-                    fqn = '.'.join(filter(None, [schema_part, name_part, column_name]))
+                    fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
                     column_merge_key = (
                         f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
                     )
                     escaped_column_name = escape_for_cypher(column_name)
                     queries.append(
                         f"{table_merge}\n"
-                        f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
-                        f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
                         f"WITH t\n"
                         f"MERGE (c:Column {{{column_merge_key}}})\n"
                         f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
@@ -844,11 +840,9 @@ class ApplyManager:
                 remote_merge = (
                     self._build_table_merge(name_link, schema_link)
                     .replace(f", db: '{self.dbms}'", "")
-                    .replace(f", folder_name: '{self.folder_name}'", "")
                 )
                 queries.append(
                     f"{remote_merge}\n"
-                    f"ON CREATE SET t.folder_name = ''\n"
                     f"SET t.db_link = '{link_name}'\n"
                     f"WITH t\n"
                     f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})\n"
@@ -890,8 +884,8 @@ class ApplyManager:
                 for src_column, tgt_column in zip(src_columns, tgt_columns):
                     if not (src_column and tgt_column):
                         continue
-                    src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column]))
-                    tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column]))
+                    src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
+                    tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
                     queries.append(
                         f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
                         f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
@@ -965,9 +959,10 @@ class ApplyManager:
         logging.info("[적용] %s Neo4j 저장 완료", self.folder_name)
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
-        schema_part = f", schema: '{schema}'" if schema else ""
+        schema_value = schema or ''
+        schema_part = f", schema: '{schema_value}'"
         return (
-            f"MERGE (t:Table {{{self.table_base_props}, folder_name: '{self.folder_name}', name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
+            f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:

@@ -38,8 +38,8 @@ class Neo4jConnection:
     _CONSTRAINT_QUERIES = [
         # SYSTEM: (user_id, project_name, name) 유니크
         "CREATE CONSTRAINT system_unique IF NOT EXISTS FOR (s:SYSTEM) REQUIRE (s.user_id, s.project_name, s.name) IS UNIQUE",
-        # Table: (user_id, project_name, folder_name, name) 유니크 (스키마 대신 폴더 기준으로 식별 통일)
-        "CREATE CONSTRAINT table_unique_by_folder IF NOT EXISTS FOR (t:Table) REQUIRE (t.user_id, t.project_name, t.folder_name, t.name) IS UNIQUE",
+        # Table: (user_id, project_name, schema, name) 유니크 (테이블은 전역이므로 folder_name 제외)
+        "CREATE CONSTRAINT table_unique IF NOT EXISTS FOR (t:Table) REQUIRE (t.user_id, t.project_name, t.schema, t.name) IS UNIQUE",
         # Column: (user_id, project_name, fqn) 유니크
         "CREATE CONSTRAINT column_unique IF NOT EXISTS FOR (c:Column) REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
     ]

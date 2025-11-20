@@ -276,8 +276,8 @@ class ServiceOrchestrator:
                 effective_schema = parsed_schema or ''
 
                 # Table 노드 MERGE
-                # 폴더 기준 유니크 키 사용을 위해 DDL 경로에서는 folder_name='system'으로 통일
-                t_merge_key = {**common_props, 'folder_name': 'system', 'schema': effective_schema, 'name': parsed_table}
+                # 테이블은 전역이므로 folder_name 제외
+                t_merge_key = {**common_props, 'schema': effective_schema, 'name': parsed_table}
                 t_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
                 # detailDescription 초기 구성 (사람이 읽는 텍스트로 저장)
                 lines = []
