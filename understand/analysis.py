@@ -960,7 +960,8 @@ class ApplyManager:
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_value = schema or ''
-        schema_part = f", schema: '{schema_value}'"
+        # 스키마가 빈 문자열이면 MERGE 조건에서 제외 (테이블명만으로 조회)
+        schema_part = f", schema: '{schema_value}'" if schema_value else ""
         return (
             f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
         )
