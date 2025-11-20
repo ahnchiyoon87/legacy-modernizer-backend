@@ -816,19 +816,38 @@ class ApplyManager:
                     )
                     col_description = escape_for_cypher(raw_column_desc)
                     nullable_flag = 'true' if column.get('nullable', True) else 'false'
-                    fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
-                    column_merge_key = (
-                        f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
-                    )
                     escaped_column_name = escape_for_cypher(column_name)
-                    queries.append(
-                        f"{table_merge}\n"
-                        f"WITH t\n"
-                        f"MERGE (c:Column {{{column_merge_key}}})\n"
-                        f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
-                        f"WITH t, c\n"
-                        f"MERGE (t)-[:HAS_COLUMN]->(c)"
-                    )
+                    
+                    if schema_part:
+                        # 스키마가 있으면 fqn으로 MERGE (기존 방식)
+                        fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
+                        column_merge_key = (
+                            f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
+                        )
+                        queries.append(
+                            f"{table_merge}\n"
+                            f"WITH t\n"
+                            f"MERGE (c:Column {{{column_merge_key}}})\n"
+                            f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
+                            f"WITH t, c\n"
+                            f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                        )
+                    else:
+                        # 스키마가 없으면 테이블과 연결된 컬럼 노드 중 이름이 같은 것을 찾아서 확인
+                        # 있으면 그냥 넘어가고, 없으면 생성
+                        queries.append(
+                            f"{table_merge}\n"
+                            f"WITH t\n"
+                            f"OPTIONAL MATCH (existing_col:Column)-[:HAS_COLUMN]-(t)\n"
+                            f"WHERE existing_col.`name` = '{escaped_column_name}' AND existing_col.`user_id` = '{self.user_id}' AND existing_col.`project_name` = '{self.project_name}'\n"
+                            f"WITH t, existing_col\n"
+                            f"WHERE existing_col IS NULL\n"
+                            f"WITH t, lower(concat(coalesce(t.schema, ''), case when t.schema <> '' then '.' else '' end, '{name_part}', '.', '{column_name}')) as fqn\n"
+                            f"CREATE (c:Column {{`user_id`: '{self.user_id}', `fqn`: fqn, `project_name`: '{self.project_name}', "
+                            f"`name`: '{escaped_column_name}', `dtype`: '{col_type}', `description`: '{col_description}', `nullable`: '{nullable_flag}'}})\n"
+                            f"WITH t, c\n"
+                            f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                        )
 
             # 3) DB 링크 노드 연결 (범위 단위)
             for link_item in range_entry.get('dbLinks', []) or []:
