@@ -362,6 +362,14 @@ class DbmsConversionGenerator:
                     'start': start_line,
                     'end': end_line
                 })
+                logging.info(
+                    "      🔗 DML 자식 등록 | 부모라인=%s~%s | 자식=%s~%s | 길이=%s",
+                    parent_entry['start'],
+                    parent_entry['end'],
+                    start_line,
+                    end_line,
+                    len(generated_code)
+                )
             else:
                 parent_entry['children'].append(generated_code)
 
@@ -382,7 +390,6 @@ class DbmsConversionGenerator:
             r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)(?:~(?P<end>\d+))?):\s*\.\.\.\s*code\s*\.\.\.',
             re.IGNORECASE | re.MULTILINE
         )
-
         structured_children = []
         for child in children or []:
             if isinstance(child, dict):
@@ -405,23 +412,53 @@ class DbmsConversionGenerator:
             )
         )
 
+        placeholders = list(pattern.finditer(code))
+        logging.info(
+            "      🔎 DML placeholder 치환 시작 | placeholder=%s | children=%s",
+            len(placeholders),
+            len(structured_children)
+        )
+
         def _replacement(match: re.Match) -> str:
             indent = match.group('indent') or ''
             start = int(match.group('start'))
             end = int(match.group('end')) if match.group('end') else None
-            child = self._pop_child_for_range(structured_children, start, end)
+            label = match.group('label')
+            child, match_type = self._pop_child_for_range(structured_children, start, end)
+
             if not child:
-                return indent
+                logging.warning(
+                    "      ⚠️ placeholder 미매칭 | label=%s | range=%s~%s | 남은 children=0",
+                    label,
+                    start,
+                    end
+                )
+                return match.group(0)
 
             child_code = (child.get('code') or '').strip()
             if not child_code:
-                return indent
+                logging.warning(
+                    "      ⚠️ placeholder 자식 코드 비어있음 | label=%s | child_range=%s~%s",
+                    label,
+                    child.get('start'),
+                    child.get('end')
+                )
+                return match.group(0)
+
+            logging.info(
+                "      ✅ placeholder 치환 | label=%s | placeholder=%s~%s | child_range=%s~%s | 방식=%s | 길이=%s",
+                label,
+                start,
+                end if end is not None else start,
+                child.get('start'),
+                child.get('end'),
+                match_type,
+                len(child_code)
+            )
 
             return textwrap.indent(child_code, indent)
 
         merged_code = pattern.sub(_replacement, code)
-        # 남아있는 placeholder는 제거
-        merged_code = pattern.sub('', merged_code)
 
         if structured_children:
             residual = "\n".join(
@@ -431,6 +468,15 @@ class DbmsConversionGenerator:
             ).strip()
             if residual:
                 merged_code = f"{merged_code.rstrip()}\n{residual}"
+                logging.warning(
+                    "      ⚠️ placeholder보다 남은 자식 %s개 → 하단 residual로 이동",
+                    len(structured_children)
+                )
+            else:
+                logging.warning(
+                    "      ⚠️ placeholder보다 남은 자식 %s개 | 모두 빈 문자열",
+                    len(structured_children)
+                )
 
         return merged_code
 
@@ -441,13 +487,13 @@ class DbmsConversionGenerator:
             c_start = child.get('start')
             c_end = child.get('end')
             if c_start == start and (c_end == end or (end is None and (c_end is None or c_end == c_start))):
-                return children.pop(idx)
+                return children.pop(idx), 'exact'
 
         for idx, child in enumerate(children):
             if child.get('start') == start:
-                return children.pop(idx)
+                return children.pop(idx), 'start_only'
 
-        return children.pop(0) if children else None
+        return (children.pop(0), 'fallback') if children else (None, 'missing')
 
     def _build_parent_context(self) -> str:
         """현재 부모 스켈레톤 컨텍스트 구성"""

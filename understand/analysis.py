@@ -186,7 +186,10 @@ class AnalysisBatch:
         dml_nodes = [node for node in self.nodes if node.dml]
         if not dml_nodes:
             return None
-        return '\n\n'.join(node.get_raw_code() for node in dml_nodes)
+        return '\n\n'.join(
+            node.get_compact_code() if node.has_children else node.get_raw_code()
+            for node in dml_nodes
+        )
 
 
 @dataclass(slots=True)
