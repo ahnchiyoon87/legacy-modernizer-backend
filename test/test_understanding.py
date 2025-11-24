@@ -29,8 +29,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 
-TEST_USER_ID = "KO_TestSession"
-TEST_PROJECT_NAME = "HOSPITAL_MANAGEMENT"
+TEST_USER_ID = "TestSession_4"
+TEST_PROJECT_NAME = "test"
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = "test"
 TEST_LOCALE = "ko"

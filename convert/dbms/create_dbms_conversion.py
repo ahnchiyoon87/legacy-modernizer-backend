@@ -1,6 +1,7 @@
 import logging
 import re
 import textwrap
+from collections import defaultdict, deque
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import (
@@ -13,7 +14,11 @@ from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
 # ----- 상수 정의 -----
 TOKEN_THRESHOLD = 1000
 CODE_PLACEHOLDER = "...code..."
-DML_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION"])
+DML_PLACEHOLDER_PATTERN = re.compile(
+    r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)):\s*\.\.\.\s*code\s*\.\.\.',
+    re.IGNORECASE | re.MULTILINE
+)
+DML_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION", "FOR"])
 START_LINE_OVERRIDE: int | None = None  # 예: 1464 → 해당 라인부터 변환 테스트
 
 
@@ -28,7 +33,7 @@ class DbmsConversionGenerator:
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
-        'merged_code', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
+        'merged_chunks', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
         'sp_code_parts', 'sp_start', 'sp_end',
         'rule_loader'
     )
@@ -49,8 +54,8 @@ class DbmsConversionGenerator:
         self.skeleton_code = (skeleton_code or "").strip()
 
         # 상태 초기화
-        self.merged_code = ""
-        self.total_tokens = int(0)
+        self.merged_chunks = []
+        self.total_tokens = 0
         self.parent_stack = []
         self.top_level_begin_skipped = False
         self.sp_code_parts = []
@@ -68,6 +73,13 @@ class DbmsConversionGenerator:
         raw_type = str(raw_type)
         return raw_type.split('[')[0] if '[' in raw_type else raw_type
 
+    @staticmethod
+    def _safe_int(value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
     async def generate(self) -> str:
         """
         전체 노드를 순회하며 타겟 DBMS 코드 생성
@@ -82,8 +94,8 @@ class DbmsConversionGenerator:
         node_count = 0
         for record in self.traverse_nodes:
             node = record['n']
-            start_line = int(node.get('startLine', 0) or 0)
-            end_line = int(node.get('endLine', 0) or 0)
+            start_line = self._safe_int(node.get('startLine'))
+            end_line = self._safe_int(node.get('endLine'))
 
             if START_LINE_OVERRIDE is not None and end_line < START_LINE_OVERRIDE:
                 logging.info(
@@ -105,7 +117,7 @@ class DbmsConversionGenerator:
         await self._finalize_remaining()
 
         logging.info(f"✅ 총 {node_count}개 노드 처리 완료\n")
-        return self.merged_code.strip()
+        return self._final_output()
 
     # ----- 노드 처리 -----
 
@@ -115,9 +127,9 @@ class DbmsConversionGenerator:
         node_labels = record.get('nodeLabels', [])
         node_type = self._resolve_node_type(node_labels, node)
         has_children = bool(node.get('has_children', False))
-        token = int(node.get('token', 0) or 0)
-        start_line = int(node.get('startLine', 0) or 0)
-        end_line = int(node.get('endLine', 0) or 0)
+        token = self._safe_int(node.get('token'))
+        start_line = self._safe_int(node.get('startLine'))
+        end_line = self._safe_int(node.get('endLine'))
         relationship = record['r'][1] if record.get('r') else 'NEXT'
 
         # 노드 처리 로그
@@ -143,7 +155,7 @@ class DbmsConversionGenerator:
         if (readable_type == "BEGIN"
                 and not self.top_level_begin_skipped
                 and not self.parent_stack
-                and not self.merged_code):
+                and not self.merged_chunks):
             self.top_level_begin_skipped = True
             logging.info("    ⛔ 최상위 BEGIN 블록 스킵 (스켈레톤에서 처리)")
             return
@@ -166,6 +178,7 @@ class DbmsConversionGenerator:
             )
             await self._handle_large_node(node, node_labels, start_line, end_line, token)
         else:
+            appended = False
             if is_large_leaf:
                 if self.sp_code_parts:
                     await self._analyze_and_merge()
@@ -179,14 +192,17 @@ class DbmsConversionGenerator:
                 token,
                 len(self.parent_stack)
             )
-            self._handle_small_node(node, start_line, end_line, token)
+            appended = self._handle_small_node(node, start_line, end_line, token)
+
+            if appended and self._is_within_dml_parent():
+                await self._analyze_and_merge()
 
         # 임계값 체크
         if is_large_leaf:
             logging.info("    ⚠️  단독 대용량 리프 노드 변환 실행")
             await self._analyze_and_merge()
-        elif int(self.total_tokens) >= TOKEN_THRESHOLD:
-            logging.info("    ⚠️  토큰 누적 %s ≥ %s → LLM 분석 실행", int(self.total_tokens), TOKEN_THRESHOLD)
+        elif self.total_tokens >= TOKEN_THRESHOLD:
+            logging.info("    ⚠️  토큰 누적 %s ≥ %s → LLM 분석 실행", self.total_tokens, TOKEN_THRESHOLD)
             await self._analyze_and_merge()
 
     # ----- 대용량 노드 처리 -----
@@ -236,16 +252,16 @@ class DbmsConversionGenerator:
 
     # ----- 소형 노드 처리 -----
 
-    def _handle_small_node(self, node: dict, start_line: int, end_line: int, token: int) -> None:
+    def _handle_small_node(self, node: dict, start_line: int, end_line: int, token: int) -> bool:
         """소형 노드 또는 리프 노드 처리"""
         node_code = (node.get('node_code') or '').strip()
         if not node_code:
             logging.info("    ⛔ 노드 코드 없음 → 스킵")
-            return
+            return False
 
         # SP 코드 누적
         self.sp_code_parts.append(node_code)
-        self.total_tokens = int(self.total_tokens) + int(token)
+        self.total_tokens += token
         logging.info(
             "    ✏️  리프/소형 노드 누적 | 현재 파트 %s개 | 누적 토큰: %s",
             len(self.sp_code_parts),
@@ -257,12 +273,13 @@ class DbmsConversionGenerator:
             self.sp_start = start_line
         if self.sp_end is None or end_line > self.sp_end:
             self.sp_end = end_line
+        return True
 
     async def _flush_pending_accumulation(self, incoming_token: int) -> None:
         """다음 노드 추가 전에 임계값 초과 여부 확인"""
         if (self.sp_code_parts
                 and incoming_token is not None
-                and (int(self.total_tokens) + int(incoming_token)) >= TOKEN_THRESHOLD):
+                and (self.total_tokens + incoming_token) >= TOKEN_THRESHOLD):
             logging.info("    ⚠️  다음 노드 추가 시 토큰 초과 예상 → 기존 누적 변환")
             await self._analyze_and_merge()
 
@@ -284,52 +301,14 @@ class DbmsConversionGenerator:
 
         code = entry['code']
         children = entry.get('children', [])
-        is_dml_parent = entry.get('is_dml', False)
 
-        if is_dml_parent:
+        if entry.get('is_dml'):
             code = self._merge_dml_children(code, children)
         else:
-            child_block = "\n".join(children).strip() if children else ""
-
-            if CODE_PLACEHOLDER in code:
-                if child_block:
-                    indented = textwrap.indent(child_block, '    ')
-                    code = code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
-                else:
-                    code = code.replace(CODE_PLACEHOLDER, "", 1)
-            elif child_block:
-                indented = textwrap.indent(child_block, '    ')
-                code = f"{code}\n{indented}"
+            code = self._merge_regular_children(code, children)
 
         code = code.strip()
-
-        if self.parent_stack:
-            parent_entry = self.parent_stack[-1]
-            if parent_entry.get('is_dml'):
-                parent_entry['children'].append({
-                    'code': code,
-                    'start': entry.get('start'),
-                    'end': entry.get('end')
-                })
-                logging.info(
-                    "      🔁 상위 DML 부모 children에 dict merge | 부모 라인=%s~%s | child=%s~%s | stack=%s",
-                    parent_entry['start'],
-                    parent_entry['end'],
-                    entry.get('start'),
-                    entry.get('end'),
-                    len(self.parent_stack)
-                )
-            else:
-                parent_entry['children'].append(code)
-                logging.info(
-                    "      🔁 상위 부모 children에 merge | 상위 라인=%s~%s | stack=%s",
-                    parent_entry['start'],
-                    parent_entry['end'],
-                    len(self.parent_stack)
-                )
-        else:
-            self.merged_code += f"\n{code}"
-            logging.info("      🧩 최상위 코드에 병합 완료")
+        self._add_child_code(code, entry.get('start'), entry.get('end'))
 
     # ----- 분석 및 병합 -----
 
@@ -350,7 +329,7 @@ class DbmsConversionGenerator:
             target
         )
 
-        parent_code = self._build_parent_context()
+        parent_code = self.parent_stack[-1]['code'] if self.parent_stack else ""
         logging.debug(
             "      ↳ parent_code 길이=%s | stack=%s",
             len(parent_code),
@@ -371,81 +350,103 @@ class DbmsConversionGenerator:
         child_end = self.sp_end
         generated_code = (result.get('code') or '').strip()
         if generated_code:
-            self._append_generated_code(generated_code, child_start, child_end)
+            self._add_child_code(generated_code, child_start, child_end)
 
         # 상태 초기화
-        self.total_tokens = int(0)
+        self.total_tokens = 0
         self.sp_code_parts.clear()
         self.sp_start = None
         self.sp_end = None
 
-    def _append_generated_code(self, generated_code: str, start_line: int | None, end_line: int | None) -> None:
+    def _add_child_code(self, code: str, start_line: int | None = None, end_line: int | None = None) -> None:
         """생성된 코드를 현재 부모 또는 최종 코드에 추가"""
-        if not generated_code:
+        if not code or not code.strip():
             return
 
         if self.parent_stack:
             parent_entry = self.parent_stack[-1]
             if parent_entry.get('is_dml'):
                 parent_entry['children'].append({
-                    'code': generated_code,
+                    'code': code,
                     'start': start_line,
                     'end': end_line
                 })
                 logging.info(
-                    "      🔗 DML 자식 등록 | 부모라인=%s~%s | 자식=%s~%s | 길이=%s",
+                    "      🔗 DML 자식 등록 | 부모라인=%s~%s | 자식=%s~%s | child_count=%s",
                     parent_entry['start'],
                     parent_entry['end'],
                     start_line,
                     end_line,
-                    len(generated_code)
+                    len(parent_entry['children'])
                 )
             else:
-                parent_entry['children'].append(generated_code)
-
+                parent_entry['children'].append(code)
             logging.info(
-                "      ➕ 현재 부모(children) 추가 | 부모 라인=%s~%s | child_len=%s",
+                    "      ➕ 부모 children 추가 | 부모 라인=%s~%s | child_count=%s",
                 parent_entry['start'],
                 parent_entry['end'],
                 len(parent_entry['children'])
             )
             return
 
-        self.merged_code += f"\n{generated_code}"
+        self.merged_chunks.append(code)
         logging.info("      ➕ 최종 코드에 변환 결과 추가")
+
+    def _final_output(self) -> str:
+        """누적된 최상위 코드를 단일 문자열로 반환"""
+        return "\n".join(self.merged_chunks).strip()
+
+    def _merge_regular_children(self, code: str, children: list) -> str:
+        """비-DML 부모 placeholder 처리"""
+        child_block = "\n".join(
+            child for child in children or [] if isinstance(child, str) and child.strip()
+        ).strip()
+
+        if CODE_PLACEHOLDER in code:
+            if child_block:
+                indented = textwrap.indent(child_block, '    ')
+                return code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
+            return code.replace(CODE_PLACEHOLDER, "", 1)
+
+        if not child_block:
+            return code
+
+        indented = textwrap.indent(child_block, '    ')
+        return f"{code}\n{indented}"
 
     def _merge_dml_children(self, code: str, children: list) -> str:
         """DML 스켈레톤 placeholder에 자식 코드를 주입"""
-        pattern = re.compile(
-            r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)):\s*\.\.\.\s*code\s*\.\.\.',
-            re.IGNORECASE | re.MULTILINE
-        )
-        structured_children = []
+        children_by_start: dict[int, deque] = defaultdict(deque)
+        fallback_children: deque = deque()
+
         for child in children or []:
             if isinstance(child, dict):
-                structured_children.append({
+                payload = {
                     'code': child.get('code', ''),
                     'start': child.get('start'),
                     'end': child.get('end')
-                })
+                }
             else:
-                structured_children.append({
+                payload = {
                     'code': str(child),
                     'start': None,
                     'end': None
-                })
+                }
 
-        structured_children.sort(
-            key=lambda item: item.get('start') or 0
-        )
+            start_line = payload.get('start')
+            if start_line is None:
+                fallback_children.append(payload)
+            else:
+                children_by_start[start_line].append(payload)
 
-        placeholders = list(pattern.finditer(code))
+        placeholders = list(DML_PLACEHOLDER_PATTERN.finditer(code))
         placeholder_starts = [int(match.group('start')) for match in placeholders]
+        total_children = sum(len(queue) for queue in children_by_start.values()) + len(fallback_children)
         logging.info(
             "      🔎 DML placeholder 치환 시작 | placeholder=%s(%s) | children=%s",
             len(placeholders),
             placeholder_starts,
-            len(structured_children)
+            total_children
         )
 
         def _replacement(match: re.Match) -> str:
@@ -457,20 +458,21 @@ class DbmsConversionGenerator:
                 label,
                 start
             )
-            child, match_type = self._pop_child_for_start(structured_children, start)
+
+            queue = children_by_start.get(start)
+            child = queue.popleft() if queue else None
+            if queue is not None and not queue:
+                children_by_start.pop(start, None)
 
             if not child:
-                remaining = [
-                    entry.get('start')
-                    for entry in structured_children
-                    if entry.get('start') is not None
-                ]
+                remaining_starts = sorted(children_by_start.keys()) or ['없음']
+                remaining_count = sum(len(queue) for queue in children_by_start.values()) + len(fallback_children)
                 logging.warning(
                     "      ⚠️ placeholder 미매칭 | label=%s | start=%s | 남은 children=%s | 후보 start=%s",
                     label,
                     start,
-                    len(structured_children),
-                    remaining or ['없음']
+                    remaining_count,
+                    remaining_starts
                 )
                 return match.group(0)
 
@@ -495,44 +497,36 @@ class DbmsConversionGenerator:
 
             return textwrap.indent(child_code, indent)
 
-        merged_code = pattern.sub(_replacement, code)
+        merged_code = DML_PLACEHOLDER_PATTERN.sub(_replacement, code)
 
-        if structured_children:
+        residual_entries = []
+        for start_line in sorted(children_by_start.keys()):
+            residual_entries.extend(children_by_start[start_line])
+        residual_entries.extend(fallback_children)
+
+        if residual_entries:
             residual = "\n".join(
-                (child.get('code') or '').strip()
-                for child in structured_children
-                if child.get('code')
+                (entry.get('code') or '').strip()
+                for entry in residual_entries
+                if entry.get('code')
             ).strip()
             if residual:
                 merged_code = f"{merged_code.rstrip()}\n{residual}"
                 logging.warning(
                     "      ⚠️ placeholder보다 남은 자식 %s개 → 하단 residual로 이동",
-                    len(structured_children)
+                    len(residual_entries)
                 )
             else:
                 logging.warning(
                     "      ⚠️ placeholder보다 남은 자식 %s개 | 모두 빈 문자열",
-                    len(structured_children)
+                    len(residual_entries)
                 )
 
         return merged_code
 
-    @staticmethod
-    def _pop_child_for_start(children: list, start: int):
-        """placeholder start line과 일치하는 자식을 반환"""
-        for idx, child in enumerate(children):
-            if child.get('start') == start:
-                return children.pop(idx), 'exact'
-
-        return None, 'missing'
-
-    def _build_parent_context(self) -> str:
-        """현재 부모 스켈레톤 컨텍스트 구성"""
-        if not self.parent_stack:
-            return ""
-
-        entry = self.parent_stack[-1]
-        return entry['code']
+    def _is_within_dml_parent(self) -> bool:
+        """현재 스택 최상단이 DML 부모인지 확인"""
+        return bool(self.parent_stack and self.parent_stack[-1].get('is_dml'))
 
     # ----- 마무리 -----
 
@@ -559,7 +553,7 @@ class DbmsConversionGenerator:
             )
             
             # 스켈레톤과 병합
-            final_code = self.skeleton_code.replace("CodePlaceHolder", self.merged_code.strip())
+            final_code = self.skeleton_code.replace("CodePlaceHolder", self._final_output())
 
             # 파일 저장
             await save_file(

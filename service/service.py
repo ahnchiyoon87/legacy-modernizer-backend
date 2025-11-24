@@ -20,7 +20,7 @@ from prompt.understand_column_prompt import understand_column_roles
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
 from util.exception import FileProcessingError
-from util.utility_tool import add_line_numbers, parse_table_identifier, emit_message, emit_data, emit_error, escape_for_cypher, parse_json_maybe
+from util.utility_tool import parse_table_identifier, emit_message, emit_data, emit_error, escape_for_cypher, parse_json_maybe
 from util.llm_client import get_llm
 
 
@@ -157,12 +157,12 @@ class ServiceOrchestrator:
         # ANTLR 데이터 및 PL/SQL 내용 로드
         antlr_data, plsql_content = await self._load_assets(folder_name, file_name)
         last_line = len(plsql_content)
-        plsql_numbered, _ = add_line_numbers(plsql_content)
+        plsql_raw = ''.join(plsql_content)
 
         # Analyzer 실행
         analyzer = Analyzer(
             antlr_data=antlr_data,
-            file_content=plsql_numbered,
+            file_content=plsql_raw,
             send_queue=events_from_analyzer,
             receive_queue=events_to_analyzer,
             last_line=last_line,
