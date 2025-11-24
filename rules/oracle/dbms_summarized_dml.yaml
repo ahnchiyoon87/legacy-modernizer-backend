@@ -26,7 +26,21 @@ prompt: |
      - placeholder 형식: `숫자: ...code...`
      - 이 텍스트는 어떠한 경우에도 수정하지 않습니다.
      - placeholder의 개수, 순서, 위치를 그대로 보존합니다.
+     - **placeholder의 숫자(라인 번호)도 summarized_code에 나온 값 그대로 복사**하며, 새 번호를 만들거나 기존 번호를 변경/증감/재정렬하지 않습니다.
+     - 제어구조를 재배치하더라도 `숫자: ...code...` 문자열은 원래 줄에서 쓰인 숫자와 동일해야 합니다.
      - 괄호, JOIN, ON, WHERE, MERGE USING 서브쿼리 등에 배치하는 것은 가능하지만 placeholder 내부 문자열은 절대 수정 금지입니다.
+     - 📌 예시 (입력: PostgreSQL 요약 → 출력: Oracle 스켈레톤)
+         입력:
+           LEFT JOIN (
+                123: ...code...
+           ) v2 ON src.id = v2.id
+ 
+         출력:
+           LEFT OUTER JOIN (
+                123: ...code...
+           ) v2 ON src.id = v2.id
+ 
+       → placeholder 숫자 `123`과 `...code...` 문자열은 위치·내용 모두 입력과 동일하게 유지되어야 합니다.
 
   3. 출력 형식은 반드시 JSON 하나
      - 다음 구조만 출력합니다:
@@ -91,15 +105,27 @@ prompt: |
   - summarized_code에서 WITH 절이 부모 레벨에 있으면 CTE 내부는 placeholder 그대로 유지합니다.
   - SELECT, FROM, JOIN만 Oracle 스타일로 재배치합니다.
 
-    예)
-      SELECT *
-        FROM (
-             20: ...code...
-      ) base
-        JOIN (
-             10: ...code...
-      ) params
-          ON base.id = params.id;
+    예) (PostgreSQL 입력 → Oracle 출력, placeholder 번호 동일 유지)
+
+      입력:
+        SELECT *
+          FROM (
+               20: ...code...
+        ) base
+          JOIN (
+               10: ...code...
+        ) params
+              ON base.id = params.id;
+
+      출력:
+        SELECT *
+          FROM (
+               20: ...code...
+        ) base
+          JOIN (
+               10: ...code...
+        ) params
+              ON base.id = params.id;
 
   ----------------------------------------------------------------------
   5) 서브쿼리 및 MERGE USING 절
@@ -123,6 +149,7 @@ prompt: |
   🔍 최종 검증 체크리스트
   ======================================================================
   ✔ placeholder(`숫자: ...code...`)가 단 하나의 글자도 변경 없이 그대로 있는가?  
+  ✔ placeholder 숫자(라인 번호)가 입력 summarized_code의 숫자와 100% 동일한가?  
   ✔ placeholder 순서·위치가 summarized_code와 동일한가?  
   ✔ 부모 SQL이 Oracle 표준(앞콤마, OUTER JOIN, MERGE 등)으로 정확히 전환되었는가?  
   ✔ UPDATE ... FROM / DELETE ... USING이 MERGE로 전환되었는가?  

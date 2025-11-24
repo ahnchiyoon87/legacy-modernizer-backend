@@ -387,7 +387,7 @@ class DbmsConversionGenerator:
     def _merge_dml_children(self, code: str, children: list) -> str:
         """DML 스켈레톤 placeholder에 자식 코드를 주입"""
         pattern = re.compile(
-            r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)(?:~(?P<end>\d+))?):\s*\.\.\.\s*code\s*\.\.\.',
+            r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)):\s*\.\.\.\s*code\s*\.\.\.',
             re.IGNORECASE | re.MULTILINE
         )
         structured_children = []
@@ -406,10 +406,7 @@ class DbmsConversionGenerator:
                 })
 
         structured_children.sort(
-            key=lambda item: (
-                item.get('start') or 0,
-                item.get('end') if item.get('end') is not None else (item.get('start') or 0)
-            )
+            key=lambda item: item.get('start') or 0
         )
 
         placeholders = list(pattern.finditer(code))
@@ -422,23 +419,22 @@ class DbmsConversionGenerator:
         def _replacement(match: re.Match) -> str:
             indent = match.group('indent') or ''
             start = int(match.group('start'))
-            end = int(match.group('end')) if match.group('end') else None
             label = match.group('label')
-            child, match_type = self._pop_child_for_range(structured_children, start, end)
+            child, match_type = self._pop_child_for_start(structured_children, start)
 
             if not child:
                 logging.warning(
-                    "      ⚠️ placeholder 미매칭 | label=%s | range=%s~%s | 남은 children=0",
+                    "      ⚠️ placeholder 미매칭 | label=%s | start=%s | 남은 children=%s",
                     label,
                     start,
-                    end
+                    len(structured_children)
                 )
                 return match.group(0)
 
             child_code = (child.get('code') or '').strip()
             if not child_code:
                 logging.warning(
-                    "      ⚠️ placeholder 자식 코드 비어있음 | label=%s | child_range=%s~%s",
+                    "      ⚠️ placeholder 자식 코드 비어있음 | label=%s | child_start=%s | child_end=%s",
                     label,
                     child.get('start'),
                     child.get('end')
@@ -446,13 +442,11 @@ class DbmsConversionGenerator:
                 return match.group(0)
 
             logging.info(
-                "      ✅ placeholder 치환 | label=%s | placeholder=%s~%s | child_range=%s~%s | 방식=%s | 길이=%s",
+                "      ✅ placeholder 치환 | label=%s | placeholder_start=%s | child_start=%s | child_end=%s | 길이=%s",
                 label,
                 start,
-                end if end is not None else start,
                 child.get('start'),
                 child.get('end'),
-                match_type,
                 len(child_code)
             )
 
@@ -481,19 +475,13 @@ class DbmsConversionGenerator:
         return merged_code
 
     @staticmethod
-    def _pop_child_for_range(children: list, start: int, end: int | None):
-        """placeholder line 범위와 일치하는 자식 코드를 반환"""
-        for idx, child in enumerate(children):
-            c_start = child.get('start')
-            c_end = child.get('end')
-            if c_start == start and (c_end == end or (end is None and (c_end is None or c_end == c_start))):
-                return children.pop(idx), 'exact'
-
+    def _pop_child_for_start(children: list, start: int):
+        """placeholder start line과 일치하는 자식을 반환"""
         for idx, child in enumerate(children):
             if child.get('start') == start:
-                return children.pop(idx), 'start_only'
+                return children.pop(idx), 'exact'
 
-        return (children.pop(0), 'fallback') if children else (None, 'missing')
+        return None, 'missing'
 
     def _build_parent_context(self) -> str:
         """현재 부모 스켈레톤 컨텍스트 구성"""
