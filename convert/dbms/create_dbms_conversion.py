@@ -14,6 +14,7 @@ from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
 TOKEN_THRESHOLD = 1000
 CODE_PLACEHOLDER = "...code..."
 DML_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION"])
+START_LINE_OVERRIDE: int | None = None  # 예: 1464 → 해당 라인부터 변환 테스트
 
 
 # ----- DBMS 변환 클래스 -----
@@ -81,7 +82,20 @@ class DbmsConversionGenerator:
         node_count = 0
         for record in self.traverse_nodes:
             node = record['n']
-            node_key = (node.get('startLine'), node.get('endLine'))
+            start_line = int(node.get('startLine', 0) or 0)
+            end_line = int(node.get('endLine', 0) or 0)
+
+            if START_LINE_OVERRIDE is not None and end_line < START_LINE_OVERRIDE:
+                logging.info(
+                    "⏭️  START_LINE_OVERRIDE=%s → 노드 스킵 (범위 전) | 라인=%s~%s | 타입=%s",
+                    START_LINE_OVERRIDE,
+                    start_line,
+                    end_line,
+                    node.get('name')
+                )
+                continue
+
+            node_key = (start_line, end_line)
             if node_key in seen_nodes:
                 continue
             seen_nodes.add(node_key)
@@ -410,9 +424,11 @@ class DbmsConversionGenerator:
         )
 
         placeholders = list(pattern.finditer(code))
+        placeholder_starts = [int(match.group('start')) for match in placeholders]
         logging.info(
-            "      🔎 DML placeholder 치환 시작 | placeholder=%s | children=%s",
+            "      🔎 DML placeholder 치환 시작 | placeholder=%s(%s) | children=%s",
             len(placeholders),
+            placeholder_starts,
             len(structured_children)
         )
 
@@ -420,21 +436,32 @@ class DbmsConversionGenerator:
             indent = match.group('indent') or ''
             start = int(match.group('start'))
             label = match.group('label')
+            logging.info(
+                "      🎯 placeholder 감지 | label=%s | placeholder_start=%s",
+                label,
+                start
+            )
             child, match_type = self._pop_child_for_start(structured_children, start)
 
             if not child:
+                remaining = [
+                    entry.get('start')
+                    for entry in structured_children
+                    if entry.get('start') is not None
+                ]
                 logging.warning(
-                    "      ⚠️ placeholder 미매칭 | label=%s | start=%s | 남은 children=%s",
+                    "      ⚠️ placeholder 미매칭 | label=%s | start=%s | 남은 children=%s | 후보 start=%s",
                     label,
                     start,
-                    len(structured_children)
+                    len(structured_children),
+                    remaining or ['없음']
                 )
                 return match.group(0)
 
             child_code = (child.get('code') or '').strip()
             if not child_code:
                 logging.warning(
-                    "      ⚠️ placeholder 자식 코드 비어있음 | label=%s | child_start=%s | child_end=%s",
+                    "      ⚠️ placeholder 자식 코드 비어있음 | label=%s | child_start=%s | child_end=%s | 이유=생성 코드 없음",
                     label,
                     child.get('start'),
                     child.get('end')
