@@ -20,12 +20,20 @@ from convert.strategies.strategy_factory import StrategyFactory
 
 # ==================== 설정 ====================
 
-TEST_USER_ID = "TestSession_4"
-TEST_PROJECT_NAME = "test"
+
+def _env(key: str, default: str) -> str:
+    value = os.getenv(key)
+    return value.strip() if value and value.strip() else default
+
+
+DATA_DIR_ENV_KEY = "TEST_DATA_DIR"
+
+TEST_USER_ID = _env("TEST_USER_ID", "TestSession_4")
+TEST_PROJECT_NAME = _env("TEST_PROJECT_NAME", "test")
 TEST_API_KEY = os.getenv("LLM_API_KEY")
-TEST_DB_NAME = "test"
-TEST_LOCALE = "ko"
-TEST_DBMS = "postgres"
+TEST_DB_NAME = _env("TEST_DB_NAME", "test")
+TEST_LOCALE = _env("TEST_LOCALE", "ko")
+TEST_DBMS = _env("TEST_DBMS", "postgres")
 
 # 변환 설정 (기본값 - 파라미터화된 테스트에서 오버라이드 가능)
 TEST_CONVERSION_TYPE = "dbms"
@@ -34,7 +42,8 @@ TEST_TARGET_FRAMEWORK = "springboot"
 TEST_TARGET_LANG = "java"
 
 # 테스트 데이터 경로
-TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+DEFAULT_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+TEST_DATA_DIR = Path(os.getenv(DATA_DIR_ENV_KEY, str(DEFAULT_DATA_DIR))).expanduser()
 
 # 결과 저장 파일
 RESULTS_FILE = Path(__file__).parent / "test_converting_results.json"

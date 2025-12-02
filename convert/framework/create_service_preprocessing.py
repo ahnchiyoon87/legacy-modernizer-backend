@@ -10,7 +10,6 @@ from util.rule_loader import RuleLoader
 # ----- 상수 정의 -----
 TOKEN_THRESHOLD = 1000
 CODE_PLACEHOLDER = "...code..."
-DML_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION"])
 
 
 # ----- 서비스 전처리 클래스 -----
@@ -24,10 +23,10 @@ class ServicePreprocessingGenerator:
     __slots__ = (
         'traverse_nodes', 'variable_nodes', 'command_class_variable', 'service_skeleton',
         'query_method_list', 'folder_name', 'file_name', 'procedure_name', 'sequence_methods',
-        'user_id', 'api_key', 'locale', 'project_name',
-        'merged_java_code', 'total_tokens', 'tracking_variables', 'current_parent', 
-        'java_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
-        'pending_try_mode', 'rule_loader'
+        'user_id', 'api_key', 'locale', 'project_name', 'target_lang',
+        'merged_chunks', 'total_tokens', 'tracking_variables', 'parent_stack',
+        'sp_code_parts', 'sp_start', 'sp_end', 'pending_try_mode', 'try_buffer',
+        'rule_loader'
     )
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, command_class_variable: dict,
@@ -47,24 +46,38 @@ class ServicePreprocessingGenerator:
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name or "demo"
+        self.target_lang = target_lang
 
         # 상태 초기화
-        self.merged_java_code = ""
-        self.total_tokens = int(0)  # 명시적 int 타입
-        self.tracking_variables = {}
-        self.current_parent = None
-        self.java_buffer = ""
-        self.sp_code_parts = []  # 문자열 연결 최적화
-        self.sp_start = None
-        self.sp_end = None
-        
+        self.merged_chunks: list[str] = []
+        self.total_tokens = 0
+        self.tracking_variables: dict = {}
+        self.parent_stack: list[dict] = []
+        self.sp_code_parts: list[str] = []
+        self.sp_start: int | None = None
+        self.sp_end: int | None = None
+
         # TRY-EXCEPTION 처리
         self.pending_try_mode = False
-        
+        self.try_buffer: list[str] = []
+
         # Rule 파일 로더
         self.rule_loader = RuleLoader(target_lang=target_lang)
 
     # ----- 공개 메서드 -----
+
+    @staticmethod
+    def _resolve_node_type(node_labels: list | None, node: dict) -> str:
+        raw_type = node_labels[0] if node_labels else node.get('name', 'UNKNOWN')
+        raw_type = str(raw_type)
+        return raw_type.split('[')[0] if '[' in raw_type else raw_type
+
+    @staticmethod
+    def _safe_int(value) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
 
     async def generate(self) -> str:
         """
@@ -73,14 +86,15 @@ class ServicePreprocessingGenerator:
         Returns:
             str: 최종 병합된 자바 코드
         """
-        logging.info(f"📋 노드 순회 시작")
+        logging.info("📋 노드 순회 시작")
 
-        # 🎯 중복 제거: 같은 라인 범위는 한 번만 처리
         seen_nodes = set()
         node_count = 0
         for record in self.traverse_nodes:
             node = record['n']
-            node_key = (node.get('startLine'), node.get('endLine'))
+            start_line = self._safe_int(node.get('startLine'))
+            end_line = self._safe_int(node.get('endLine'))
+            node_key = (start_line, end_line)
             if node_key in seen_nodes:
                 continue
             seen_nodes.add(node_key)
@@ -90,58 +104,62 @@ class ServicePreprocessingGenerator:
         await self._finalize_remaining()
 
         logging.info(f"✅ 총 {node_count}개 노드 처리 완료\n")
-        return self.merged_java_code.strip()
+        return self._final_output()
 
     # ----- 노드 처리 -----
 
     async def _process_node(self, record: dict) -> None:
         """단일 노드 처리"""
         node = record['n']
-        # Neo4j labels() 함수로 가져온 레이블 사용
         node_labels = record.get('nodeLabels', [])
-        node_type = node_labels[0] if node_labels else node.get('name', 'UNKNOWN')
+        node_type = self._resolve_node_type(node_labels, node)
         has_children = bool(node.get('has_children', False))
-        token = int(node.get('token', 0) or 0)
-        start_line = int(node.get('startLine', 0) or 0)
-        end_line = int(node.get('endLine', 0) or 0)
-        relationship = record['r'][1] if record.get('r') else 'NEXT'
+        token = self._safe_int(node.get('token'))
+        start_line = self._safe_int(node.get('startLine'))
+        end_line = self._safe_int(node.get('endLine'))
+        logging.debug(
+            "→ %s[%s~%s] 토큰=%s | 자식=%s",
+            node_type,
+            start_line,
+            end_line,
+            token,
+            "있음" if has_children else "없음"
+        )
 
-        # 노드 처리 로그 (간결하게)
-        name = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
-        depth = "  " if self.current_parent else ""
-        logging.debug(f"{depth}→ {name}[{start_line}~{end_line}] 토큰={token}")
-
-        # 🚀 TRY 노드 감지 → 플래그 설정
         if node_type == 'TRY':
             self.pending_try_mode = True
-            logging.info(f"  🔒 TRY 노드 감지 → EXCEPTION까지 merge 보류")
-        
-        # 🚀 EXCEPTION 노드 감지 → 전용 처리
+            logging.info("  🔒 TRY 노드 감지 → EXCEPTION까지 merge 보류")
+
         if node_type == 'EXCEPTION':
             await self._handle_exception_node(node, start_line, end_line)
-            return  # EXCEPTION 처리 완료, 다음 노드로
-        
-        # 부모 경계 체크
-        parent = self.current_parent
-        if parent and relationship == 'NEXT' and start_line > parent['end']:
+            return
+
+        while self.parent_stack and start_line > self.parent_stack[-1]['end']:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             await self._finalize_parent()
 
-        # 노드 타입별 처리
-        if token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES:
-            # 큰 노드 처리 전에 쌓인 작은 노드들 먼저 변환
+        is_large_parent = token >= TOKEN_THRESHOLD and has_children
+        is_large_leaf = token >= TOKEN_THRESHOLD and not has_children
+
+        if is_large_parent:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
-            
-            logging.info(f"  ┌─ 큰 노드 진입 [{start_line}~{end_line}] (토큰: {token})")
+            logging.info("  ┌─ 큰 노드 진입 [%s~%s] (토큰: %s)", start_line, end_line, token)
             await self._handle_large_node(node, start_line, end_line, token)
         else:
+            if is_large_leaf:
+                if self.sp_code_parts:
+                    await self._analyze_and_merge()
+            else:
+                await self._flush_pending_accumulation(token)
             self._handle_small_node(node, start_line, end_line, token)
 
-        # 임계값 체크
-        if int(self.total_tokens) >= TOKEN_THRESHOLD:
-            logging.info(f"  ⚠️  토큰 임계값 도달 ({int(self.total_tokens)}) → LLM 분석 실행")
+        if is_large_leaf:
+            logging.info("  ⚠️  단독 대용량 리프 노드 변환 실행")
+            await self._analyze_and_merge()
+        elif self.total_tokens >= TOKEN_THRESHOLD:
+            logging.info("  ⚠️  토큰 임계값 도달 (%s) → LLM 분석 실행", self.total_tokens)
             await self._analyze_and_merge()
 
     # ----- 대용량 노드 처리 -----
@@ -152,7 +170,6 @@ class ServicePreprocessingGenerator:
         if not summarized:
             return
         
-
         # 현재 컨텍스트 수집
         used_vars, used_queries = await self._collect_current_context()
 
@@ -172,15 +189,14 @@ class ServicePreprocessingGenerator:
         )
         skeleton = result['code']
 
-        # 부모 설정 또는 삽입
-        if not self.current_parent:
-            self.current_parent = {'start': start_line, 'end': end_line, 'code': skeleton}
-            logging.info(f"  │  부모 설정 완료 → 자식 노드 처리 시작")
-        else:
-            self.current_parent['code'] = self.current_parent['code'].replace(
-                CODE_PLACEHOLDER, f"\n{textwrap.indent(skeleton, '    ')}", 1
-            )
-            logging.info(f"  │  중첩 부모에 삽입 완료")
+        entry = {
+            'start': start_line,
+            'end': end_line,
+            'code': skeleton,
+            'children': []
+        }
+        self.parent_stack.append(entry)
+        logging.info("  │  부모 push 완료 (stack=%s)", len(self.parent_stack))
 
 
     # ----- 소형 노드 처리 -----
@@ -193,13 +209,23 @@ class ServicePreprocessingGenerator:
 
         # SP 코드 누적
         self.sp_code_parts.append(node_code)
-        self.total_tokens = int(self.total_tokens) + int(token)
+        self.total_tokens += int(token or 0)
 
         # 범위 업데이트
         if self.sp_start is None or start_line < self.sp_start:
             self.sp_start = start_line
         if self.sp_end is None or end_line > self.sp_end:
             self.sp_end = end_line
+
+    async def _flush_pending_accumulation(self, incoming_token: int | None) -> None:
+        """다음 노드 추가 전에 임계값 초과 여부 확인"""
+        if (
+            self.sp_code_parts
+            and incoming_token is not None
+            and (self.total_tokens + int(incoming_token or 0)) >= TOKEN_THRESHOLD
+        ):
+            logging.info("  ⚠️  다음 노드 추가 시 토큰 초과 예상 → 기존 누적 변환")
+            await self._analyze_and_merge()
 
     # ----- 변수/JPA 수집 -----
 
@@ -236,27 +262,58 @@ class ServicePreprocessingGenerator:
 
     async def _finalize_parent(self) -> None:
         """현재 부모 마무리"""
-        if not self.current_parent:
+        if not self.parent_stack:
             return
-        
-        logging.info(f"  └─ 큰 노드 완료 [{self.current_parent['start']}~{self.current_parent['end']}]")
 
-        # 버퍼 삽입
-        if self.java_buffer:
-            self.current_parent['code'] = self.current_parent['code'].replace(
-                CODE_PLACEHOLDER, f"\n{textwrap.indent(self.java_buffer.strip(), '    ')}", 1
+        entry = self.parent_stack.pop()
+        logging.info(
+            "  └─ 큰 노드 완료 [%s~%s] (stack→%s)",
+            entry['start'],
+            entry['end'],
+            len(self.parent_stack)
+        )
+
+        code = self._merge_regular_children(entry['code'], entry.get('children', []))
+        code = code.strip()
+        self._add_child_code(code, entry.get('start'), entry.get('end'))
+
+    def _merge_regular_children(self, code: str, children: list) -> str:
+        """부모 placeholder에 자식 코드 삽입"""
+        child_block = "\n".join(
+            child for child in children or [] if isinstance(child, str) and child.strip()
+        ).strip()
+
+        if CODE_PLACEHOLDER in code:
+            if child_block:
+                indented = textwrap.indent(child_block, '    ')
+                return code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
+            return code.replace(CODE_PLACEHOLDER, "", 1)
+
+        if not child_block:
+            return code
+
+        indented = textwrap.indent(child_block, '    ')
+        return f"{code}\n{indented}"
+
+    def _add_child_code(self, code: str, start_line: int | None = None, end_line: int | None = None) -> None:
+        """생성된 코드를 부모 또는 최종 코드에 추가"""
+        if not code or not code.strip():
+            return
+
+        if self.parent_stack:
+            parent_entry = self.parent_stack[-1]
+            parent_entry.setdefault('children', []).append(code.strip())
+            logging.info(
+                "      ➕ 부모 children 추가 | 부모라인=%s~%s | child_count=%s",
+                parent_entry.get('start'),
+                parent_entry.get('end'),
+                len(parent_entry['children'])
             )
+            return
 
-        # 병합 (TRY 대기 중이면 보류)
-        if not self.pending_try_mode:
-            self.merged_java_code += f"\n{self.current_parent['code']}"
-            logging.info(f"     ✓ 부모 노드 병합 완료")
-        else:
-            logging.info(f"     ✓ TRY 부모 완료 (java_buffer 보관, EXCEPTION 대기)")
-
-        # 초기화
-        self.current_parent = None
-        self.java_buffer = ""
+        target = self.try_buffer if self.pending_try_mode else self.merged_chunks
+        target.append(code.strip())
+        logging.info("      ➕ %s에 변환 결과 추가", "TRY 버퍼" if self.pending_try_mode else "최종 코드")
 
     # ----- EXCEPTION 노드 전용 처리 -----
 
@@ -272,18 +329,16 @@ class ServicePreprocessingGenerator:
             start_line: 시작 라인
             end_line: 종료 라인
         """
-        logging.info(f"  ⚡ EXCEPTION 노드 감지 → 예외처리 구조 생성 시작")
-        
-        # 1. 쌓인 코드 먼저 분석
+        logging.info("  ⚡ EXCEPTION 노드 감지 → 예외처리 구조 생성 시작")
+
         if self.sp_code_parts:
             await self._analyze_and_merge()
-        
-        # 2. EXCEPTION 블록을 Java try-catch 구조로 변환 (Role 파일 사용)
+
         node_code = (node.get('node_code') or '').strip()
         if not node_code:
-            logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
+            logging.warning("     ⚠️  EXCEPTION 노드 코드가 비어있음")
             return
-            
+
         result = self.rule_loader.execute(
             role_name='service_exception',
             inputs={
@@ -293,29 +348,26 @@ class ServicePreprocessingGenerator:
             api_key=self.api_key
         )
         exception_java_code = result.get('code', '').strip()
-        
+
         if 'CodePlaceHolder' not in exception_java_code:
-            logging.warning(f"     ⚠️  try-catch 템플릿에 CodePlaceHolder가 없음")
+            logging.warning("     ⚠️  try-catch 템플릿에 CodePlaceHolder가 없음")
             return
-        
-        # 3. 전체 코드를 예외처리로 감싸기
+
         if self.pending_try_mode:
-            # Case 1: TRY 노드 존재 → TRY 블록 코드만 감싸기
-            try_block_code = self.java_buffer.strip()
+            try_block_code = "\n".join(self.try_buffer).strip()
             wrapped_code = exception_java_code.replace('CodePlaceHolder', try_block_code)
-            self.merged_java_code += f"\n{wrapped_code}"
-            logging.info(f"     ✓ TRY 블록 코드를 예외처리로 감쌈 (java_buffer 사용)")
+            if wrapped_code.strip():
+                self.merged_chunks.append(wrapped_code)
+            logging.info("     ✓ TRY 블록 코드를 예외처리로 감쌈")
         else:
-            # Case 2: TRY 노드 미존재 → 전체 메서드 코드를 감싸기
-            entire_code = self.merged_java_code.strip()
+            entire_code = self._final_output()
             wrapped_code = exception_java_code.replace('CodePlaceHolder', entire_code)
-            self.merged_java_code = wrapped_code
-            logging.info(f"     ✓ 전체 메서드 코드를 예외처리로 감쌈 (merged_java_code 사용)")
-        
-        # 4. 상태 초기화
-        self.java_buffer = ""
+            self.merged_chunks = [wrapped_code]
+            logging.info("     ✓ 전체 메서드 코드를 예외처리로 감쌈")
+
+        self.try_buffer.clear()
         self.pending_try_mode = False
-        logging.info(f"     ✓ 예외처리 완료 및 상태 초기화")
+        logging.info("     ✓ 예외처리 완료 및 상태 초기화")
 
     # ----- 분석 및 병합 -----
 
@@ -326,8 +378,20 @@ class ServicePreprocessingGenerator:
 
         # 문자열 조인
         sp_code = '\n'.join(self.sp_code_parts)
-        target = "부모버퍼" if self.current_parent else "최종코드"
-        logging.info(f"  🤖 LLM 분석 시작: [{self.sp_start}~{self.sp_end}] {len(self.sp_code_parts)}개 파트 (토큰: {self.total_tokens})")
+        if self.parent_stack:
+            target = "부모 children"
+        elif self.pending_try_mode:
+            target = "TRY 버퍼"
+        else:
+            target = "최종코드"
+        logging.info(
+            "  🤖 LLM 분석 시작: [%s~%s] %s개 파트 (토큰: %s) → %s",
+            self.sp_start,
+            self.sp_end,
+            len(self.sp_code_parts),
+            self.total_tokens,
+            target
+        )
 
         # 변수 수집
         used_variables = []
@@ -356,34 +420,20 @@ class ServicePreprocessingGenerator:
                 'query_method_list': json.dumps(used_query_methods, ensure_ascii=False, indent=2),
                 'sequence_methods': json.dumps(self.sequence_methods, ensure_ascii=False, indent=2),
                 'locale': self.locale,
-                'parent_code': self.current_parent['code'] if self.current_parent else ""
+                'parent_code': self.parent_stack[-1]['code'] if self.parent_stack else ""
             },
             api_key=self.api_key
         )
 
-        # 변수 추적 업데이트
-        self.tracking_variables.update(result['analysis'].get('variables', {}))
+        analysis = result.get('analysis', {}) or {}
+        self.tracking_variables.update(analysis.get('variables', {}))
 
-        # 생성된 자바 코드 병합
-        java_code = (result.get('analysis', {}).get('code') or '').strip()
+        java_code = (analysis.get('code') or '').strip()
         if java_code:
-            if self.current_parent:
-                # 큰 노드 → java_buffer에 추가
-                self.java_buffer += f"\n{java_code}"
-                logging.info(f"     ✓ {target}에 추가")
-            else:
-                # 작은 노드 처리
-                if self.pending_try_mode:
-                    # TRY 노드 → java_buffer에 보관 (merge 안 함)
-                    self.java_buffer += f"\n{java_code}"
-                    logging.info(f"     ✓ TRY 코드 보관 → EXCEPTION 대기")
-                else:
-                    # 일반 노드 → 바로 merge
-                    self.merged_java_code += f"\n{java_code}"
-                    logging.info(f"     ✓ {target}에 추가")
+            self._add_child_code(java_code, self.sp_start, self.sp_end)
 
         # 상태 초기화
-        self.total_tokens = int(0)  # 명시적 int 타입
+        self.total_tokens = 0
         self.sp_code_parts.clear()
         self.sp_start = None
         self.sp_end = None
@@ -392,18 +442,26 @@ class ServicePreprocessingGenerator:
 
     async def _finalize_remaining(self) -> None:
         """남은 데이터 정리"""
-        if self.current_parent:
+        if self.parent_stack:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
-            await self._finalize_parent()
+            while self.parent_stack:
+                await self._finalize_parent()
         elif self.sp_code_parts:
             await self._analyze_and_merge()
+
+    def _final_output(self) -> str:
+        """누적된 자바 코드를 단일 문자열로 반환"""
+        chunks = list(self.merged_chunks)
+        if self.pending_try_mode and self.try_buffer:
+            chunks.extend(self.try_buffer)
+        return "\n".join(chunk for chunk in chunks if chunk and chunk.strip()).strip()
 
     async def _save_service_file(self, service_class_name: str) -> str:
         """성능 최적화된 서비스 파일 자동 저장"""
         try:
             # 병합된 Java 코드를 서비스 스켈레톤에 삽입
-            completed_service_code = self.service_skeleton.replace("CodePlaceHolder", self.merged_java_code.strip())
+            completed_service_code = self.service_skeleton.replace("CodePlaceHolder", self._final_output())
             
             # 저장 경로 설정 (Rule 파일 기반)
             base_path = build_rule_based_path(self.project_name, self.user_id, self.rule_loader.target_lang, 'service')

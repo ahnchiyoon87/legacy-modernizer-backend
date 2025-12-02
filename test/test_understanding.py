@@ -1,25 +1,22 @@
 """
-Understanding 파이프라인을 단일 테스트로 검증/비교합니다.
+Understanding 파이프라인을 단일 테스트로 검증합니다.
 
-환경 변수 `UNDERSTANDING_VARIANT`로 실행 대상을 제어할 수 있습니다.
-- `legacy`   : 레거시 Analyzer만 실행
-- `refactor` : 리팩터 Analyzer만 실행 (기본값)
-- `compare`  : 두 버전을 순차 실행하여 성능 지표(시간, 이벤트 수)를 출력
-
+섹션 단위로 전체/DDL-only/SP-only 흐름을 나눠 동일한 로직으로 실행하며,
 실제 환경에서 사용하려면 Neo4j, LLM API 등의 외부 의존성을 동일하게 준비해야 합니다.
 """
 
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import pytest
 import pytest_asyncio
+
+from service.service import ServiceOrchestrator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -29,50 +26,37 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
 
-TEST_USER_ID = "TestSession_4"
-TEST_PROJECT_NAME = "test"
+def _env(key: str, default: str) -> str:
+    value = os.getenv(key)
+    return value.strip() if value and value.strip() else default
+
+
+DATA_DIR_ENV_KEY = "TEST_DATA_DIR"
+
+TEST_USER_ID = _env("TEST_USER_ID", "TestSession_4")
+TEST_PROJECT_NAME = _env("TEST_PROJECT_NAME", "test")
 TEST_API_KEY = os.getenv("LLM_API_KEY")
-TEST_DB_NAME = "test"
-TEST_LOCALE = "ko"
-TEST_DBMS = "postgres"
+TEST_DB_NAME = _env("TEST_DB_NAME", "test")
+TEST_LOCALE = _env("TEST_LOCALE", "ko")
+TEST_DBMS = _env("TEST_DBMS", "postgres")
 
-TEST_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+DEFAULT_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+TEST_DATA_DIR = Path(os.getenv(DATA_DIR_ENV_KEY, str(DEFAULT_DATA_DIR))).expanduser()
 
-VARIANT_ENV_KEY = "UNDERSTANDING_VARIANT"
-DEFAULT_VARIANT = "refactor"
-VALID_VARIANTS = {"legacy", "refactor", "compare"}
-
-
-def _determine_variants() -> tuple[List[str], bool]:
-    """환경 변수 설정을 읽어 실행할 Analyzer 버전을 결정합니다."""
-    env_value = os.getenv(VARIANT_ENV_KEY, DEFAULT_VARIANT).lower()
-    if env_value not in VALID_VARIANTS:
-        raise ValueError(
-            f"환경 변수 {VARIANT_ENV_KEY} 값이 올바르지 않습니다: {env_value} (허용: {', '.join(sorted(VALID_VARIANTS))})"
-        )
-
-    if env_value == "compare":
-        return ["legacy", "refactor"], True
-    return [env_value], False
+SECTION_PIPELINE = "pipeline"
+SECTION_DDL_ONLY = "ddl_only"
+SECTION_SP_ONLY = "sp_only"
+SECTION_ORDER = (SECTION_PIPELINE, SECTION_DDL_ONLY, SECTION_SP_ONLY)
 
 
-def _clear_import_cache():
-    """동적 import 전 cached 모듈을 제거하여 변형 간 간섭을 막습니다."""
-    for name in ("service.service", "understand.analysis"):
-        sys.modules.pop(name, None)
+def _is_truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _load_service_orchestrator(variant: str):
-    """지정된 버전에 해당하는 ServiceOrchestrator 클래스를 반환합니다."""
-    if variant == "legacy":
-        legacy_module = importlib.import_module("legacy.understand.analysis")
-        sys.modules["understand.analysis"] = legacy_module
-    else:
-        # 리팩터 버전은 메인 모듈이므로 단순 import 만 수행
-        importlib.import_module("understand.analysis")
-
-    service_module = importlib.import_module("service.service")
-    return service_module.ServiceOrchestrator
+MERGE_MODE_ENABLED = _is_truthy_env(os.getenv("TEST_MERGE_MODE"))
+_MERGE_MODE_NOTICE_PRINTED = False
 
 
 async def _clear_graph(connection, user_id: str, project_name: str):
@@ -82,22 +66,61 @@ async def _clear_graph(connection, user_id: str, project_name: str):
     ])
 
 
-def _load_sp_files(data_dir: Path) -> List[tuple[str, str]]:
-    """테스트용 SP 파일 목록을 폴더/파일 튜플 형태로 불러옵니다."""
+async def _reset_graph_if_needed(connection, user_id: str, project_name: str):
+    """MERGE 모드 여부에 따라 그래프 초기화를 결정합니다."""
+    global _MERGE_MODE_NOTICE_PRINTED
+    if MERGE_MODE_ENABLED:
+        if not _MERGE_MODE_NOTICE_PRINTED:
+            print("[INFO] TEST_MERGE_MODE=1 → 그래프 초기화를 건너뜁니다(누적 적재)")
+            _MERGE_MODE_NOTICE_PRINTED = True
+        return
+    await _clear_graph(connection, user_id, project_name)
+
+
+def _load_sp_files(data_dir: Path, *, skip_when_missing: bool = False) -> List[tuple[str, str]]:
+    """analysis JSON 이 존재하는 SP 파일 목록을 폴더/파일 튜플 형태로 반환합니다."""
     src_dir = data_dir / "src"
+    analysis_dir = data_dir / "analysis"
+
+    def _fail(message: str):
+        if skip_when_missing:
+            pytest.skip(message)
+        raise AssertionError(message)
+
     if not data_dir.exists():
-        raise AssertionError(f"테스트 데이터 디렉토리가 없습니다: {data_dir}")
+        _fail(f"테스트 데이터 디렉토리가 없습니다: {data_dir}")
     if not src_dir.exists():
-        raise AssertionError(f"src 디렉토리가 없습니다: {src_dir}")
+        _fail(f"src 디렉토리가 없습니다: {src_dir}")
+    if not analysis_dir.exists():
+        _fail(f"analysis 디렉토리가 없습니다: {analysis_dir}")
+
+    def has_matching_json(system_name: str, sql_path: Path) -> bool:
+        if not sql_path.is_file() or sql_path.suffix.lower() != ".sql":
+            return False
+        base = sql_path.stem
+        return (analysis_dir / system_name / f"{base}.json").exists()
 
     sp_files: List[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
     for folder in sorted(src_dir.iterdir()):
         if folder.is_dir():
-            for sql_file in sorted(folder.glob("*.sql")):
-                sp_files.append((folder.name, sql_file.name))
+            for sql_file in sorted(folder.iterdir()):
+                if has_matching_json(folder.name, sql_file):
+                    key = (folder.name, sql_file.name)
+                    if key not in seen:
+                        seen.add(key)
+                        sp_files.append(key)
+
+    for sql_file in sorted(src_dir.iterdir()):
+        if sql_file.is_file() and has_matching_json("SYSTEM", sql_file):
+            key = ("SYSTEM", sql_file.name)
+            if key not in seen:
+                seen.add(key)
+                sp_files.append(key)
 
     if not sp_files:
-        raise AssertionError(f"SP 파일이 없습니다: {src_dir}")
+        _fail(f"SP 파일이 없습니다: {src_dir}")
     return sp_files
 
 
@@ -119,66 +142,135 @@ async def real_neo4j():
         Neo4jConnection.DATABASE_NAME = original_db
 
 
+async def _run_pipeline_section(orchestrator, sp_files: List[tuple[str, str]]):
+    if not sp_files:
+        pytest.skip("SP 파일 혹은 분석 JSON이 없어 테스트를 건너뜁니다")
+
+    start = time.perf_counter()
+    event_count = 0
+    async for _chunk in orchestrator.understand_project(list(sp_files)):
+        event_count += 1
+    elapsed = time.perf_counter() - start
+
+    assert event_count > 0, "파이프라인 실행에서 이벤트가 생성되지 않았습니다"
+
+    return {
+        "elapsed_seconds": elapsed,
+        "event_count": event_count,
+        "files": len(sp_files),
+    }
+
+
+async def _run_ddl_only_section(orchestrator, connection):
+    ddl_files = orchestrator._list_ddl_files()
+    if not ddl_files:
+        pytest.skip("DDL 파일이 없어 테스트를 건너뜁니다")
+
+    ddl_dir = Path(orchestrator.dirs["ddl"])
+    start = time.perf_counter()
+    for file_name in ddl_files:
+        await orchestrator._process_ddl(str(ddl_dir / file_name), connection, file_name)
+    elapsed = time.perf_counter() - start
+
+    count = (await connection.execute_queries([
+        f"MATCH (t:Table {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN count(t) AS c"
+    ]))[0][0]["c"]
+    table_count = int(count)
+    assert table_count > 0, "DDL 적재 후 Table 노드가 생성되지 않았습니다"
+
+    return {
+        "elapsed_seconds": elapsed,
+        "ddl_files": len(ddl_files),
+        "table_count": table_count,
+    }
+
+
+async def _run_sp_only_section(orchestrator, connection, sp_files: List[tuple[str, str]]):
+    if not sp_files:
+        pytest.skip("SP 파일 혹은 분석 JSON이 없어 테스트를 건너뜁니다")
+
+    start = time.perf_counter()
+    event_count = 0
+    original_list_ddl = orchestrator._list_ddl_files
+    orchestrator._list_ddl_files = lambda: []
+    try:
+        async for _chunk in orchestrator.understand_project(list(sp_files)):
+            event_count += 1
+    finally:
+        orchestrator._list_ddl_files = original_list_ddl
+
+    elapsed = time.perf_counter() - start
+
+    sys_count = (await connection.execute_queries([
+        f"MATCH (s:SYSTEM {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN count(s) AS c"
+    ]))[0][0]["c"]
+    system_nodes = int(sys_count)
+
+    assert event_count > 0, "SP 분석 이벤트가 생성되지 않았습니다"
+    assert system_nodes > 0, "SP 분석 후 SYSTEM 노드가 생성되지 않았습니다"
+
+    return {
+        "elapsed_seconds": elapsed,
+        "event_count": event_count,
+        "files": len(sp_files),
+        "system_nodes": system_nodes,
+    }
+
+
 def _run_summary_log(results: Iterable[Dict[str, float | int | str]]):
-    """비교 실행 결과를 읽기 좋은 로그 형식으로 출력합니다."""
+    """섹션별 실행 결과를 읽기 좋은 로그 형식으로 출력합니다."""
+    if not results:
+        return
+
     lines = ["\n[UNDERSTANDING TEST RESULT]"]
     for item in results:
-        lines.append(
-            (
-                f"  - variant={item['variant']} "
-                f"elapsed={item['elapsed_seconds']:.2f}s "
-                f"events={item['event_count']} "
-                f"files={item['files']}"
-            )
-        )
+        line = f"  - section={item['section']} elapsed={item['elapsed_seconds']:.2f}s"
+        if "event_count" in item:
+            line += f" events={item['event_count']}"
+        if "files" in item:
+            line += f" files={item['files']}"
+        if "ddl_files" in item:
+            line += f" ddl_files={item['ddl_files']}"
+        if "table_count" in item:
+            line += f" tables={item['table_count']}"
+        if "system_nodes" in item:
+            line += f" system_nodes={item['system_nodes']}"
+        lines.append(line)
     print("\n".join(lines))
 
 
 @pytest.mark.asyncio
-async def test_understanding_pipeline(real_neo4j):
-    """환경 설정에 따라 레거시/리팩터 Analyzer를 실행하고 결과를 비교합니다."""
+@pytest.mark.parametrize("section", SECTION_ORDER)
+async def test_understanding_pipeline(section: str, real_neo4j):
+    """환경 설정에 따라 섹션별 Understanding 파이프라인을 검증합니다."""
     if not TEST_API_KEY:
         pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
 
-    variants, compare_mode = _determine_variants()
-    sp_files = _load_sp_files(TEST_DATA_DIR)
+    sp_files: List[Tuple[str, str]] | None = None
+    if section == SECTION_PIPELINE:
+        sp_files = _load_sp_files(TEST_DATA_DIR)
+    elif section == SECTION_SP_ONLY:
+        sp_files = _load_sp_files(TEST_DATA_DIR, skip_when_missing=True)
 
-    results: List[Dict[str, float | int | str]] = []
+    orchestrator = ServiceOrchestrator(
+        user_id=TEST_USER_ID,
+        api_key=TEST_API_KEY,
+        locale=TEST_LOCALE,
+        project_name=TEST_PROJECT_NAME,
+        dbms=TEST_DBMS,
+    )
 
-    for variant in variants:
-        orchestrator_cls = _load_service_orchestrator(variant)
-        orchestrator = orchestrator_cls(
-            user_id=TEST_USER_ID,
-            api_key=TEST_API_KEY,
-            locale=TEST_LOCALE,
-            project_name=TEST_PROJECT_NAME,
-            dbms=TEST_DBMS,
-        )
+    await _reset_graph_if_needed(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
 
-        await _clear_graph(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
+    if section == SECTION_PIPELINE:
+        section_result = await _run_pipeline_section(orchestrator, sp_files or [])
+    elif section == SECTION_DDL_ONLY:
+        section_result = await _run_ddl_only_section(orchestrator, real_neo4j)
+    else:
+        section_result = await _run_sp_only_section(orchestrator, real_neo4j, sp_files or [])
 
-        start = time.perf_counter()
-        event_count = 0
-        async for _chunk in orchestrator.understand_project(list(sp_files)):
-            event_count += 1
-        elapsed = time.perf_counter() - start
-
-        results.append(
-            {
-                "variant": variant,
-                "elapsed_seconds": elapsed,
-                "event_count": event_count,
-                "files": len(sp_files),
-            }
-        )
-
-        assert event_count > 0, f"{variant} 파이프라인에서 이벤트가 생성되지 않았습니다"
-
-        _clear_import_cache()
-
-    _run_summary_log(results)
-
-    if compare_mode:
-        # 비교 모드에서는 두 결과가 모두 생성되었는지 확인
-        assert len(results) == 2, "compare 모드에서는 두 결과가 생성되어야 합니다"
+    _run_summary_log([{
+        "section": section,
+        **section_result,
+    }])
 
