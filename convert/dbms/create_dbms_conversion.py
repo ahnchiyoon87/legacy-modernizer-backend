@@ -33,7 +33,7 @@ class DbmsConversionGenerator:
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
-        'merged_chunks', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
+        'merged_chunks', 'total_tokens', 'parent_stack',
         'sp_code_parts', 'sp_start', 'sp_end',
         'rule_loader'
     )
@@ -57,7 +57,6 @@ class DbmsConversionGenerator:
         self.merged_chunks = []
         self.total_tokens = 0
         self.parent_stack = []
-        self.top_level_begin_skipped = False
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
@@ -150,15 +149,6 @@ class DbmsConversionGenerator:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             await self._finalize_parent()
-
-        # 최상위 BEGIN 블록은 스켈레톤이 처리하므로 스킵
-        if (readable_type == "BEGIN"
-                and not self.top_level_begin_skipped
-                and not self.parent_stack
-                and not self.merged_chunks):
-            self.top_level_begin_skipped = True
-            logging.info("    ⛔ 최상위 BEGIN 블록 스킵 (스켈레톤에서 처리)")
-            return
 
         # 노드 타입별 처리
         is_large_parent = token >= TOKEN_THRESHOLD and has_children
@@ -552,8 +542,11 @@ class DbmsConversionGenerator:
                 folder_name=self.folder_name
             )
             
-            # 스켈레톤과 병합
-            final_code = self.skeleton_code.replace("CodePlaceHolder", self._final_output())
+            body_code = self._final_output().strip()
+            header_code = self.skeleton_code.strip()
+
+            parts = [part for part in [header_code, body_code] if part]
+            final_code = "\n\n".join(parts).rstrip() + "\n"
 
             # 파일 저장
             await save_file(

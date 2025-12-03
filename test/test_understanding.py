@@ -10,8 +10,9 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import pytest
 import pytest_asyncio
@@ -33,7 +34,7 @@ def _env(key: str, default: str) -> str:
 
 DATA_DIR_ENV_KEY = "TEST_DATA_DIR"
 
-TEST_USER_ID = _env("TEST_USER_ID", "TestSession_4")
+TEST_USER_ID = _env("TEST_USER_ID", "TestSession")
 TEST_PROJECT_NAME = _env("TEST_PROJECT_NAME", "test")
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = _env("TEST_DB_NAME", "test")
@@ -43,10 +44,13 @@ TEST_DBMS = _env("TEST_DBMS", "postgres")
 DEFAULT_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
 TEST_DATA_DIR = Path(os.getenv(DATA_DIR_ENV_KEY, str(DEFAULT_DATA_DIR))).expanduser()
 
+SPFile = Tuple[str, str]
+SectionResult = Dict[str, float | int | str]
+SectionRunner = Callable[[ServiceOrchestrator, Any, List[SPFile] | None], Awaitable[SectionResult]]
+
 SECTION_PIPELINE = "pipeline"
 SECTION_DDL_ONLY = "ddl_only"
 SECTION_SP_ONLY = "sp_only"
-SECTION_ORDER = (SECTION_PIPELINE, SECTION_DDL_ONLY, SECTION_SP_ONLY)
 
 
 def _is_truthy_env(value: str | None) -> bool:
@@ -57,6 +61,21 @@ def _is_truthy_env(value: str | None) -> bool:
 
 MERGE_MODE_ENABLED = _is_truthy_env(os.getenv("TEST_MERGE_MODE"))
 _MERGE_MODE_NOTICE_PRINTED = False
+
+
+def _ensure_api_key():
+    if not TEST_API_KEY:
+        pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
+
+
+def _create_orchestrator() -> ServiceOrchestrator:
+    return ServiceOrchestrator(
+        user_id=TEST_USER_ID,
+        api_key=TEST_API_KEY,
+        locale=TEST_LOCALE,
+        project_name=TEST_PROJECT_NAME,
+        dbms=TEST_DBMS,
+    )
 
 
 async def _clear_graph(connection, user_id: str, project_name: str):
@@ -142,7 +161,7 @@ async def real_neo4j():
         Neo4jConnection.DATABASE_NAME = original_db
 
 
-async def _run_pipeline_section(orchestrator, sp_files: List[tuple[str, str]]):
+async def _run_pipeline_section(orchestrator, _connection: Any, sp_files: List[SPFile] | None):
     if not sp_files:
         pytest.skip("SP 파일 혹은 분석 JSON이 없어 테스트를 건너뜁니다")
 
@@ -161,7 +180,7 @@ async def _run_pipeline_section(orchestrator, sp_files: List[tuple[str, str]]):
     }
 
 
-async def _run_ddl_only_section(orchestrator, connection):
+async def _run_ddl_only_section(orchestrator, connection, _sp_files: List[SPFile] | None = None):
     ddl_files = orchestrator._list_ddl_files()
     if not ddl_files:
         pytest.skip("DDL 파일이 없어 테스트를 건너뜁니다")
@@ -185,7 +204,7 @@ async def _run_ddl_only_section(orchestrator, connection):
     }
 
 
-async def _run_sp_only_section(orchestrator, connection, sp_files: List[tuple[str, str]]):
+async def _run_sp_only_section(orchestrator, connection, sp_files: List[SPFile] | None):
     if not sp_files:
         pytest.skip("SP 파일 혹은 분석 JSON이 없어 테스트를 건너뜁니다")
 
@@ -239,38 +258,52 @@ def _run_summary_log(results: Iterable[Dict[str, float | int | str]]):
     print("\n".join(lines))
 
 
+async def _execute_section(
+    real_neo4j,
+    section: str,
+    runner: SectionRunner,
+    *,
+    sp_files: List[SPFile] | None = None,
+):
+    orchestrator = _create_orchestrator()
+    await _reset_graph_if_needed(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
+    section_result = await runner(orchestrator, real_neo4j, sp_files)
+    _run_summary_log([{"section": section, **section_result}])
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("section", SECTION_ORDER)
-async def test_understanding_pipeline(section: str, real_neo4j):
-    """환경 설정에 따라 섹션별 Understanding 파이프라인을 검증합니다."""
-    if not TEST_API_KEY:
-        pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
-
-    sp_files: List[Tuple[str, str]] | None = None
-    if section == SECTION_PIPELINE:
-        sp_files = _load_sp_files(TEST_DATA_DIR)
-    elif section == SECTION_SP_ONLY:
-        sp_files = _load_sp_files(TEST_DATA_DIR, skip_when_missing=True)
-
-    orchestrator = ServiceOrchestrator(
-        user_id=TEST_USER_ID,
-        api_key=TEST_API_KEY,
-        locale=TEST_LOCALE,
-        project_name=TEST_PROJECT_NAME,
-        dbms=TEST_DBMS,
+async def test_understanding_pipeline_section(real_neo4j):
+    """DDL + SP 전체 파이프라인을 실행합니다."""
+    _ensure_api_key()
+    sp_files = _load_sp_files(TEST_DATA_DIR)
+    await _execute_section(
+        real_neo4j,
+        SECTION_PIPELINE,
+        _run_pipeline_section,
+        sp_files=sp_files,
     )
 
-    await _reset_graph_if_needed(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
 
-    if section == SECTION_PIPELINE:
-        section_result = await _run_pipeline_section(orchestrator, sp_files or [])
-    elif section == SECTION_DDL_ONLY:
-        section_result = await _run_ddl_only_section(orchestrator, real_neo4j)
-    else:
-        section_result = await _run_sp_only_section(orchestrator, real_neo4j, sp_files or [])
+@pytest.mark.asyncio
+async def test_understanding_ddl_only_section(real_neo4j):
+    """DDL 단계만 실행합니다."""
+    _ensure_api_key()
+    await _execute_section(
+        real_neo4j,
+        SECTION_DDL_ONLY,
+        _run_ddl_only_section,
+    )
 
-    _run_summary_log([{
-        "section": section,
-        **section_result,
-    }])
+
+@pytest.mark.asyncio
+async def test_understanding_sp_only_section(real_neo4j):
+    """SP 단계만 실행합니다."""
+    _ensure_api_key()
+    sp_files = _load_sp_files(TEST_DATA_DIR, skip_when_missing=True)
+    await _execute_section(
+        real_neo4j,
+        SECTION_SP_ONLY,
+        _run_sp_only_section,
+        sp_files=sp_files,
+    )
 

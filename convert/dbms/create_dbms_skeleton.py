@@ -67,7 +67,7 @@ class DbmsSkeletonGenerator:
                 api_key=self.api_key,
             )
 
-            skeleton_code = (result.get('code') or '').strip()
+            skeleton_code = self._strip_body((result.get('code') or '').strip())
             if not skeleton_code:
                 raise ConvertingError(f"DBMS 스켈레톤 생성 실패: 결과가 비어있습니다 ({self.procedure_name})")
 
@@ -179,6 +179,24 @@ class DbmsSkeletonGenerator:
             'declare_nodes': declare_nodes,
             'declare_variables': declare_variables,
         }
+
+    @staticmethod
+    def _strip_body(skeleton_code: str) -> str:
+        """스켈레톤에서 BEGIN~END 및 CodePlaceHolder를 제거해 헤더/선언부만 유지."""
+        if not skeleton_code:
+            return skeleton_code
+
+        lines = skeleton_code.splitlines()
+        trimmed: list[str] = []
+        for line in lines:
+            normalized = line.strip().upper()
+            if normalized.startswith("BEGIN"):
+                break
+            if "CODEPLACEHOLDER" in normalized or normalized.startswith("END"):
+                continue
+            trimmed.append(line.rstrip())
+
+        return "\n".join(trimmed).rstrip()
 
 
 async def start_dbms_skeleton(

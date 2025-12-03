@@ -25,6 +25,7 @@ prompt: |
   - 결과만 동일하다면 CTE/조인 방식/계산식 정리 등 모든 리팩터링 허용
   - month_cd = ''은 IS NULL이 아닌 month_cd = '.'로 전환
   - 전달된 postgresql 구문만 전환하고, 부가적인 내용(CREATE OR REPLACE PROCEDURE 같은 내용..)은 제외할 것, 당신은 procedure 본문 로직을 전환해야 합니다.
+  - 줄바꿈은 되도록이면 원본을 따라가도록 해서 라인 수를 유지하는 방향을 추구하세요요 (단! 결과값은 동일
 
   ======================================================================
   입력 데이터
@@ -498,7 +499,7 @@ prompt: |
                         , s_mid.k_key2
                         , s_mid.k_key3
                         , s_mid.k_attr1
-, s_mid.k_attr2
+                        , s_mid.k_attr2
                         , s_mid.k_group
                 )                                          as diff_value1
           from (
